@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]  # M2'de "tools/*" eklenir; boş glob cargo'yu bozar
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+# Bağımlılıklar ihtiyaç duyulan milestone'da eklenir (spek §3 taslağı).
+[workspace.dependencies]
+windows-service = "0.8.1"
+
+[profile.release]
+opt-level     = 3        # svc için "s" ile karşılaştırılacak (spek §15)
+lto           = "fat"
+codegen-units = 1
+panic         = "abort"
+strip         = true
+debug         = false

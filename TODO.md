@@ -1,7 +1,7 @@
 # TODO
 ## Şimdi
-- [ ] Rust toolchain kur (rustup, stable-msvc) + MSVC Build Tools kontrolü
-- [ ] M0: workspace `Cargo.toml`, `rust-toolchain.toml`, `.cargo/config.toml`, crate iskeletleri, boş servis (`install/start/stop/uninstall`)
+- [x] Rust toolchain kur (rustup, 1.100.0-msvc)
+- [x] M0: workspace, toolchain, crt-static, boş servis (install/start/stop/uninstall)
 
 ## Sonra
 - [ ] M1: CPU/RAM/Disk/Ağ/Top-N toplayıcı — 24 saatte CPU < %0.05, WS < 3 MB

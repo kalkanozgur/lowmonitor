@@ -4,7 +4,7 @@ Ayrıntılar: [docs/spesifikasyon.md](docs/spesifikasyon.md)
 
 | Alan | Değer |
 |---|---|
-| Durum | Tasarım tamam → M0 (iskelet) |
+| Durum | M0 tamam → M1 (toplayıcı) |
 | Modüller | yazilim (Rust workspace) |
 | Başlangıç | 2026-11-14 |
 
