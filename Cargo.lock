@@ -300,6 +300,7 @@ dependencies = [
 name = "lowmon-svc"
 version = "0.1.0"
 dependencies = [
+ "getrandom",
  "lowmon-core",
  "windows-service",
  "windows-sys",

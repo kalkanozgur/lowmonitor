@@ -10,12 +10,10 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// Disk / arayüz yeniden keşfi, tick cinsinden (spek §4: penceresiz servis, WM_DEVICECHANGE yok).
 const REDISCOVER_EVERY: u32 = 60;
-// shortcut: sabit; config.toml [sampling] topn_every / topn_count M2'de
-const TOPN_EVERY: u32 = 5;
-const TOPN_COUNT: usize = 5;
-
 #[derive(Default)]
 pub struct Collector {
+    topn_every: u32,
+    topn_count: usize,
     cpu: cpu::Cpu,
     disks: disk::Disks,
     nics: net::Nics,
@@ -32,7 +30,15 @@ pub struct Collected {
 }
 
 impl Collector {
-    /// `s` her tick, `top` her TOPN_EVERY tick'te yerinde doldurulur. İlk örnek/tarama geçersizdir.
+    pub fn new(topn_every: u32, topn_count: usize) -> Self {
+        Self {
+            topn_every,
+            topn_count,
+            ..Default::default()
+        }
+    }
+
+    /// `s` her tick, `top` her `topn_every` tick'te yerinde doldurulur. İlk örnek/tarama geçersizdir.
     pub fn collect(&mut self, s: &mut Sample, top: &mut Vec<TopEntry>) -> Collected {
         let tick = self.tick;
         self.tick = tick.wrapping_add(1);
@@ -42,14 +48,14 @@ impl Collector {
         }
         let sample = self.sample(s);
         let mut top_ok = false;
-        if tick.is_multiple_of(TOPN_EVERY) {
+        if self.topn_count > 0 && tick.is_multiple_of(self.topn_every) {
             let now = Instant::now();
             let elapsed_100ns = self
                 .last_top
                 .map_or(0, |l| (now.duration_since(l).as_nanos() / 100) as u64);
             self.last_top = Some(now);
             let ncpu = s.cpu_core.len() as u64;
-            top_ok = self.topn.scan(elapsed_100ns, ncpu, TOPN_COUNT, top) && !top.is_empty();
+            top_ok = self.topn.scan(elapsed_100ns, ncpu, self.topn_count, top) && !top.is_empty();
         }
         Collected {
             sample,

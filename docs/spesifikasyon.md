@@ -8,6 +8,8 @@
 
 ## 1. Hedefler ve bütçe
 
+> **ADR-0017:** Aşağıdaki sayılar kesin kabul sınırı değil, yön gösteren hedeftir; her milestone'da ölçülüp raporlanır.
+
 | Metrik | Hedef (lowmon-svc) | Ölçüm yöntemi |
 |---|---|---|
 | CPU (ortalama, 24 saat) | < %0.05 | `Get-Counter "\Process(lowmon-svc)\% Processor Time"`, WPR/WPA |
@@ -169,6 +171,8 @@ SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS)?;
 - **Hash zinciri:** her bloğun AAD'si = önceki bloğun tag'i + blok indeksi. Blok silme, sıra değişimi, araya ekleme, bit flip → doğrulamada yakalanır.
 
 ### 5.2 Anahtar yönetimi
+> **Güncel (ADR-0016):** anahtarı kurulum değil, servis ilk açılışta LocalService DPAPI'siyle üretir; Administrators'ın key.bin'e erişimi yok, yalnızca silebilir (`--purge`).
+
 - Kurulumda 32 B master key (`getrandom`) → `CryptProtectData` (DPAPI) → `%ProgramData%\LowMonitor\key.bin`.
 - `key.bin` ACL: sadece `NT SERVICE\LowMonitor` okuma; Administrators **yok** (log okumak için servis üzerinden geçilir).
 - Segment anahtarı: `HKDF-SHA256(master, salt = header.salt, info = "lwm-seg-v1")`.

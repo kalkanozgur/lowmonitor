@@ -253,6 +253,10 @@ impl Writer {
                 s.ts_unix_ms,
             )?;
         }
+        // Lazy flush: dolu blok bir sonraki örnekte yazılır → aynı tick'in TopN'i örneğiyle aynı blokta kalır.
+        if self.seg.in_block >= SAMPLES_PER_BLOCK {
+            self.flush()?;
+        }
         let seg = &mut self.seg;
         if let Some(last) = seg.last_ts
             && s.ts_unix_ms > last + 5 * self.interval_ms as u64
@@ -263,9 +267,6 @@ impl Writer {
         seg.in_block += 1;
         seg.samples += 1;
         seg.last_ts = Some(s.ts_unix_ms);
-        if seg.in_block >= SAMPLES_PER_BLOCK {
-            self.flush()?;
-        }
         Ok(())
     }
 
@@ -447,7 +448,7 @@ mod tests {
     fn torn_tail_is_trimmed() {
         let r = root("torn");
         let mut w = Writer::open(&r, KEY, 1000, T0, LONG_UP).unwrap();
-        let t = write_n(&mut w, T0, 60);
+        let t = write_n(&mut w, T0, 61); // 61. örnek ilk bloğu yazdırır
         drop(w);
         let p = seg_path(&r, T0);
         OpenOptions::new()
@@ -460,7 +461,7 @@ mod tests {
         write_n(&mut w, t, 10);
         w.close().unwrap();
         let recs = records(&p); // panik yok = yarım blok kırpıldı
-        assert_eq!(samples(&recs), 70);
+        assert_eq!(samples(&recs), 70); // 60 kalıcı + 10 yeni; bellekte kalan 1 kayıp
         assert_eq!(gaps(&recs), [GapReason::Crash]);
     }
 
@@ -469,9 +470,9 @@ mod tests {
         let r = root("cut");
         let p = seg_path(&r, T0);
         let mut w = Writer::open(&r, KEY, 1000, T0, LONG_UP).unwrap();
-        let t = write_n(&mut w, T0, 60);
+        let t = write_n(&mut w, T0, 61);
         let after_first = fs::metadata(&p).unwrap().len();
-        let t = write_n(&mut w, t, 60);
+        let t = write_n(&mut w, t, 60); // 121. örnek ikinci bloğu yazdırır
         drop(w);
         OpenOptions::new()
             .write(true)
