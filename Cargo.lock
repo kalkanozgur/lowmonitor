@@ -364,9 +364,13 @@ dependencies = [
 name = "lowmon-net"
 version = "0.1.0"
 dependencies = [
+ "getrandom",
+ "httparse",
+ "lowmon-core",
  "lowmon-proto",
  "serde",
  "serde_json",
+ "sha2",
  "toml",
  "tungstenite",
  "windows-sys",
