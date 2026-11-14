@@ -14,5 +14,5 @@ Agent'ın pipe tiplerine ihtiyacı var. `lowmon-core` chacha20poly1305, hkdf, sh
 
 ## Sonuçlar
 - \+ Dış istemci tek doğruluk kaynağından derlenir; wire uyumsuzluğu derleme zamanında yakalanır.
-- − LowDeck CI'ı private repoya erişim secret'ına bağımlı.
+- 2026-11-15: repo public; LowDeck CI için secret gerekmez. Lisans MIT OR Apache-2.0.
 - − `lowmon-proto`'daki her değişiklik LowDeck'te `rev` güncellemesi ister.
