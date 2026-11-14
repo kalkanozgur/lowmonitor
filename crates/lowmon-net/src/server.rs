@@ -4,8 +4,10 @@
 use crate::{
     auth::{Guard, Hash, Store},
     http::{self, MAX_REQ, Parse},
-    live::{live_json, parse_rate},
+    live::{info_json, live_json, parse_rate},
+    sysinfo,
 };
+use lowmon_proto::metrics::Sample;
 use lowmon_proto::proto::{self, CH_SAMPLE, CH_TOP, ClientMsg, PIPE_NAME, PROTO, Role, ServerMsg};
 use std::{
     fs::File,
@@ -38,6 +40,8 @@ pub struct Ctx {
     pub store: Store,
     pub origins: Vec<String>,
     pub max_clients: usize,
+    pub host: String,
+    pub total_mb: u64,
 }
 
 struct Client {
@@ -53,6 +57,8 @@ struct Client {
 pub struct Shared {
     clients: Mutex<Vec<Client>>,
     wake: Condvar,
+    /// Pipe açıkken son örnek; `/v1/info` id'leri için. Pipe kapanınca boşalır.
+    last: Mutex<Option<Sample>>,
 }
 
 impl Shared {
@@ -70,6 +76,14 @@ impl Shared {
             !due || alive(c.ws.send(msg.clone()))
         });
         !g.is_empty()
+    }
+
+    fn set_last(&self, s: Option<Sample>) {
+        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = s;
+    }
+
+    fn last(&self) -> Option<Sample> {
+        self.last.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Token'ı artık kayıtlı olmayan istemcileri düşürür (`unpair --all`).
@@ -125,7 +139,7 @@ fn send(s: &mut TcpStream, b: &[u8]) -> Step {
 }
 
 /// Bekleyen isteğe gelen baytları okur ve tamamlanmışsa yanıtlar.
-fn step(p: &mut Pending, ctx: &Ctx, guard: &mut Guard, clients: usize, now: Instant) -> Step {
+fn step(p: &mut Pending, ctx: &Ctx, guard: &mut Guard, shared: &Shared, now: Instant) -> Step {
     let mut tmp = [0u8; 1024];
     loop {
         match p.s.read(&mut tmp) {
@@ -145,14 +159,34 @@ fn step(p: &mut Pending, ctx: &Ctx, guard: &mut Guard, clients: usize, now: Inst
     if r.origin.as_ref().is_some_and(|o| !ctx.origins.contains(o)) {
         return send(&mut p.s, &http::reply("403 Forbidden", ""));
     }
-    match (r.method.as_str(), r.path.as_str(), &r.ws_key) {
-        ("GET", "/v1/live", Some(key)) => {
-            let Some(token) = r.token.as_deref().and_then(|t| ctx.store.check(t)) else {
-                guard.fail(p.ip, now);
-                return send(&mut p.s, &http::reply("401 Unauthorized", ""));
-            };
-            guard.ok(p.ip);
-            if clients >= ctx.max_clients {
+    let needs_token = matches!(r.path.as_str(), "/v1/live" | "/v1/info");
+    let token = r.token.as_deref().and_then(|t| ctx.store.check(t));
+    if needs_token && r.method == "GET" {
+        if token.is_none() {
+            guard.fail(p.ip, now);
+            return send(&mut p.s, &http::reply("401 Unauthorized", ""));
+        }
+        guard.ok(p.ip);
+    }
+    match (r.method.as_str(), r.path.as_str(), &r.ws_key, token) {
+        ("GET", "/v1/info", None, Some(_)) => {
+            // shortcut: istemci yokken tek seferlik pipe okuması ağ thread'ini ≤ 1 s bloklar (info nadir: istemci açılışı)
+            match shared.last().or_else(|| one_sample().ok()) {
+                Some(s) => {
+                    let body = info_json(
+                        &s,
+                        &ctx.host,
+                        ctx.total_mb,
+                        sysinfo::disk_name,
+                        sysinfo::iface_name,
+                    );
+                    send(&mut p.s, &http::reply("200 OK", &body))
+                }
+                None => send(&mut p.s, &http::reply("503 Service Unavailable", "")),
+            }
+        }
+        ("GET", "/v1/live", Some(key), Some(token)) => {
+            if shared.lock().len() >= ctx.max_clients {
                 return send(&mut p.s, &http::reply("503 Service Unavailable", ""));
             }
             if p.s.write_all(&http::upgrade(key)).is_err() {
@@ -163,7 +197,7 @@ fn step(p: &mut Pending, ctx: &Ctx, guard: &mut Guard, clients: usize, now: Inst
                 rest: p.buf[r.head_len..].to_vec(),
             }
         }
-        ("POST", "/v1/pair", _) => {
+        ("POST", "/v1/pair", _, _) => {
             let body = &p.buf[r.head_len..r.head_len + r.body_len];
             match http::pair_code(body).map(|c| ctx.store.redeem(&c, now_ms())) {
                 Some(Ok(Some(tok))) => {
@@ -255,8 +289,7 @@ pub fn serve(listener: &TcpListener, shared: &Shared, ctx: &Ctx) -> io::Result<(
                 }
                 continue;
             }
-            let n = shared.lock().len();
-            match step(&mut p, ctx, &mut guard, n, now) {
+            match step(&mut p, ctx, &mut guard, shared, now) {
                 Step::Wait if now.duration_since(p.since) < HANDSHAKE_TIMEOUT => pending.push(p),
                 Step::Wait | Step::Close => {}
                 Step::Upgrade { token, rest } => {
@@ -330,8 +363,7 @@ fn connect_pipe() -> io::Result<File> {
     }
 }
 
-/// `Ok`: istemci kalmadı, pipe kapatılabilir. `Err`: servis yok / koptu.
-fn session(f: &mut File, shared: &Shared, total_mb: u64) -> io::Result<()> {
+fn hello(f: &mut File, channels: u8) -> io::Result<()> {
     proto::write(
         f,
         &ClientMsg::Hello {
@@ -342,15 +374,34 @@ fn session(f: &mut File, shared: &Shared, total_mb: u64) -> io::Result<()> {
     proto::write(
         f,
         &ClientMsg::Subscribe {
-            channels: CH_SAMPLE | CH_TOP,
+            channels,
             rate_ms: PIPE_RATE_MS,
         },
-    )?;
+    )
+}
+
+/// İstemci yokken `/v1/info` için: bağlan, ilk örneği al, kapat.
+fn one_sample() -> io::Result<Sample> {
+    let mut f = connect_pipe()?;
+    hello(&mut f, CH_SAMPLE)?;
+    for _ in 0..4 {
+        if let ServerMsg::Sample(s) = proto::read::<ServerMsg>(&mut f)? {
+            return Ok(s);
+        }
+    }
+    Err(io::ErrorKind::InvalidData.into())
+}
+
+/// `Ok`: istemci kalmadı, pipe kapatılabilir. `Err`: servis yok / koptu.
+fn session(f: &mut File, shared: &Shared, total_mb: u64) -> io::Result<()> {
+    hello(f, CH_SAMPLE | CH_TOP)?;
     let mut top = Vec::new();
     loop {
         match proto::read::<ServerMsg>(f)? {
             ServerMsg::Sample(s) => {
-                if !shared.broadcast(&live_json(&s, &top, total_mb)) {
+                let text = live_json(&s, &top, total_mb);
+                shared.set_last(Some(s));
+                if !shared.broadcast(&text) {
                     return Ok(());
                 }
             }
@@ -371,6 +422,7 @@ pub fn pipe_loop(shared: &Shared, total_mb: u64) {
             }
         }
         let r = connect_pipe().and_then(|mut f| session(&mut f, shared, total_mb));
+        shared.set_last(None);
         if r.is_err() {
             thread::sleep(RETRY);
         }
@@ -416,6 +468,8 @@ mod tests {
                 store: Store { dir: dir2 },
                 origins: vec!["http://ok".into()],
                 max_clients: 1,
+                host: "pc".into(),
+                total_mb: 1,
             };
             serve(&l, &s2, &ctx)
         });
@@ -457,6 +511,24 @@ mod tests {
         let tcp = TcpStream::connect(addr).unwrap();
         let (mut ws, _) = tungstenite::client(req, tcp).unwrap();
 
+        // /v1/info: token gerekli; önbellekteki örnekten id'ler
+        thread::sleep(Duration::from_millis(1100));
+        let r = raw(addr, "GET /v1/info HTTP/1.1\r\n\r\n");
+        assert!(r.starts_with("HTTP/1.1 401"), "{r}");
+        thread::sleep(Duration::from_millis(1100));
+        shared.set_last(Some(Sample {
+            cpu_core: vec![0; 2],
+            ..Default::default()
+        }));
+        let r = raw(
+            addr,
+            &format!("GET /v1/info HTTP/1.1\r\nAuthorization: Bearer {token}\r\n\r\n"),
+        );
+        assert!(
+            r.starts_with("HTTP/1.1 200") && r.contains(r#""host":"pc","cores":2"#),
+            "{r}"
+        );
+
         // max_clients = 1 → 503
         let r = raw(
             addr,
@@ -495,6 +567,8 @@ mod tests {
                 store: temp_store("silent"),
                 origins: vec![],
                 max_clients: 1,
+                host: "pc".into(),
+                total_mb: 1,
             };
             serve(&l, &Shared::default(), &ctx)
         });

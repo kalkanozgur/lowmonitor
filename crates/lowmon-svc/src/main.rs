@@ -1,6 +1,7 @@
 //! lowmon-svc — servis + install/start/stop/uninstall (spek §11), `run` = konsol modu (geliştirme).
 mod collect;
 mod export;
+mod firewall;
 mod keystore;
 mod pipe;
 mod query;
@@ -176,6 +177,18 @@ fn install() -> Result<(), Box<dyn Error>> {
         &root,
         &format!("D:P(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;{sid})(A;OICI;0x1200c9;;;BA)"),
     )?;
+    // lowmon-net LAN erişimi (spek §16.2); başarısızlık servis kurulumunu bozmaz
+    let net = std::env::current_exe()?.with_file_name("lowmon-net.exe");
+    match firewall::set(Some(&net)) {
+        Ok(()) => println!(
+            "firewall: \"{}\" (Private, yerel alt ağ, TCP {})",
+            firewall::RULE,
+            firewall::PORT
+        ),
+        Err(e) => {
+            eprintln!("uyarı: firewall kuralı eklenemedi ({e}); LAN erişimi için elle ekleyin")
+        }
+    }
     println!("{NAME} kuruldu: {}", root.display());
     Ok(())
 }
@@ -193,6 +206,7 @@ fn uninstall(purge: bool) -> Result<(), Box<dyn Error>> {
         }
     }
     s.delete()?;
+    let _ = firewall::set(None);
     if purge {
         let root = service_root();
         if root.exists() {

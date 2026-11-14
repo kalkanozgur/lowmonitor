@@ -13,6 +13,7 @@
 - [ ] Slint UI pipe istemcisi: erişim modu ve bağlantı kuralları → [#1](https://github.com/kalkanozgur/lowmonitor/issues/1)
 
 ## Kısayollar (`shortcut:` borcu)
+- Firewall kuralı portu sabit 47800; `tokens.bin` atomik değil; istemcisiz `/v1/info` ağ thread'ini ≤ 1 örnek bloklar
 - state.bin atomik yazılmıyor; anahtar bellekten silinmiyor (zeroize yok)
 - Hatalı config.toml sessizce varsayılana düşüyor; yazma/retention/pipe hataları loglanmıyor (Event M5'te)
 - Export yazıcının bellekteki son ≤ 60 s'sini içermiyor
@@ -25,7 +26,7 @@
 - [x] M3: pipe protokolü + tray (canlı Sample, tray, HKCU Run, Admin kontrolü, Export)
 - [ ] M4: protokol tarafı: ~~`QueryRange`~~ (kod tamam, servise kurulmadı), `Control`, Export öncesi flush, `lowmon-elev` (UI Slint ile ayrıca, ADR-0019)
 - [ ] M5: alarmlar + bildirim
-- [~] M6: M6a (`/v1/live`) ve M6b (pair/token/ban/Origin, LAN bind) kod tamam; M6c info + firewall, M6d HKCU Run/kurulum/ölçüm. `lowmon-net` spek §16 tam (WS + info + pair, token/DPAPI, ban, Origin, firewall, HKCU Run), PR'lara bölünür (M6a–d)
+- [~] M6: M6a (`/v1/live`), M6b (pair/token/ban/Origin, LAN bind), M6c (`/v1/info`, firewall) kod tamam; M6d HKCU Run/kurulum/ölçüm. `lowmon-net` spek §16 tam (WS + info + pair, token/DPAPI, ban, Origin, firewall, HKCU Run), PR'lara bölünür (M6a–d)
 - [ ] LowDeck entegrasyonu (yol a, ADR-0022): `lowdeck-agent` pipe Viewer → telefona CPU/RAM/disk/ağ/Top-N; LowDeck'te ayrı oturum
 
 ## Fikirler / açık konular (spek §15)

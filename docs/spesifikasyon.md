@@ -443,7 +443,7 @@ lowmon-svc ──pipe Subscribe(1 Hz)──► lowmon-net ──ws://<pc-ip>:478
 | Önlem | Detay |
 |---|---|
 | Bağlama | Sadece seçilen arayüzün IP'si (config), `0.0.0.0` değil |
-| Firewall | `install` sırasında sadece **Private** profil, sadece yerel alt ağ için inbound kural (`INetFwPolicy2`) |
+| Firewall | `lowmon-svc install` sırasında sadece **Private** profil, sadece yerel alt ağ için `lowmon-net.exe` inbound kuralı (`netsh advfirewall`, ADR-0025); `uninstall` siler |
 | Eşleştirme | `lowmon-net pair` → 6 haneli kod 120 s geçerli, tek kullanımlık (DPAPI `pair.bin` ile sunucuya geçer) → istemci `POST /v1/pair {code}` → 256-bit token döner (ADR-0024) |
 | Token saklama | PC tarafında token'ın SHA-256 hash'i, DPAPI (kullanıcı kapsamı) |
 | Kimlik doğrulama | WS el sıkışmasında `Authorization: Bearer <token>` veya `?token=` (tarayıcı WS header desteklemediği için) |
@@ -456,7 +456,7 @@ lowmon-svc ──pipe Subscribe(1 Hz)──► lowmon-net ──ws://<pc-ip>:478
 | Endpoint | Yöntem | Açıklama |
 |---|---|---|
 | `/v1/pair` | POST | Eşleştirme kodu → token |
-| `/v1/info` | GET | Host adı, çekirdek sayısı, toplam RAM, disk/arayüz listesi (token gerekli) |
+| `/v1/info` | GET | Host adı, çekirdek sayısı, toplam RAM, disk/arayüz listesi `[{id, name}]` (token gerekli; id'ler `/v1/live` ile aynı küme, ADR-0025) |
 | `/v1/live` | WS | 1 Hz push, sunucu → istemci |
 
 **`/v1/live` mesajı (~150 B, minified JSON):**
