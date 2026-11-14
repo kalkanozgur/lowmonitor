@@ -444,12 +444,13 @@ lowmon-svc ──pipe Subscribe(1 Hz)──► lowmon-net ──ws://<pc-ip>:478
 |---|---|
 | Bağlama | Sadece seçilen arayüzün IP'si (config), `0.0.0.0` değil |
 | Firewall | `install` sırasında sadece **Private** profil, sadece yerel alt ağ için inbound kural (`INetFwPolicy2`) |
-| Eşleştirme | `lowmon-net pair` → 6 haneli kod 120 s geçerli → istemci `POST /v1/pair {code}` → 256-bit token döner |
+| Eşleştirme | `lowmon-net pair` → 6 haneli kod 120 s geçerli, tek kullanımlık (DPAPI `pair.bin` ile sunucuya geçer) → istemci `POST /v1/pair {code}` → 256-bit token döner (ADR-0024) |
 | Token saklama | PC tarafında token'ın SHA-256 hash'i, DPAPI (kullanıcı kapsamı) |
 | Kimlik doğrulama | WS el sıkışmasında `Authorization: Bearer <token>` veya `?token=` (tarayıcı WS header desteklemediği için) |
-| Brute-force | Hatalı denemede 1 s gecikme, IP başına 10 hata → 10 dk ban |
+| Brute-force | Hatalı denemeden sonra o IP'ye 1 s yeni bağlantı yok, IP başına 10 hata → 10 dk ban |
+| İptal | `lowmon-net unpair --all`: tüm token'lar silinir, açık bağlantılar ≤ 30 s'de düşer |
 | Yetki | Sadece okuma. Müdahale komutları (kill/priority) LAN'dan **kabul edilmez** |
-| Origin | `Origin` header izin listesi (config) |
+| Origin | `Origin` header varsa izin listesinde olmalı (config); yoksa yalnız token |
 
 ### 16.3 API sözleşmesi (v1)
 | Endpoint | Yöntem | Açıklama |
