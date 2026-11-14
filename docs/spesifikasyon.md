@@ -184,7 +184,7 @@ Header (64 B, düz metin, ilk bloğun AAD'sine dahil)
   interval_ms  u32
   schema_hash  u32     (kayıt şeması değişince değişir)
   salt         [u8;16]
-  reserved     [u8;14]
+  reserved     [u8;16]  (alanlar 48 B; 64 B için 16 — 2026-11-14 düzeltme)
 
 Block (tekrarlanır)
   len          u32     (nonce + ciphertext + tag)
