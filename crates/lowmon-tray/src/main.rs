@@ -2,6 +2,8 @@
 //! Spekten farkı: windows-rs yerine windows-sys (diğer crate'lerle aynı, ADR-0018).
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
+mod autostart;
+
 use lowmon_core::{
     metrics::Sample,
     proto::{self, CH_SAMPLE, ClientMsg, PIPE_NAME, PROTO, Role, ServerMsg},
@@ -42,7 +44,7 @@ use windows_sys::Win32::{
         WindowsAndMessaging::{
             AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
             DestroyIcon, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
-            HICON, ICONINFO, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostMessageW,
+            HICON, ICONINFO, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostMessageW,
             PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow,
             TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP,
             WM_DESTROY, WM_NULL, WM_RBUTTONUP, WNDCLASSW,
@@ -55,6 +57,7 @@ const WM_DATA: u32 = WM_APP + 2;
 const ID_UI: usize = 1;
 const ID_MUTE: usize = 2;
 const ID_EXIT: usize = 3;
+const ID_AUTO: usize = 4;
 const RATE_MS: u32 = 2_000;
 const RETRY: Duration = Duration::from_secs(10);
 // shortcut: sabit 16 px; yüksek DPI'da kabuk ölçekler (bulanık), SM_CXSMICON + DPI manifest M4'te
@@ -209,6 +212,13 @@ fn menu(hwnd: HWND) {
             ID_MUTE,
             wide("Alarmları sessize al (1 saat)").as_ptr(),
         );
+        let checked = if autostart::enabled() { MF_CHECKED } else { 0 };
+        AppendMenuW(
+            m,
+            MF_STRING | checked,
+            ID_AUTO,
+            wide("Windows ile başlat").as_ptr(),
+        );
         AppendMenuW(m, MF_SEPARATOR, 0, ptr::null());
         AppendMenuW(m, MF_STRING, ID_EXIT, wide("Çıkış").as_ptr());
         let mut pt = POINT { x: 0, y: 0 };
@@ -226,8 +236,20 @@ fn menu(hwnd: HWND) {
         );
         PostMessageW(hwnd, WM_NULL, 0, 0);
         DestroyMenu(m);
-        if cmd as usize == ID_EXIT {
-            DestroyWindow(hwnd);
+        match cmd as usize {
+            ID_EXIT => {
+                DestroyWindow(hwnd);
+            }
+            ID_AUTO => {
+                // shortcut: kayıt hatası sessiz; menü bir sonraki açılışta gerçek durumu gösterir
+                let cmd = (!autostart::enabled()).then(autostart::this_exe);
+                let _ = match cmd {
+                    Some(Ok(c)) => autostart::set(autostart::VALUE, Some(&c)),
+                    Some(Err(e)) => Err(e),
+                    None => autostart::set(autostart::VALUE, None),
+                };
+            }
+            _ => {}
         }
     }
 }
@@ -325,7 +347,27 @@ fn pipe_loop() {
     }
 }
 
+/// `--autostart on|off`: kurulum betiği için; pencere açmaz. Çıkış kodu 0 başarı, 1 kayıt hatası, 2 kullanım.
+fn cli(args: &[String]) -> Option<i32> {
+    let on = match args {
+        [] => return None,
+        [a, v] if a == "--autostart" && v == "on" => true,
+        [a, v] if a == "--autostart" && v == "off" => false,
+        _ => return Some(2),
+    };
+    let r = if on {
+        autostart::this_exe().and_then(|c| autostart::set(autostart::VALUE, Some(&c)))
+    } else {
+        autostart::set(autostart::VALUE, None)
+    };
+    Some(i32::from(r.is_err()))
+}
+
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(code) = cli(&args) {
+        std::process::exit(code);
+    }
     let mutex = wide(r"Local\LowMonitorTray");
     // SAFETY: isimli mutex süreç ömrü boyunca açık kalır (tek örnek kilidi).
     unsafe {
