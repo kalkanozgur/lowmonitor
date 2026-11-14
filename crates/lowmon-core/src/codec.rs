@@ -20,37 +20,7 @@ pub const REC_SEAL: u8 = 0xFF;
 /// Kayıt şeması değişince artar; Header.schema_hash'e yazılır.
 pub const SCHEMA: u32 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum GapReason {
-    Paused = 0,
-    Sleep = 1,
-    Boot = 2,
-    /// Önceki çalışma mühürsüz bitti (çökme / elektrik kesintisi).
-    Crash = 3,
-    /// state.bin ile segment uyuşmuyor (kuyruk kesilmiş olabilir).
-    Integrity = 4,
-}
-
-impl GapReason {
-    pub const ALL: [GapReason; 5] = [
-        Self::Paused,
-        Self::Sleep,
-        Self::Boot,
-        Self::Crash,
-        Self::Integrity,
-    ];
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum AggKind {
-    Min = 0,
-    Avg = 1,
-    Max = 2,
-}
-
-impl AggKind {
-    pub const ALL: [AggKind; 3] = [Self::Min, Self::Avg, Self::Max];
-}
+pub use crate::metrics::{AggKind, GapReason};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Record {

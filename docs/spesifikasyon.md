@@ -44,7 +44,8 @@
 
 | Exe / crate | Rol | Çalışma hesabı | Not |
 |---|---|---|---|
-| `lowmon-core` (lib) | Metrik tipleri, kayıt formatı, kripto, IPC protokolü | — | Tüm exe'ler paylaşır |
+| `lowmon-proto` (lib) | Metrik tipleri + pipe protokolü; yalnız serde + postcard | — | Dış istemciler (lowdeck-agent) bağımlanır (ADR-0022) |
+| `lowmon-core` (lib) | Kayıt formatı, kripto, config; `lowmon-proto`'yu yeniden dışa verir | — | Tüm exe'ler paylaşır |
 | `lowmon-svc` | Toplayıcı, log yazıcı, alarm motoru, pipe sunucu | LocalService + servis SID'i | Windows servisi |
 | `lowmon-tray` | Tray ikon, tooltip, alarm bildirimi | Kullanıcı | GUI framework yok |
 | `lowmon-ui` | Grafikler, geçmiş, müdahale | Kullanıcı (asInvoker) | egui/eframe (glow) |
@@ -79,6 +80,7 @@ LowMonitor/
 ├─ rust-toolchain.toml       # stable, msvc
 ├─ .cargo/config.toml        # target-feature=+crt-static
 ├─ crates/
+│  ├─ lowmon-proto/              # src/{lib.rs, metrics.rs, proto.rs}
 │  ├─ lowmon-core/
 │  │  └─ src/{lib.rs, metrics.rs, record.rs, codec.rs, crypto.rs, ipc.rs, config.rs}
 │  ├─ lowmon-svc/

@@ -311,12 +311,20 @@ dependencies = [
  "chacha20poly1305",
  "getrandom",
  "hkdf",
- "postcard",
+ "lowmon-proto",
  "proptest",
  "serde",
  "sha2",
  "toml",
  "windows-sys",
+]
+
+[[package]]
+name = "lowmon-proto"
+version = "0.1.0"
+dependencies = [
+ "postcard",
+ "serde",
 ]
 
 [[package]]
