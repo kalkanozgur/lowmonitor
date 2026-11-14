@@ -2,5 +2,6 @@
 pub mod codec;
 pub mod config;
 pub mod crypto;
+pub mod dpapi;
 pub mod metrics;
 pub mod time;

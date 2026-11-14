@@ -1,0 +1,7 @@
+[package]
+name = "lwm-dump"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+lowmon-core = { path = "../../crates/lowmon-core" }

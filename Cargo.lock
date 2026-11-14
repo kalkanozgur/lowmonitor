@@ -294,6 +294,7 @@ dependencies = [
  "serde",
  "sha2",
  "toml",
+ "windows-sys",
 ]
 
 [[package]]
@@ -304,6 +305,13 @@ dependencies = [
  "lowmon-core",
  "windows-service",
  "windows-sys",
+]
+
+[[package]]
+name = "lwm-dump"
+version = "0.1.0"
+dependencies = [
+ "lowmon-core",
 ]
 
 [[package]]

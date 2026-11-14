@@ -10,6 +10,7 @@ sha2.workspace = true
 getrandom.workspace = true
 serde.workspace = true
 toml.workspace = true
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 
 [dev-dependencies]
 proptest.workspace = true

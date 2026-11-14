@@ -1,69 +1,19 @@
 //! Ana anahtar (ADR-0016): yoksa üret → DPAPI (çalışan hesap kapsamı) → key.bin.
 use crate::security;
-use lowmon_core::crypto::MasterKey;
+use lowmon_core::{
+    crypto::MasterKey,
+    dpapi::{dpapi, load_key},
+};
 use std::{
-    fs::{self, OpenOptions},
+    fs::OpenOptions,
     io::{self, Write},
     path::Path,
-    ptr,
 };
-use windows_sys::Win32::{
-    Foundation::{HLOCAL, LocalFree},
-    Security::Cryptography::{
-        CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
-    },
-};
-
-/// `protect`: true = şifrele, false = çöz. Kapsam: çalışan hesap (servis için LocalService).
-fn dpapi(data: &[u8], protect: bool) -> io::Result<Vec<u8>> {
-    let input = CRYPT_INTEGER_BLOB {
-        cbData: data.len() as u32,
-        pbData: data.as_ptr() as *mut u8,
-    };
-    let mut out = CRYPT_INTEGER_BLOB {
-        cbData: 0,
-        pbData: ptr::null_mut(),
-    };
-    let fl = CRYPTPROTECT_UI_FORBIDDEN;
-    // SAFETY: input çağrı boyunca canlı (DPAPI girdiyi değiştirmez); çıktı LocalFree ile bırakılır.
-    unsafe {
-        let ok = if protect {
-            CryptProtectData(
-                &input,
-                ptr::null(),
-                ptr::null(),
-                ptr::null(),
-                ptr::null(),
-                fl,
-                &mut out,
-            )
-        } else {
-            CryptUnprotectData(
-                &input,
-                ptr::null_mut(),
-                ptr::null(),
-                ptr::null(),
-                ptr::null(),
-                fl,
-                &mut out,
-            )
-        };
-        if ok == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let v = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
-        LocalFree(out.pbData as HLOCAL);
-        Ok(v)
-    }
-}
 
 /// `owner_sid`: Some → key.bin DACL'ı yalnızca bu SID (servis); None → klasörden kalıtım (run modu).
 pub fn load_or_create(path: &Path, owner_sid: Option<&str>) -> io::Result<MasterKey> {
-    if let Ok(blob) = fs::read(path) {
-        let key = dpapi(&blob, false)?;
-        return key
-            .try_into()
-            .map_err(|_| io::Error::other("key.bin: anahtar 32 B değil"));
+    if path.exists() {
+        return load_key(path);
     }
     let mut key = [0u8; 32];
     getrandom::fill(&mut key).map_err(|e| io::Error::other(e.to_string()))?;
@@ -83,6 +33,7 @@ pub fn load_or_create(path: &Path, owner_sid: Option<&str>) -> io::Result<Master
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn create_then_load_same_key() {
