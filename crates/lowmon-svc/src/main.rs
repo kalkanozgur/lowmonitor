@@ -1,6 +1,9 @@
 //! lowmon-svc — servis + install/start/stop/uninstall (spek §11), `run` = konsol modu (geliştirme).
+mod collect;
 mod ticker;
 
+use collect::Collector;
+use lowmon_core::metrics::Sample;
 use std::{error::Error, ffi::OsString, time::Duration};
 use ticker::Ticker;
 use windows_service::{
@@ -25,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         None => service_dispatcher::start(NAME, ffi_service_main)?,
         Some("install") => install()?,
         Some("uninstall") => uninstall()?,
-        Some("run") => collect_loop(&Ticker::new(INTERVAL_MS)?), // Ctrl+C ile çıkılır
+        Some("run") => collect_loop(&Ticker::new(INTERVAL_MS)?, true), // Ctrl+C ile çıkılır
         Some("start") => open(ServiceAccess::START)?.start::<&str>(&[])?,
         Some("stop") => {
             open(ServiceAccess::STOP)?.stop()?;
@@ -124,12 +127,34 @@ fn run() -> windows_service::Result<()> {
         ServiceState::Running,
         ServiceControlAccept::STOP | ServiceControlAccept::PRESHUTDOWN,
     ))?;
-    collect_loop(&ticker);
+    collect_loop(&ticker, false);
     handle.set_service_status(status(ServiceState::Stopped, ServiceControlAccept::empty()))
 }
 
 /// Servis ve `run` konsol modu aynı döngüyü kullanır.
-fn collect_loop(ticker: &Ticker) {
+fn collect_loop(ticker: &Ticker, print: bool) {
     ticker::enter_eco_mode();
-    while ticker.wait() {}
+    let (mut collector, mut s) = (Collector::default(), Sample::default());
+    while ticker.wait() {
+        // shortcut: örnek henüz hiçbir yere yazılmıyor; M2'de writer, M3'te pipe
+        if collector.collect(&mut s) && print {
+            print_sample(&s);
+        }
+    }
+}
+
+fn print_sample(s: &Sample) {
+    let cores: Vec<String> = s
+        .cpu_core
+        .iter()
+        .map(|&c| format!("{:.1}", c as f32 / 2.0))
+        .collect();
+    println!(
+        "cpu {:6.2}% | ram {:6} MB | commit {:6} MB | cache {:6} MB | çekirdek [{}]",
+        s.cpu_total as f32 / 100.0,
+        s.ram_used_kb / 1024,
+        s.commit_kb / 1024,
+        s.cache_kb / 1024,
+        cores.join(" ")
+    );
 }

@@ -4,7 +4,7 @@
 - [x] M0: workspace, toolchain, crt-static, boş servis (install/start/stop/uninstall)
 
 ## Sonra
-- [ ] M1: CPU/RAM/Disk/Ağ/Top-N toplayıcı — 24 saatte CPU < %0.05, WS < 3 MB
+- [ ] M1: CPU/RAM/Disk/Ağ/Top-N toplayıcı — 24 saatte CPU < %0.05, Private WS / Private Bytes < 3 MB
 - [ ] M2: şifreli + zincirli log, seal, retention, `lwm-dump`
 - [ ] M3: pipe protokolü + tray
 - [ ] M4: egui UI, geçmiş, müdahale + `lowmon-elev`

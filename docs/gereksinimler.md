@@ -17,7 +17,7 @@ Windows'ta sürekli çalışan, ölçülebilir derecede düşük tüketimli kayn
 | Metrik | Hedef |
 |---|---|
 | CPU (24 saat ort.) | < %0.05 |
-| Working set | < 3 MB |
+| Private WS + Private Bytes | < 3 MB (ADR-0015) |
 | Disk yazma | Dakikada 1 (~1.5 KB) |
 | Wake-up | 1/s (coalescing) |
 | Exe boyutu | < 500 KB |
