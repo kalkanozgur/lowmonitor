@@ -69,6 +69,55 @@ pub fn live_json(s: &Sample, top: &[TopEntry], total_mb: u64) -> String {
     serde_json::to_string(&live).unwrap_or_default()
 }
 
+#[derive(Serialize)]
+struct Named {
+    id: u32,
+    name: String,
+}
+
+#[derive(Serialize)]
+struct Info<'a> {
+    v: u8,
+    host: &'a str,
+    cores: usize,
+    ram_total_mb: u64,
+    disks: Vec<Named>,
+    ifaces: Vec<Named>,
+}
+
+/// `/v1/info` (spek §16.3): id'ler servisin ölçtüğü örnekten, adlar yerelden (ADR-0025).
+pub fn info_json(
+    s: &Sample,
+    host: &str,
+    total_mb: u64,
+    disk: impl Fn(u32) -> String,
+    nic: impl Fn(u32) -> String,
+) -> String {
+    let info = Info {
+        v: 1,
+        host,
+        cores: s.cpu_core.len(),
+        ram_total_mb: total_mb,
+        disks: s
+            .disk
+            .iter()
+            .map(|d| Named {
+                id: d.drive,
+                name: disk(d.drive),
+            })
+            .collect(),
+        ifaces: s
+            .net
+            .iter()
+            .map(|n| Named {
+                id: n.if_index,
+                name: nic(n.if_index),
+            })
+            .collect(),
+    };
+    serde_json::to_string(&info).unwrap_or_default()
+}
+
 /// İstemci → sunucu tek mesaj: `{"rate_ms": 1000 | 2000 | 5000}`. Başka her şey yok sayılır.
 pub fn parse_rate(text: &str) -> Option<u32> {
     #[derive(Deserialize)]
@@ -119,6 +168,26 @@ mod tests {
         assert_eq!(
             live_json(&s, &top, 16384),
             r#"{"v":1,"ts":1763128800,"cpu":12.4,"cores":[8,15],"ram":{"used_mb":9300,"total_mb":16384},"disk":{"r_bps":120,"w_bps":5},"net":{"rx_bps":7,"tx_bps":8},"gpu":null,"top":[["a\"b.exe",4.1]],"alarms":[]}"#
+        );
+    }
+
+    #[test]
+    fn info_lists_ids_with_names() {
+        let s = Sample {
+            cpu_core: vec![0; 4],
+            disk: vec![DiskIo {
+                drive: 1,
+                ..Default::default()
+            }],
+            net: vec![NetIo {
+                if_index: 7,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            info_json(&s, "pc", 8192, |n| format!("d{n}"), |n| format!("n{n}")),
+            r#"{"v":1,"host":"pc","cores":4,"ram_total_mb":8192,"disks":[{"id":1,"name":"d1"}],"ifaces":[{"id":7,"name":"n7"}]}"#
         );
     }
 

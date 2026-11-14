@@ -6,6 +6,7 @@ mod auth;
 mod http;
 mod live;
 mod server;
+mod sysinfo;
 
 use serde::Deserialize;
 use std::{
@@ -164,6 +165,8 @@ fn main() -> ExitCode {
         store,
         origins: cfg.allowed_origins,
         max_clients: cfg.max_clients,
+        host: std::env::var("COMPUTERNAME").unwrap_or_default(),
+        total_mb: total,
     };
     match server::serve(&listener, &shared, &ctx) {
         Ok(()) => ExitCode::SUCCESS,
