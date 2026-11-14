@@ -4,4 +4,5 @@ pub mod config;
 pub mod crypto;
 pub mod dpapi;
 pub mod metrics;
+pub mod proto;
 pub mod time;

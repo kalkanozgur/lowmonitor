@@ -6,7 +6,7 @@
 ## Sonra
 - [~] M1: CPU/RAM/Disk/Ağ/Top-N toplayıcı — 24 saatte CPU < %0.05, Private WS / Private Bytes < 3 MB — kod tamam, 24 saat soak bekliyor
 - [~] M2: şifreli + zincirli log, seal, retention, `lwm-dump` — kod tamam; servis kurulum testi soak sonrası
-- [ ] M3: pipe protokolü + tray
+- [~] M3: pipe protokolü + tray — canlı Sample + tray ikonu/tooltip/menü/yeniden bağlanma tamam; HKCU Run otomatik başlatma, QueryRange/Export, Admin kontrolü açık
 - [ ] M4: egui UI, geçmiş, müdahale + `lowmon-elev`
 - [ ] M5: alarmlar + bildirim
 - [ ] M6: `lowmon-net` (WS + eşleştirme + firewall)

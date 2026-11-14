@@ -234,7 +234,7 @@ Seal block (segment kapanırken, kayıt tipi 0xFF)
 
 ### 6.1 Güvenlik
 - `CreateNamedPipeW` + `PIPE_REJECT_REMOTE_CLIENTS`.
-- SDDL: `D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)` → SYSTEM/Admin tam, interaktif kullanıcı okuma-yazma; ağ yok.
+- SDDL: `D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)(A;;0x12019b;;;IU)` → SYSTEM/Admin/sunucu tam, interaktif kullanıcı okuma + FILE_WRITE_DATA (instance açamaz); ağ yok. İlk instance `FILE_FLAG_FIRST_PIPE_INSTANCE` (ADR-0018).
 - Yetki kontrolü komut bazında: `ImpersonateNamedPipeClient` → `CheckTokenMembership(BUILTIN\Administrators)` → `RevertToSelf`.
 
 ### 6.2 Çerçeve
@@ -291,7 +291,7 @@ clear    = { below = 85.0, for_s = 30 }
 
 ## 8. lowmon-tray
 
-- `windows-rs` + gizli message-only pencere + `Shell_NotifyIconW`.
+- `windows-sys` + gizli üst düzey pencere + `Shell_NotifyIconW` (ADR-0018).
 - 16×16 ikon: CPU/RAM çift çubuk, `CreateDIBSection` + `CreateIconIndirect`, 2 s'de bir güncelleme.
 - Tooltip: `CPU 12% · RAM 58% · ↓1.2 MB/s`.
 - Sol tık → `lowmon-ui.exe` (named mutex ile tek örnek, açıksa `SetForegroundWindow`).

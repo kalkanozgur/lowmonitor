@@ -6,7 +6,7 @@ pub type CpuTotal = u16;
 pub type CpuCore = u8;
 
 /// Tek bir 1 s örneği. Collector her tick'te aynı örneği yeniden doldurur (ayırma yok).
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Sample {
     pub ts_unix_ms: u64,
     pub cpu_total: CpuTotal,
@@ -19,7 +19,7 @@ pub struct Sample {
 }
 
 /// Fiziksel disk (`\\.\PhysicalDriveN`) hızları, byte/s.
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DiskIo {
     pub drive: u32,
     pub r_bps: u64,
@@ -27,7 +27,7 @@ pub struct DiskIo {
 }
 
 /// Ağ arayüzü (IF index) hızları, byte/s.
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NetIo {
     pub if_index: u32,
     pub rx_bps: u64,
@@ -36,7 +36,7 @@ pub struct NetIo {
 
 /// Top-N satırı (spek §5.4 TopN). `cpu` = sistem kapasitesinin 0.01 %'u.
 // shortcut: isim String; segment başına ProcDict (dict_id) M2 codec'inde
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TopEntry {
     pub pid: u32,
     pub cpu: CpuTotal,

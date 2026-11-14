@@ -1,6 +1,7 @@
 //! lowmon-svc — servis + install/start/stop/uninstall (spek §11), `run` = konsol modu (geliştirme).
 mod collect;
 mod keystore;
+mod pipe;
 mod retention;
 mod security;
 mod ticker;
@@ -10,7 +11,9 @@ use collect::Collector;
 use lowmon_core::{
     config::{Config, DEFAULT_TOML},
     metrics::{Sample, TopEntry},
+    proto::{CH_SAMPLE, CH_TOP, PIPE_NAME, ServerMsg},
 };
+use pipe::Publisher;
 use retention::Scheduler;
 use std::{
     error::Error,
@@ -246,7 +249,10 @@ fn run_service() -> windows_service::Result<()> {
         0,
     ))?;
     let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
-    collect_loop(&ticker, &cfg, &mut writer, &mut sched, false);
+    let publ = Publisher::default();
+    // shortcut: pipe açılamazsa servis pipe'sız toplamaya devam eder; Event kaydı M5'te
+    let _ = pipe::spawn(PIPE_NAME, publ.clone(), cfg.sampling.interval_ms);
+    collect_loop(&ticker, &cfg, &mut writer, &mut sched, &publ, false);
     handle.set_service_status(status(
         ServiceState::Stopped,
         ServiceControlAccept::empty(),
@@ -289,7 +295,11 @@ fn run_console(args: &[String]) -> Result<(), Box<dyn Error>> {
     unsafe { SetConsoleCtrlHandler(Some(on_ctrl), 1) };
     eprintln!("veri: {} (çıkış: Ctrl+C)", root.display());
     let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
-    collect_loop(&ticker, &cfg, &mut writer, &mut sched, true);
+    let publ = Publisher::default();
+    if let Err(e) = pipe::spawn(PIPE_NAME, publ.clone(), cfg.sampling.interval_ms) {
+        eprintln!("pipe açılamadı (servis çalışıyor olabilir), pipe'sız devam: {e}");
+    }
+    collect_loop(&ticker, &cfg, &mut writer, &mut sched, &publ, true);
     Ok(())
 }
 
@@ -299,6 +309,7 @@ fn collect_loop(
     cfg: &Config,
     writer: &mut Writer,
     sched: &mut Scheduler,
+    publ: &Publisher,
     print: bool,
 ) {
     ticker::enter_eco_mode();
@@ -315,6 +326,10 @@ fn collect_loop(
         }
         if got.top {
             writer.top(&top);
+            publ.publish(CH_TOP, || ServerMsg::Top(top.clone()));
+        }
+        if got.sample {
+            publ.publish(CH_SAMPLE, || ServerMsg::Sample(s.clone()));
         }
         sched.tick(s.ts_unix_ms);
         if print && got.sample {
