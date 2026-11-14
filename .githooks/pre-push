@@ -1,6 +1,13 @@
 #!/bin/sh
 # Lokal kalite kapısı: CI push'ta koşmadığı için kontrol burada.
 set -e
+# main yalnız PR squash merge ile değişir (ADR-0021); tag push'u serbest
+while read -r _ _ remote_ref _; do
+  if [ "$remote_ref" = refs/heads/main ]; then
+    echo "pre-push: main'e doğrudan push yok, dal açıp PR gönder (ADR-0021)." >&2
+    exit 1
+  fi
+done
 [ -f Cargo.toml ] || exit 0  # M0 öncesi workspace yok
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings

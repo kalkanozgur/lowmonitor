@@ -8,8 +8,23 @@ use lowmon_core::{
 use std::{
     fs,
     io::{self, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
+
+/// `[from, to)` ile kesişen günlerin `YYYY-MM-DD.lwm` dosyaları, gün sırasıyla. `from < to` olmalı.
+pub fn segments(root: &Path, from: u64, to: u64) -> io::Result<Vec<(u64, PathBuf)>> {
+    let days = day_of(from)..=day_of(to - 1);
+    let mut segs: Vec<(u64, PathBuf)> = fs::read_dir(root.join("logs"))?
+        .filter_map(|e| {
+            let p = e.ok()?.path();
+            let name = p.file_name()?.to_str()?;
+            let day = parse_day(name)?;
+            (name.len() == 14 && name.ends_with(".lwm") && days.contains(&day)).then_some((day, p))
+        })
+        .collect();
+    segs.sort();
+    Ok(segs)
+}
 
 /// shortcut: yazıcının bellekteki son bloğu (≤ 60 örnek) dahil değil; flush Export'tan önce M4'te
 pub fn export(
@@ -23,17 +38,7 @@ pub fn export(
     if from >= to {
         return Ok(());
     }
-    let days = day_of(from)..=day_of(to - 1);
-    let mut segs: Vec<(u64, std::path::PathBuf)> = fs::read_dir(root.join("logs"))?
-        .filter_map(|e| {
-            let p = e.ok()?.path();
-            let name = p.file_name()?.to_str()?;
-            let day = parse_day(name)?;
-            (name.len() == 14 && name.ends_with(".lwm") && days.contains(&day)).then_some((day, p))
-        })
-        .collect();
-    segs.sort();
-    for (_, p) in segs {
+    for (_, p) in segments(root, from, to)? {
         // Açık segment yazılırken okunabilir; yarım son blok bütünlük hatası satırı olarak görünür
         let bytes = fs::read(&p)?;
         let o = csv::segment(master, &bytes, from, to, out)?;
