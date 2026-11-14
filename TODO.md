@@ -8,7 +8,8 @@
 - [ ] Servis modunda ilk gece 03:00 retention çalışmasının sonucu (export ile kontrol)
 - [ ] Dakikalık özet segmentinin gerçek boyutu (7 gün sonra veya elle tetikleyerek)
 - [ ] Ctrl+C ile `run` modunda temiz kapanış testi
-- [ ] Tray kurulumu: exe'yi `Program Files\LowMonitor`'a kopyalama + `--autostart on` (şu an `targetelease`'ten çalışıyor)
+- [ ] Tray kurulumu: exe'yi `Program Files\LowMonitor`'a kopyalama + `--autostart on` (şu an `target
+elease`'ten çalışıyor)
 
 ## Kısayollar (`shortcut:` borcu)
 - state.bin atomik yazılmıyor; anahtar bellekten silinmiyor (zeroize yok)
