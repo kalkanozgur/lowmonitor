@@ -10,6 +10,8 @@
 - [ ] Ctrl+C ile `run` modunda temiz kapanış testi
 - [ ] Tray kurulumu: exe'yi `Program Files\LowMonitor`'a kopyalama + `--autostart on` (şu an `target\release`'ten çalışıyor)
 
+- [ ] Slint UI pipe istemcisi: erişim modu ve bağlantı kuralları → [#1](https://github.com/kalkanozgur/lowmonitor/issues/1)
+
 ## Kısayollar (`shortcut:` borcu)
 - state.bin atomik yazılmıyor; anahtar bellekten silinmiyor (zeroize yok)
 - Hatalı config.toml sessizce varsayılana düşüyor; yazma/retention/pipe hataları loglanmıyor (Event M5'te)
