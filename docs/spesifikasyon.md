@@ -303,6 +303,8 @@ clear    = { below = 85.0, for_s = 30 }
 
 ## 9. lowmon-ui (egui)
 
+> **ADR-0019:** UI Slint ile, kullanıcı tarafından ayrıca geliştirilecek. Aşağıdaki ekran listesi geçerli; egui'ye özgü maddeler Slint karşılığıyla yorumlanır.
+
 **Ekranlar**
 1. **Canlı:** CPU (toplam + çekirdek ısı haritası), RAM/commit, disk, ağ grafikleri (son 5 dk).
 2. **Geçmiş:** zaman aralığı seçici → `QueryRange`, otomatik çözünürlük (aralık > 6 saat → 1 dk).
@@ -384,7 +386,7 @@ clear    = { below = 85.0, for_s = 30 }
 | **M1** | CPU/RAM/Disk/Ağ/Top-N toplayıcı | 24 saatte CPU < %0.05, Private WS / Private Bytes < 3 MB |
 | **M2** | Şifreli + zincirli log, seal, retention, `lwm-dump` | Kurcalama testlerinin tamamı yakalanıyor |
 | **M3** | Pipe protokolü + tray | Abone yokken sıfır akış, tray yeniden bağlanıyor |
-| **M4** | egui UI, geçmiş sorgusu, müdahale + `lowmon-elev` | Yükseltilmiş süreç kill'i UAC ile çalışıyor |
+| **M4** | UI (Slint, ADR-0019), geçmiş sorgusu, müdahale + `lowmon-elev` | Yükseltilmiş süreç kill'i UAC ile çalışıyor |
 | **M5** | Alarmlar + bildirim | Histerezis testleri geçiyor, toast görünüyor |
 | **M6** | `lowmon-net` (WS + eşleştirme + firewall kuralı) | `websocat` ile token'lı bağlantı 1 Hz JSON alıyor; token'sız bağlantı reddediliyor |
 | Sonra | `lowmon-gpu` (NVML), MQTT → Home Assistant | Ayrı tasarım |
