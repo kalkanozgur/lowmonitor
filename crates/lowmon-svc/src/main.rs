@@ -150,11 +150,17 @@ fn print_sample(s: &Sample) {
         .map(|&c| format!("{:.1}", c as f32 / 2.0))
         .collect();
     println!(
-        "cpu {:6.2}% | ram {:6} MB | commit {:6} MB | cache {:6} MB | çekirdek [{}]",
+        "cpu {:6.2}% | ram {:6} MB | commit {:6} MB | cache {:6} MB | disk({}) r {:7} w {:7} KB/s | net({}) ↓{:7} ↑{:7} KB/s | çekirdek [{}]",
         s.cpu_total as f32 / 100.0,
         s.ram_used_kb / 1024,
         s.commit_kb / 1024,
         s.cache_kb / 1024,
+        s.disk.len(),
+        s.disk.iter().map(|d| d.r_bps).sum::<u64>() / 1024,
+        s.disk.iter().map(|d| d.w_bps).sum::<u64>() / 1024,
+        s.net.len(),
+        s.net.iter().map(|n| n.rx_bps).sum::<u64>() / 1024,
+        s.net.iter().map(|n| n.tx_bps).sum::<u64>() / 1024,
         cores.join(" ")
     );
 }
