@@ -13,6 +13,8 @@ pub const REC_SAMPLE: u8 = 0x01;
 pub const REC_TOPN: u8 = 0x02;
 pub const REC_PROCDICT: u8 = 0x04;
 pub const REC_GAP: u8 = 0x05;
+/// Downsample (spek §5.5): dakika başına min/avg/max örnek.
+pub const REC_AGG: u8 = 0x06;
 pub const REC_SEAL: u8 = 0xFF;
 
 /// Kayıt şeması değişince artar; Header.schema_hash'e yazılır.
@@ -39,9 +41,25 @@ impl GapReason {
     ];
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggKind {
+    Min = 0,
+    Avg = 1,
+    Max = 2,
+}
+
+impl AggKind {
+    pub const ALL: [AggKind; 3] = [Self::Min, Self::Avg, Self::Max];
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Record {
     Sample(Sample),
+    /// `sample.ts_unix_ms` = dakika başı.
+    Agg {
+        kind: AggKind,
+        sample: Sample,
+    },
     /// Zamanı, bloktaki bir önceki Sample'ın ts'idir.
     Top(Vec<TopEntry>),
     Gap {
@@ -128,8 +146,19 @@ pub struct BlockEncoder {
 
 impl BlockEncoder {
     pub fn sample(&mut self, s: &Sample) {
-        flatten(s, &mut self.cur);
         self.buf.push(REC_SAMPLE);
+        self.sample_body(s);
+    }
+
+    pub fn agg(&mut self, kind: AggKind, s: &Sample) {
+        self.buf.push(REC_AGG);
+        self.buf.push(kind as u8);
+        self.sample_body(s);
+    }
+
+    /// Sample ve Agg aynı delta durumunu paylaşır.
+    fn sample_body(&mut self, s: &Sample) {
+        flatten(s, &mut self.cur);
         for (i, &v) in self.cur.iter().enumerate() {
             let base = self.prev.get(i).copied().unwrap_or(0);
             put_var(&mut self.buf, zig(v.wrapping_sub(base)));
@@ -336,6 +365,14 @@ impl<'a> BlockDecoder<'a> {
             }
             match self.r.u8()? {
                 REC_SAMPLE => return self.sample().map(|s| Some(Record::Sample(s))),
+                REC_AGG => {
+                    let kind = *AggKind::ALL
+                        .get(self.r.u8()? as usize)
+                        .ok_or(DecodeError::BadRecord(REC_AGG))?;
+                    return self
+                        .sample()
+                        .map(|sample| Some(Record::Agg { kind, sample }));
+                }
                 REC_TOPN => return self.top().map(|t| Some(Record::Top(t))),
                 REC_PROCDICT => self.proc_dict()?,
                 REC_GAP => {
@@ -377,6 +414,75 @@ impl Iterator for BlockDecoder<'_> {
         }
         r
     }
+}
+
+/// Dakikalık özet: düzeni (çekirdek sayısı, disk/arayüz id'leri) ilk örnekle aynı olan örneklerden
+/// alan bazında min / avg / max. Boş girdi → None. ts = `minute_ts`.
+pub fn aggregate(samples: &[Sample], minute_ts: u64) -> Option<[Sample; 3]> {
+    let first = samples.first()?;
+    let same_shape = |s: &&Sample| {
+        s.cpu_core.len() == first.cpu_core.len()
+            && s.disk
+                .iter()
+                .map(|d| d.drive)
+                .eq(first.disk.iter().map(|d| d.drive))
+            && s.net
+                .iter()
+                .map(|n| n.if_index)
+                .eq(first.net.iter().map(|n| n.if_index))
+    };
+    let rows: Vec<Vec<u64>> = samples
+        .iter()
+        .filter(same_shape)
+        .map(|s| {
+            let mut v = Vec::new();
+            flatten(s, &mut v);
+            v
+        })
+        .collect();
+    let n = rows[0].len();
+    let (mut mn, mut mx, mut sum) = (rows[0].clone(), rows[0].clone(), vec![0u128; n]);
+    for r in &rows {
+        for i in 0..n {
+            mn[i] = mn[i].min(r[i]);
+            mx[i] = mx[i].max(r[i]);
+            sum[i] += r[i] as u128;
+        }
+    }
+    let avg: Vec<u64> = sum
+        .iter()
+        .map(|&x| (x / rows.len() as u128) as u64)
+        .collect();
+    // Sayaç / id alanları özetlenmez: düzen ilk örnekten kopyalanır, yalnız ölçüm alanları yazılır.
+    let rebuild = |vals: &[u64]| {
+        let mut out = first.clone();
+        let mut it = vals.iter().copied();
+        let mut next = || it.next().unwrap_or(0);
+        out.ts_unix_ms = minute_ts;
+        next();
+        out.cpu_total = next() as u16;
+        next();
+        for c in &mut out.cpu_core {
+            *c = next() as u8;
+        }
+        out.ram_used_kb = next();
+        out.commit_kb = next();
+        out.cache_kb = next();
+        next();
+        for d in &mut out.disk {
+            next();
+            d.r_bps = next();
+            d.w_bps = next();
+        }
+        next();
+        for x in &mut out.net {
+            next();
+            x.rx_bps = next();
+            x.tx_bps = next();
+        }
+        out
+    };
+    Some([rebuild(&mn), rebuild(&avg), rebuild(&mx)])
 }
 
 #[cfg(test)]
@@ -447,8 +553,13 @@ mod tests {
                 sample_count,
                 prev,
             });
+        let agg = (0usize..3, sample()).prop_map(|(k, sample)| Record::Agg {
+            kind: AggKind::ALL[k],
+            sample,
+        });
         prop_oneof![
             sample().prop_map(Record::Sample),
+            agg,
             top.prop_map(Record::Top),
             gap,
             seal
@@ -458,6 +569,7 @@ mod tests {
     fn encode(enc: &mut BlockEncoder, dict: &mut Dict, r: &Record) {
         match r {
             Record::Sample(s) => enc.sample(s),
+            Record::Agg { kind, sample } => enc.agg(*kind, sample),
             Record::Top(t) => enc.top(t, dict),
             Record::Gap {
                 from_ms,
@@ -530,6 +642,31 @@ mod tests {
             "delta örnek {} bayt",
             enc.len() - first
         );
+    }
+
+    #[test]
+    fn aggregate_min_avg_max() {
+        let s = |cpu, core, ts| Sample {
+            ts_unix_ms: ts,
+            cpu_total: cpu,
+            cpu_core: vec![core],
+            ram_used_kb: cpu as u64,
+            ..Default::default()
+        };
+        let odd = Sample {
+            cpu_core: vec![1, 2],
+            ..s(9999, 0, 3)
+        }; // farklı düzen → dışarıda
+        let [mn, avg, mx] = aggregate(&[s(10, 4, 1), s(30, 8, 2), odd], 60_000).unwrap();
+        assert_eq!((mn.cpu_total, avg.cpu_total, mx.cpu_total), (10, 20, 30));
+        assert_eq!((mn.cpu_core[0], avg.cpu_core[0], mx.cpu_core[0]), (4, 6, 8));
+        assert_eq!(avg.ram_used_kb, 20);
+        assert!(
+            [&mn, &avg, &mx]
+                .iter()
+                .all(|x| x.ts_unix_ms == 60_000 && x.cpu_core.len() == 1)
+        );
+        assert!(aggregate(&[], 0).is_none());
     }
 
     #[test]

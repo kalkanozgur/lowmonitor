@@ -13,6 +13,8 @@ use sha2::Sha256;
 pub const MAGIC: [u8; 4] = *b"LWMN";
 pub const VERSION: u16 = 1;
 pub const HEADER_LEN: usize = 64;
+/// Header.flags: segment dakikalık özete indirilmiş (retention).
+pub const FLAG_DOWNSAMPLED: u16 = 1;
 const NONCE_LEN: usize = 24;
 const TAG_LEN: usize = 16;
 /// Blok uzunluk alanı üst sınırı; bozuk `len` ile dev ayırma olmasın.

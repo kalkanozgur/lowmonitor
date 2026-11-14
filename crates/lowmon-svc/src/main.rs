@@ -1,6 +1,7 @@
 //! lowmon-svc — servis + install/start/stop/uninstall (spek §11), `run` = konsol modu (geliştirme).
 mod collect;
 mod keystore;
+mod retention;
 mod security;
 mod ticker;
 mod writer;
@@ -10,6 +11,7 @@ use lowmon_core::{
     config::{Config, DEFAULT_TOML},
     metrics::{Sample, TopEntry},
 };
+use retention::Scheduler;
 use std::{
     error::Error,
     ffi::OsString,
@@ -227,9 +229,9 @@ fn run_service() -> windows_service::Result<()> {
         let key = keystore::load_or_create(&root.join("key.bin"), sid.as_deref())?;
         let ticker = Ticker::new(cfg.sampling.interval_ms)?;
         let writer = Writer::open(&root, key, cfg.sampling.interval_ms, now_ms(), uptime_ms())?;
-        Ok::<_, std::io::Error>((ticker, writer))
+        Ok::<_, std::io::Error>((ticker, writer, key))
     })();
-    let Ok((ticker, mut writer)) = init else {
+    let Ok((ticker, mut writer, key)) = init else {
         // ServiceSpecific(1) → SCM failure actions (non-crash) yeniden dener
         return handle.set_service_status(status(
             ServiceState::Stopped,
@@ -243,7 +245,8 @@ fn run_service() -> windows_service::Result<()> {
         ServiceControlAccept::STOP | ServiceControlAccept::PRESHUTDOWN,
         0,
     ))?;
-    collect_loop(&ticker, &cfg, &mut writer, false);
+    let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
+    collect_loop(&ticker, &cfg, &mut writer, &mut sched, false);
     handle.set_service_status(status(
         ServiceState::Stopped,
         ServiceControlAccept::empty(),
@@ -285,12 +288,19 @@ fn run_console(args: &[String]) -> Result<(), Box<dyn Error>> {
     // SAFETY: on_ctrl statik fonksiyon, süreç boyunca geçerli.
     unsafe { SetConsoleCtrlHandler(Some(on_ctrl), 1) };
     eprintln!("veri: {} (çıkış: Ctrl+C)", root.display());
-    collect_loop(&ticker, &cfg, &mut writer, true);
+    let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
+    collect_loop(&ticker, &cfg, &mut writer, &mut sched, true);
     Ok(())
 }
 
 /// Servis ve `run` konsol modu aynı döngüyü kullanır; durdurulunca Seal yazılır.
-fn collect_loop(ticker: &Ticker, cfg: &Config, writer: &mut Writer, print: bool) {
+fn collect_loop(
+    ticker: &Ticker,
+    cfg: &Config,
+    writer: &mut Writer,
+    sched: &mut Scheduler,
+    print: bool,
+) {
     ticker::enter_eco_mode();
     let mut collector = Collector::new(cfg.sampling.topn_every, cfg.sampling.topn_count);
     let (mut s, mut top) = (Sample::default(), Vec::new());
@@ -306,6 +316,7 @@ fn collect_loop(ticker: &Ticker, cfg: &Config, writer: &mut Writer, print: bool)
         if got.top {
             writer.top(&top);
         }
+        sched.tick(s.ts_unix_ms);
         if print && got.sample {
             print_sample(&s);
         }
