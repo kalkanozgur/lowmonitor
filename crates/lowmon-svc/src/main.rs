@@ -1,5 +1,6 @@
 //! lowmon-svc — servis + install/start/stop/uninstall (spek §11), `run` = konsol modu (geliştirme).
 mod collect;
+mod export;
 mod keystore;
 mod pipe;
 mod retention;
@@ -13,14 +14,14 @@ use lowmon_core::{
     metrics::{Sample, TopEntry},
     proto::{CH_SAMPLE, CH_TOP, PIPE_NAME, ServerMsg},
 };
-use pipe::Publisher;
+use pipe::{Publisher, Server};
 use retention::Scheduler;
 use std::{
     error::Error,
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use ticker::{StopHandle, Ticker};
@@ -251,7 +252,7 @@ fn run_service() -> windows_service::Result<()> {
     let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
     let publ = Publisher::default();
     // shortcut: pipe açılamazsa servis pipe'sız toplamaya devam eder; Event kaydı M5'te
-    let _ = pipe::spawn(PIPE_NAME, publ.clone(), cfg.sampling.interval_ms);
+    let _ = pipe::spawn(PIPE_NAME, server(&publ, &cfg, &root, key));
     collect_loop(&ticker, &cfg, &mut writer, &mut sched, &publ, false);
     handle.set_service_status(status(
         ServiceState::Stopped,
@@ -296,11 +297,20 @@ fn run_console(args: &[String]) -> Result<(), Box<dyn Error>> {
     eprintln!("veri: {} (çıkış: Ctrl+C)", root.display());
     let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
     let publ = Publisher::default();
-    if let Err(e) = pipe::spawn(PIPE_NAME, publ.clone(), cfg.sampling.interval_ms) {
+    if let Err(e) = pipe::spawn(PIPE_NAME, server(&publ, &cfg, &root, key)) {
         eprintln!("pipe açılamadı (servis çalışıyor olabilir), pipe'sız devam: {e}");
     }
     collect_loop(&ticker, &cfg, &mut writer, &mut sched, &publ, true);
     Ok(())
+}
+
+fn server(publ: &Publisher, cfg: &Config, root: &Path, key: [u8; 32]) -> Arc<Server> {
+    Arc::new(Server {
+        publ: publ.clone(),
+        interval_ms: cfg.sampling.interval_ms,
+        root: root.to_path_buf(),
+        key,
+    })
 }
 
 /// Servis ve `run` konsol modu aynı döngüyü kullanır; durdurulunca Seal yazılır.

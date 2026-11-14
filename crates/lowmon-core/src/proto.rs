@@ -1,5 +1,5 @@
 //! Pipe protokolü (spek §6): çerçeve = `u32 LE uzunluk | postcard`, maks. 1 MB.
-//! shortcut: yalnızca Hello/Subscribe/Unsubscribe + Sample/Top; QueryRange/Control/Export M4'te
+//! shortcut: QueryRange/Control/Producer yok (M4); Export yalnızca CSV, format alanı yok
 use crate::metrics::{Sample, TopEntry};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
@@ -30,6 +30,11 @@ pub enum ClientMsg {
         rate_ms: u32,
     },
     Unsubscribe,
+    /// Admin. `[from_ms, to_ms)` CSV olarak `RangeChunk` ile akar, `Ack` ile biter.
+    Export {
+        from_ms: u64,
+        to_ms: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,14 +42,22 @@ pub enum ErrorCode {
     /// İlk mesaj Hello değil veya sürüm uyuşmuyor.
     BadHello,
     Unsupported,
+    /// Komut yükseltilmiş Administrators üyeliği ister.
+    Forbidden,
+    /// Sunucu tarafında okuma/yazma hatası.
+    Io,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMsg {
     Sample(Sample),
     Top(Vec<TopEntry>),
+    /// En fazla 64 KB.
+    RangeChunk(Vec<u8>),
     Ack,
-    Error { code: ErrorCode },
+    Error {
+        code: ErrorCode,
+    },
 }
 
 fn invalid(e: impl ToString) -> io::Error {

@@ -2,6 +2,7 @@
 pub mod codec;
 pub mod config;
 pub mod crypto;
+pub mod csv;
 pub mod dpapi;
 pub mod metrics;
 pub mod proto;

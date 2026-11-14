@@ -1,9 +1,13 @@
 //! Pipe sunucusu (spek §6): istemci başına okuyucu + yazıcı thread, overlapped I/O.
 //! Abone yoksa `publish` kilidi alıp hemen döner; mesaj serileştirilmez.
-use crate::security::wide;
-use lowmon_core::proto::{self, CH_SAMPLE, ClientMsg, ErrorCode, PROTO, ServerMsg};
+use crate::{export::export, security::wide};
+use lowmon_core::{
+    crypto::MasterKey,
+    proto::{self, CH_SAMPLE, ClientMsg, ErrorCode, PROTO, ServerMsg},
+};
 use std::{
     io::{self, Read, Write},
+    path::PathBuf,
     ptr,
     sync::{
         Arc, Mutex,
@@ -20,7 +24,8 @@ use windows_sys::Win32::{
     },
     Security::{
         Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1},
-        PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
+        CheckTokenMembership, CreateWellKnownSid, PSECURITY_DESCRIPTOR, RevertToSelf,
+        SECURITY_ATTRIBUTES, TOKEN_QUERY, WinBuiltinAdministratorsSid,
     },
     Storage::FileSystem::{
         FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, PIPE_ACCESS_DUPLEX, ReadFile,
@@ -29,10 +34,10 @@ use windows_sys::Win32::{
     System::{
         IO::{CancelIoEx, GetOverlappedResult, GetOverlappedResultEx, OVERLAPPED},
         Pipes::{
-            ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
-            PIPE_TYPE_BYTE, PIPE_WAIT,
+            ConnectNamedPipe, CreateNamedPipeW, ImpersonateNamedPipeClient, PIPE_READMODE_BYTE,
+            PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
         },
-        Threading::{CreateEventW, INFINITE},
+        Threading::{CreateEventW, GetCurrentThread, INFINITE, OpenThreadToken},
     },
 };
 
@@ -48,6 +53,17 @@ const WRITE_TIMEOUT_MS: u32 = 2_000;
 /// İstemci başına bekleyen çerçeve; dolarsa yeni çerçeve atlanır.
 const QUEUE: usize = 8;
 const STACK: usize = 64 * 1024;
+/// Export çerçeve boyutu (spek §6.3 RangeChunk).
+const CHUNK: usize = 64 * 1024;
+
+/// Pipe sunucusunun paylaşılan durumu.
+pub struct Server {
+    pub publ: Publisher,
+    pub interval_ms: u32,
+    /// Export: `logs/` kökü ve segment anahtarı.
+    pub root: PathBuf,
+    pub key: MasterKey,
+}
 
 type Frame = Arc<[u8]>;
 
@@ -258,7 +274,7 @@ fn connect(pipe: &Arc<Handle>) -> io::Result<()> {
 }
 
 /// İlk instance burada açılır: aynı adla başka sunucu varsa (servis + `run`) hata döner.
-pub fn spawn(name: &str, publ: Publisher, interval_ms: u32) -> io::Result<()> {
+pub fn spawn(name: &str, srv: Arc<Server>) -> io::Result<()> {
     let name = wide(name);
     let first = create(&name, true)?;
     thread::Builder::new()
@@ -279,17 +295,83 @@ pub fn spawn(name: &str, publ: Publisher, interval_ms: u32) -> io::Result<()> {
                 if connect(&pipe).is_err() {
                     continue;
                 }
-                let (publ, id) = (publ.clone(), ids.fetch_add(1, Ordering::Relaxed));
+                let (srv, id) = (srv.clone(), ids.fetch_add(1, Ordering::Relaxed));
                 let _ = thread::Builder::new()
                     .name("pipe-client".into())
                     .stack_size(STACK)
-                    .spawn(move || client(pipe, publ, id, interval_ms));
+                    .spawn(move || client(pipe, &srv, id));
             }
         })?;
     Ok(())
 }
 
-fn client(pipe: Arc<Handle>, publ: Publisher, id: u64, interval_ms: u32) {
+/// İstemci yükseltilmiş Administrators üyesi mi (spek §6.1). LocalService'te SeImpersonate yok →
+/// token Identification seviyesinde gelir; üyelik sorgusu için yeterli.
+fn client_is_admin(pipe: HANDLE) -> bool {
+    // SAFETY: impersonation bu fonksiyonda başlar ve biter; geri dönülemezse süreç durdurulur.
+    unsafe {
+        if ImpersonateNamedPipeClient(pipe) == 0 {
+            return false;
+        }
+        let mut tok = ptr::null_mut();
+        let opened = OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, 1, &mut tok) != 0;
+        if RevertToSelf() == 0 {
+            // İstemci kimliğiyle devam etmek yetki karışıklığı olur
+            std::process::abort();
+        }
+        if !opened {
+            return false;
+        }
+        let mut sid = [0u8; 68];
+        let mut n = sid.len() as u32;
+        let mut member = 0;
+        let admin = CreateWellKnownSid(
+            WinBuiltinAdministratorsSid,
+            ptr::null_mut(),
+            sid.as_mut_ptr().cast(),
+            &mut n,
+        ) != 0
+            && CheckTokenMembership(tok, sid.as_mut_ptr().cast(), &mut member) != 0
+            && member != 0;
+        CloseHandle(tok);
+        admin
+    }
+}
+
+/// Export çıktısını 64 KB'lık RangeChunk'lara böler; kuyruk doluysa bekler (backpressure).
+struct Chunks<'a> {
+    buf: Vec<u8>,
+    tx: &'a SyncSender<Frame>,
+}
+
+impl Chunks<'_> {
+    fn send(&mut self) -> io::Result<()> {
+        if self.buf.is_empty() {
+            return Ok(());
+        }
+        let f = proto::encode(&ServerMsg::RangeChunk(std::mem::take(&mut self.buf)))?;
+        self.tx
+            .send(f.into())
+            .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))
+    }
+}
+
+impl Write for Chunks<'_> {
+    fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+        let n = b.len().min(CHUNK - self.buf.len());
+        self.buf.extend_from_slice(&b[..n]);
+        if self.buf.len() == CHUNK {
+            self.send()?;
+        }
+        Ok(n)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.send()
+    }
+}
+
+fn client(pipe: Arc<Handle>, srv: &Server, id: u64) {
+    let publ = &srv.publ;
     let Ok(mut rd) = Io::new(pipe.clone()) else {
         return;
     };
@@ -337,7 +419,7 @@ fn client(pipe: Arc<Handle>, publ: Publisher, id: u64, interval_ms: u32) {
     while let Ok(msg) = proto::read::<ClientMsg>(&mut rd) {
         match msg {
             ClientMsg::Subscribe { channels, rate_ms } => {
-                publ.subscribe(id, channels, rate_ms / interval_ms.max(1), tx.clone());
+                publ.subscribe(id, channels, rate_ms / srv.interval_ms.max(1), tx.clone());
                 reply(&ServerMsg::Ack);
             }
             ClientMsg::Unsubscribe => {
@@ -347,6 +429,27 @@ fn client(pipe: Arc<Handle>, publ: Publisher, id: u64, interval_ms: u32) {
             ClientMsg::Hello { .. } => reply(&ServerMsg::Error {
                 code: ErrorCode::Unsupported,
             }),
+            ClientMsg::Export { .. } if !client_is_admin(pipe.0) => reply(&ServerMsg::Error {
+                code: ErrorCode::Forbidden,
+            }),
+            ClientMsg::Export { from_ms, to_ms } => {
+                let mut out = Chunks {
+                    buf: Vec::with_capacity(CHUNK),
+                    tx: &tx,
+                };
+                let r =
+                    export(&srv.root, &srv.key, from_ms, to_ms, &mut out).and_then(|_| out.flush());
+                // Bitiş işareti de beklemeli gönderilir: try_send dolu kuyrukta düşürürdü
+                let end = match r {
+                    Ok(()) => ServerMsg::Ack,
+                    Err(_) => ServerMsg::Error {
+                        code: ErrorCode::Io,
+                    },
+                };
+                if let Ok(f) = proto::encode(&end) {
+                    let _ = tx.send(f.into());
+                }
+            }
         }
     }
     // Abonelik + tx düşünce yazıcı thread biter; son Arc ile handle kapanır
@@ -365,6 +468,13 @@ mod tests {
         Foundation::{GENERIC_READ, GENERIC_WRITE},
         Storage::FileSystem::{CreateFileW, OPEN_EXISTING},
     };
+
+    fn is_elevated() -> bool {
+        std::process::Command::new("net")
+            .arg("session")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
 
     fn open(name: &str) -> File {
         let n = wide(name);
@@ -388,9 +498,17 @@ mod tests {
     fn subscribe_receive_and_reject_bad_hello() {
         let name = format!(r"\\.\pipe\LowMonitor-test-{}", std::process::id());
         let publ = Publisher::default();
-        spawn(&name, publ.clone(), 1000).unwrap();
+        let srv = |publ| {
+            Arc::new(Server {
+                publ,
+                interval_ms: 1000,
+                root: std::env::temp_dir(),
+                key: [0; 32],
+            })
+        };
+        spawn(&name, srv(publ.clone())).unwrap();
         assert!(
-            spawn(&name, Publisher::default(), 1000).is_err(),
+            spawn(&name, srv(Publisher::default())).is_err(),
             "ikinci sunucu açılmamalı"
         );
 
@@ -422,6 +540,23 @@ mod tests {
         .unwrap();
         assert_eq!(proto::read::<ServerMsg>(&mut c).unwrap(), ServerMsg::Ack);
         assert_eq!(proto::read::<ServerMsg>(&mut c).unwrap(), ServerMsg::Ack);
+        // Test süreci yükseltilmemiş varsayılır (pre-push normal kabukta)
+        if !is_elevated() {
+            proto::write(
+                &mut c,
+                &ClientMsg::Export {
+                    from_ms: 0,
+                    to_ms: 1,
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                proto::read::<ServerMsg>(&mut c).unwrap(),
+                ServerMsg::Error {
+                    code: ErrorCode::Forbidden
+                }
+            );
+        }
         // rate 2000/1000 → her 2. örnek; ilk örnek hemen; Top kanalına abone değil
         let mut called = 0;
         for ts in 1..=4 {
