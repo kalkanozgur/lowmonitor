@@ -10,6 +10,7 @@ edition = "2024"
 [workspace.dependencies]
 windows-service = "0.8.1"
 windows-sys = "0.61.2"  # windows-service zaten çekiyor; ek derleme maliyeti yok
+proptest = "1.12.0"  # yalnızca dev-dependency
 
 [profile.release]
 opt-level     = 3        # svc için "s" ile karşılaştırılacak (spek §15)
