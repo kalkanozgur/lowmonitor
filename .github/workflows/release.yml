@@ -1,0 +1,23 @@
+name: release
+# Testler lokalde (pre-push hook); burada yalnızca tag'den release build.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (toolchain rust-toolchain.toml'dan)
+        run: cargo build --release --workspace --locked
+      - name: GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exes = (Get-ChildItem target/release/*.exe).FullName
+          gh release create $env:GITHUB_REF_NAME $exes --generate-notes

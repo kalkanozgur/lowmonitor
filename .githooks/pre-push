@@ -1,0 +1,7 @@
+#!/bin/sh
+# Lokal kalite kapısı: CI push'ta koşmadığı için kontrol burada.
+set -e
+[ -f Cargo.toml ] || exit 0  # M0 öncesi workspace yok
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace

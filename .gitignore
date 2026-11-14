@@ -1,0 +1,17 @@
+# ortak
+Thumbs.db
+desktop.ini
+~$*
+*.tmp
+*.bak
+.env
+
+# rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# yerel çalışma verisi
+*.lwm
+key.bin
+state.bin
