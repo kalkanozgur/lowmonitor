@@ -28,6 +28,7 @@
 - [ ] M6: `lowmon-net` (WS + eşleştirme + firewall), telefondan izleme (Mi Note 10 Lite istemcisi)
 
 ## Fikirler / açık konular (spek §15)
+- [ ] GitHub Pro / public olursa main ruleset (PR zorunlu, force-push yok) — ADR-0021
 - [ ] `lowmon-gpu` (NVML) tasarımı
 - [ ] MQTT köprüsü: `lowmon-net` modülü mü, ayrı exe mi?
 - [ ] `wss://` gerekli mi?
