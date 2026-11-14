@@ -3,6 +3,9 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
 ### Eklendi
+- `lowmon-net` (M6a): `ws://127.0.0.1:47800/v1/live` 1 Hz JSON yayını, `rate_ms` 1000/2000/5000, ping/pong, en fazla 4 istemci; ayar `%APPDATA%\LowMonitor
+et.toml` (ADR-0023)
+- Lisans: MIT OR Apache-2.0
 - `lowmon-proto` crate'i: metrik tipleri + pipe protokolü, yalnız serde + postcard (ADR-0022)
 - Proje iskeleti, spesifikasyon, ADR-0001..0014, pre-push hook, tag tabanlı release workflow
 - `lowmon-svc`: boş Windows servisi, `install | uninstall | start | stop` komutları

@@ -436,7 +436,7 @@ lowmon-svc ──pipe Subscribe(1 Hz)──► lowmon-net ──ws://<pc-ip>:478
 ```
 - Kullanıcı oturumunda çalışır (tray gibi `HKCU\...\Run`); servis ağa **hiç** açılmaz.
 - Senkron `tungstenite` + `std::net::TcpListener`, tokio yok. Bağlantı başına thread yok: tek thread, non-blocking soketler + `WSAPoll`.
-- Bağlı istemci yoksa pipe aboneliği düşürülür → svc tarafında sıfır ek maliyet.
+- Bağlı istemci yoksa pipe bağlantısı kapatılır → svc tarafında sıfır ek maliyet. İki thread: ağ (WSAPoll, boşta 30 s'de bir uyanır) + pipe okuyucu (ADR-0023).
 - Maks. 4 eşzamanlı istemci.
 
 ### 16.2 Güvenlik
@@ -491,6 +491,8 @@ lowmon-svc ──pipe Subscribe(1 Hz)──► lowmon-net ──ws://<pc-ip>:478
 - Ön koşul: telefonun bootloop sorunu çözülmüş olmalı.
 
 ### 16.6 Config
+`%APPDATA%\LowMonitor
+et.toml` (kullanıcı kapsamı; servis config'i kullanıcıya okunamaz, ADR-0023). İlk açılışta varsayılanla oluşur.
 ```toml
 [net]
 enabled        = true

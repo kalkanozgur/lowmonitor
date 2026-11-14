@@ -2,6 +2,8 @@
 name = "lowmon-tray"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 lowmon-core = { path = "../lowmon-core" }

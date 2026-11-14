@@ -15,4 +15,4 @@
 ## Sonuçlar
 - \+ main'de değişiklik başına tek, okunur commit; PR'da inceleme kaydı.
 - − Koruma yalnız lokal: `--no-verify` veya GitHub web arayüzü main'e doğrudan yazabilir.
-- Pro'ya geçilir ya da repo public olursa: ruleset ile PR zorunluluğu + force-push/silme yasağı eklenir.
+- 2026-11-15: repo public oldu; `main-pr-only` ruleset'i aktif (PR zorunlu, onay 0, yalnız squash, force-push/silme yasak, bypass yok). Lokal hook ek katman olarak kalır.
