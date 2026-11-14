@@ -9,6 +9,7 @@ edition = "2024"
 # Bağımlılıklar ihtiyaç duyulan milestone'da eklenir (spek §3 taslağı).
 [workspace.dependencies]
 windows-service = "0.8.1"
+windows-sys = "0.61.2"  # windows-service zaten çekiyor; ek derleme maliyeti yok
 
 [profile.release]
 opt-level     = 3        # svc için "s" ile karşılaştırılacak (spek §15)

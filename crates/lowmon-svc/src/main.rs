@@ -1,5 +1,8 @@
-//! lowmon-svc — M0: boş servis + install/start/stop/uninstall (spek §11).
-use std::{error::Error, ffi::OsString, sync::mpsc, time::Duration};
+//! lowmon-svc — servis + install/start/stop/uninstall (spek §11), `run` = konsol modu (geliştirme).
+mod ticker;
+
+use std::{error::Error, ffi::OsString, time::Duration};
+use ticker::Ticker;
 use windows_service::{
     define_windows_service,
     service::{
@@ -13,6 +16,7 @@ use windows_service::{
 };
 
 const NAME: &str = "LowMonitor";
+const INTERVAL_MS: u32 = 1000; // shortcut: sabit; config.toml [sampling] M2'de
 
 define_windows_service!(ffi_service_main, service_main);
 
@@ -21,13 +25,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         None => service_dispatcher::start(NAME, ffi_service_main)?,
         Some("install") => install()?,
         Some("uninstall") => uninstall()?,
+        Some("run") => collect_loop(&Ticker::new(INTERVAL_MS)?), // Ctrl+C ile çıkılır
         Some("start") => open(ServiceAccess::START)?.start::<&str>(&[])?,
         Some("stop") => {
             open(ServiceAccess::STOP)?.stop()?;
         }
         Some(other) => {
             eprintln!(
-                "bilinmeyen komut: {other}\nkullanım: lowmon-svc [install|uninstall|start|stop]"
+                "bilinmeyen komut: {other}\nkullanım: lowmon-svc [install|uninstall|start|stop|run]"
             );
             std::process::exit(2);
         }
@@ -93,10 +98,14 @@ fn service_main(_args: Vec<OsString>) {
 }
 
 fn run() -> windows_service::Result<()> {
-    let (stop_tx, stop_rx) = mpsc::channel();
+    // shortcut: Ticker hatası servisi Running'e geçmeden sonlandırır; SCM failure actions yeniden dener
+    let Ok(ticker) = Ticker::new(INTERVAL_MS) else {
+        return Ok(());
+    };
+    let stop = ticker.stop_handle();
     let handle = service_control_handler::register(NAME, move |ctrl| match ctrl {
         ServiceControl::Stop | ServiceControl::Preshutdown => {
-            let _ = stop_tx.send(());
+            stop.signal();
             ServiceControlHandlerResult::NoError
         }
         ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
@@ -115,7 +124,12 @@ fn run() -> windows_service::Result<()> {
         ServiceState::Running,
         ServiceControlAccept::STOP | ServiceControlAccept::PRESHUTDOWN,
     ))?;
-    // M1'de yerine: waitable timer + stop event döngüsü (spek §4)
-    let _ = stop_rx.recv();
+    collect_loop(&ticker);
     handle.set_service_status(status(ServiceState::Stopped, ServiceControlAccept::empty()))
+}
+
+/// Servis ve `run` konsol modu aynı döngüyü kullanır.
+fn collect_loop(ticker: &Ticker) {
+    ticker::enter_eco_mode();
+    while ticker.wait() {}
 }
