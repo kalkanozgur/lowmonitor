@@ -25,7 +25,8 @@
 - [x] M3: pipe protokolü + tray (canlı Sample, tray, HKCU Run, Admin kontrolü, Export)
 - [ ] M4: protokol tarafı: ~~`QueryRange`~~ (kod tamam, servise kurulmadı), `Control`, Export öncesi flush, `lowmon-elev` (UI Slint ile ayrıca, ADR-0019)
 - [ ] M5: alarmlar + bildirim
-- [ ] M6: `lowmon-net` (WS + eşleştirme + firewall), telefondan izleme (Mi Note 10 Lite istemcisi)
+- [ ] M6: `lowmon-net` spek §16 tam (WS + info + pair, token/DPAPI, ban, Origin, firewall, HKCU Run), PR'lara bölünür (M6a–d)
+- [ ] LowDeck entegrasyonu (yol a, ADR-0022): `lowdeck-agent` pipe Viewer → telefona CPU/RAM/disk/ağ/Top-N; LowDeck'te ayrı oturum
 
 ## Fikirler / açık konular (spek §15)
 - [ ] GitHub Pro / public olursa main ruleset (PR zorunlu, force-push yok) — ADR-0021

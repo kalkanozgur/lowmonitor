@@ -1,0 +1,9 @@
+[package]
+name = "lowmon-proto"
+version.workspace = true
+edition.workspace = true
+description = "LowMonitor pipe protokolü ve metrik tipleri (dış istemciler için; yalnız serde + postcard)"
+
+[dependencies]
+serde.workspace = true
+postcard.workspace = true

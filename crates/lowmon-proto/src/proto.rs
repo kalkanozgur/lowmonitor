@@ -1,9 +1,6 @@
 //! Pipe protokolü (spek §6): çerçeve = `u32 LE uzunluk | postcard`, maks. 1 MB.
 //! shortcut: Control/Producer yok (M4); Export yalnızca CSV, format alanı yok
-use crate::{
-    codec::{AggKind, GapReason},
-    metrics::{Sample, TopEntry},
-};
+use crate::metrics::{AggKind, GapReason, Sample, TopEntry};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
 
