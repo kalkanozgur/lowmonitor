@@ -3,7 +3,7 @@ mod collect;
 mod ticker;
 
 use collect::Collector;
-use lowmon_core::metrics::Sample;
+use lowmon_core::metrics::{Sample, TopEntry};
 use std::{error::Error, ffi::OsString, time::Duration};
 use ticker::Ticker;
 use windows_service::{
@@ -134,13 +134,33 @@ fn run() -> windows_service::Result<()> {
 /// Servis ve `run` konsol modu aynı döngüyü kullanır.
 fn collect_loop(ticker: &Ticker, print: bool) {
     ticker::enter_eco_mode();
-    let (mut collector, mut s) = (Collector::default(), Sample::default());
+    let (mut collector, mut s, mut top) = (Collector::default(), Sample::default(), Vec::new());
     while ticker.wait() {
         // shortcut: örnek henüz hiçbir yere yazılmıyor; M2'de writer, M3'te pipe
-        if collector.collect(&mut s) && print {
+        let got = collector.collect(&mut s, &mut top);
+        if print && got.sample {
             print_sample(&s);
         }
+        if print && got.top {
+            print_top(&top);
+        }
     }
+}
+
+fn print_top(top: &[TopEntry]) {
+    let rows: Vec<String> = top
+        .iter()
+        .map(|e| {
+            format!(
+                "{} ({}) {:.2}% {} MB",
+                e.name,
+                e.pid,
+                e.cpu as f32 / 100.0,
+                e.ws_kb / 1024
+            )
+        })
+        .collect();
+    println!("top: {}", rows.join(" | "));
 }
 
 fn print_sample(s: &Sample) {

@@ -34,6 +34,16 @@ pub struct NetIo {
     pub tx_bps: u64,
 }
 
+/// Top-N satırı (spek §5.4 TopN). `cpu` = sistem kapasitesinin 0.01 %'u.
+// shortcut: isim String; segment başına ProcDict (dict_id) M2 codec'inde
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct TopEntry {
+    pub pid: u32,
+    pub cpu: CpuTotal,
+    pub ws_kb: u64,
+    pub name: String,
+}
+
 /// Sayaç farkı → byte/s. Sayaç geri giderse (aygıt yeniden takıldı) 0.
 pub fn per_sec(prev: u64, cur: u64, dt_ms: u64) -> u64 {
     (cur.saturating_sub(prev) * 1000)
