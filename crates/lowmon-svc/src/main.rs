@@ -3,6 +3,7 @@ mod collect;
 mod export;
 mod keystore;
 mod pipe;
+mod query;
 mod retention;
 mod security;
 mod ticker;

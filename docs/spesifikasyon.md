@@ -246,14 +246,14 @@ Seal block (segment kapanırken, kayıt tipi 0xFF)
 |---|---|---|
 | C→S | `Hello { proto, role: Viewer \| Tray \| Producer }` | Herkes |
 | C→S | `Subscribe { channels, rate_ms }` / `Unsubscribe` | Herkes |
-| C→S | `QueryRange { from, to, resolution }` | Herkes |
+| C→S | `QueryRange { from, to, resolution: Raw \| Minute }` (Top-N dönmez, ADR-0020) | Herkes |
 | C→S | `Control(Pause \| Resume \| SetInterval \| SetRetention \| ReloadConfig)` | Admin |
 | C→S | `Export { from, to, format: Csv }` | Admin |
 | C→S | `ProducerPush { channel_id, payload }` (GPU vb.) | Producer |
-| S→C | `Sample`, `TopN`, `Event`, `RangeChunk`, `Ack`, `Error { code }` | — |
+| S→C | `Sample`, `TopN`, `Event`, `RangeChunk` (Export), `Range` (QueryRange), `Ack`, `Error { code }` | — |
 
 - Abone yoksa canlı mesaj serileştirilmez bile.
-- `QueryRange` sonucu 64 KB'lık `RangeChunk`'larla akıtılır (UI tarafında backpressure).
+- `QueryRange` sonucu ≤ 64 KB'lık `Range(Vec<RangeItem>)` çerçeveleriyle akıtılır, `Ack` ile biter (ADR-0020). Export CSV'si `RangeChunk` ile.
 
 ---
 

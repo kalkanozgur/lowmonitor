@@ -1,9 +1,9 @@
 //! Pipe sunucusu (spek §6): istemci başına okuyucu + yazıcı thread, overlapped I/O.
 //! Abone yoksa `publish` kilidi alıp hemen döner; mesaj serileştirilmez.
-use crate::{export::export, security::wide};
+use crate::{export::export, query::query, security::wide};
 use lowmon_core::{
     crypto::MasterKey,
-    proto::{self, CH_SAMPLE, ClientMsg, ErrorCode, PROTO, ServerMsg},
+    proto::{self, CH_SAMPLE, ClientMsg, ErrorCode, PROTO, RangeItem, ServerMsg},
 };
 use std::{
     io::{self, Read, Write},
@@ -53,7 +53,7 @@ const WRITE_TIMEOUT_MS: u32 = 2_000;
 /// İstemci başına bekleyen çerçeve; dolarsa yeni çerçeve atlanır.
 const QUEUE: usize = 8;
 const STACK: usize = 64 * 1024;
-/// Export çerçeve boyutu (spek §6.3 RangeChunk).
+/// Export/QueryRange çerçeve boyutu (spek §6.3 RangeChunk).
 const CHUNK: usize = 64 * 1024;
 
 /// Pipe sunucusunun paylaşılan durumu.
@@ -370,6 +370,48 @@ impl Write for Chunks<'_> {
     }
 }
 
+/// QueryRange öğelerini kodlanmış toplamı ≤ 64 KB olan `Range` çerçevelerinde toplar; kuyruk doluysa bekler.
+struct Batch<'a> {
+    items: Vec<RangeItem>,
+    size: usize,
+    tx: &'a SyncSender<Frame>,
+}
+
+impl Batch<'_> {
+    fn push(&mut self, it: RangeItem) -> io::Result<()> {
+        let n = proto::encode(&it)?.len() - 4;
+        if self.size + n > CHUNK {
+            self.flush()?;
+        }
+        self.size += n;
+        self.items.push(it);
+        Ok(())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        if self.items.is_empty() {
+            return Ok(());
+        }
+        self.size = 0;
+        let f = proto::encode(&ServerMsg::Range(std::mem::take(&mut self.items)))?;
+        self.tx
+            .send(f.into())
+            .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))
+    }
+}
+
+/// Akış bitişi: Ack ya da Error{Io}. try_send dolu kuyrukta düşürürdü, beklemeli gönderilir.
+fn finish(tx: &SyncSender<Frame>, r: io::Result<()>) {
+    let end = match r {
+        Ok(()) => ServerMsg::Ack,
+        Err(_) => ServerMsg::Error {
+            code: ErrorCode::Io,
+        },
+    };
+    if let Ok(f) = proto::encode(&end) {
+        let _ = tx.send(f.into());
+    }
+}
+
 fn client(pipe: Arc<Handle>, srv: &Server, id: u64) {
     let publ = &srv.publ;
     let Ok(mut rd) = Io::new(pipe.clone()) else {
@@ -439,16 +481,22 @@ fn client(pipe: Arc<Handle>, srv: &Server, id: u64) {
                 };
                 let r =
                     export(&srv.root, &srv.key, from_ms, to_ms, &mut out).and_then(|_| out.flush());
-                // Bitiş işareti de beklemeli gönderilir: try_send dolu kuyrukta düşürürdü
-                let end = match r {
-                    Ok(()) => ServerMsg::Ack,
-                    Err(_) => ServerMsg::Error {
-                        code: ErrorCode::Io,
-                    },
+                finish(&tx, r);
+            }
+            ClientMsg::QueryRange {
+                from_ms,
+                to_ms,
+                resolution,
+            } => {
+                let mut b = Batch {
+                    items: Vec::new(),
+                    size: 0,
+                    tx: &tx,
                 };
-                if let Ok(f) = proto::encode(&end) {
-                    let _ = tx.send(f.into());
-                }
+                let r = query(&srv.root, &srv.key, from_ms, to_ms, resolution, &mut |it| {
+                    b.push(it)
+                });
+                finish(&tx, r.and_then(|_| b.flush()));
             }
         }
     }
@@ -461,7 +509,7 @@ mod tests {
     use super::*;
     use lowmon_core::{
         metrics::{Sample, TopEntry},
-        proto::{CH_TOP, Role},
+        proto::{CH_TOP, Resolution, Role},
     };
     use std::{fs::File, os::windows::io::FromRawHandle};
     use windows_sys::Win32::{
@@ -557,6 +605,17 @@ mod tests {
                 }
             );
         }
+        // QueryRange yetki istemez; boş aralık → doğrudan Ack
+        proto::write(
+            &mut c,
+            &ClientMsg::QueryRange {
+                from_ms: 1,
+                to_ms: 1,
+                resolution: Resolution::Raw,
+            },
+        )
+        .unwrap();
+        assert_eq!(proto::read::<ServerMsg>(&mut c).unwrap(), ServerMsg::Ack);
         // rate 2000/1000 → her 2. örnek; ilk örnek hemen; Top kanalına abone değil
         let mut called = 0;
         for ts in 1..=4 {

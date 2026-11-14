@@ -1,6 +1,9 @@
 //! Pipe protokolü (spek §6): çerçeve = `u32 LE uzunluk | postcard`, maks. 1 MB.
-//! shortcut: QueryRange/Control/Producer yok (M4); Export yalnızca CSV, format alanı yok
-use crate::metrics::{Sample, TopEntry};
+//! shortcut: Control/Producer yok (M4); Export yalnızca CSV, format alanı yok
+use crate::{
+    codec::{AggKind, GapReason},
+    metrics::{Sample, TopEntry},
+};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
 
@@ -35,6 +38,36 @@ pub enum ClientMsg {
         from_ms: u64,
         to_ms: u64,
     },
+    /// Herkes. `[from_ms, to_ms)` metrikleri `Range` çerçeveleriyle akar, `Ack` ile biter. Top-N dönmez.
+    QueryRange {
+        from_ms: u64,
+        to_ms: u64,
+        resolution: Resolution,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Resolution {
+    /// Dosyada ne varsa: ham günlerde 1 s `Sample`, downsample edilmiş günlerde `Agg`.
+    Raw,
+    /// Dakika başına min/avg/max `Agg`; ham günlerde serviste anında hesaplanır.
+    Minute,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum RangeItem {
+    Sample(Sample),
+    /// `sample.ts_unix_ms` = dakika başı.
+    Agg {
+        kind: AggKind,
+        sample: Sample,
+    },
+    /// Doğrulanamayan segment kuyruğu da `Integrity` gap olarak gelir.
+    Gap {
+        from_ms: u64,
+        to_ms: u64,
+        reason: GapReason,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,6 +88,8 @@ pub enum ServerMsg {
     /// En fazla 64 KB.
     RangeChunk(Vec<u8>),
     Ack,
+    /// `QueryRange` sonucu; öğelerin kodlanmış toplamı ≤ 64 KB.
+    Range(Vec<RangeItem>),
     Error {
         code: ErrorCode,
     },

@@ -23,7 +23,7 @@
 - [~] M1: CPU/RAM/Disk/Ağ/Top-N toplayıcı — 24 saatte CPU < %0.05, Private WS / Private Bytes < 3 MB — kod tamam, 24 saat soak bekliyor
 - [~] M2: şifreli + zincirli log, seal, retention, `lwm-dump` — kod tamam; servis kurulum testi soak sonrası
 - [x] M3: pipe protokolü + tray (canlı Sample, tray, HKCU Run, Admin kontrolü, Export)
-- [ ] M4: protokol tarafı: `QueryRange`, `Control`, Export öncesi flush, `lowmon-elev` (UI Slint ile ayrıca, ADR-0019)
+- [ ] M4: protokol tarafı: ~~`QueryRange`~~ (kod tamam, servise kurulmadı), `Control`, Export öncesi flush, `lowmon-elev` (UI Slint ile ayrıca, ADR-0019)
 - [ ] M5: alarmlar + bildirim
 - [ ] M6: `lowmon-net` (WS + eşleştirme + firewall), telefondan izleme (Mi Note 10 Lite istemcisi)
 
