@@ -184,6 +184,7 @@ impl Sealer {
 pub struct Opener<'a> {
     chain: Chain,
     rest: &'a [u8],
+    good_end: usize,
 }
 
 impl<'a> Opener<'a> {
@@ -192,12 +193,24 @@ impl<'a> Opener<'a> {
         let opener = Self {
             chain: Chain::new(master, &header.salt, &file[..HEADER_LEN]),
             rest: &file[HEADER_LEN..],
+            good_end: HEADER_LEN,
         };
         Ok((header, opener))
     }
 
-    pub fn blocks_read(&self) -> u64 {
-        self.chain.index
+    /// Doğrulanan blok sayısı ve zincir başı.
+    pub fn head(&self) -> (u64, &[u8]) {
+        (self.chain.index, &self.chain.prev)
+    }
+
+    /// Son doğrulanmış bloğun bittiği dosya ofseti (yarım kuyruk buraya kırpılır).
+    pub fn good_end(&self) -> usize {
+        self.good_end
+    }
+
+    /// Doğrulanmış zincirin sonundan yazmaya devam et.
+    pub fn into_sealer(self) -> Sealer {
+        Sealer { chain: self.chain }
     }
 }
 
@@ -234,6 +247,7 @@ impl Iterator for Opener<'_> {
                 .map_err(|_| CryptoError::Auth { block })?;
             self.chain.advance(&tag);
             self.rest = &self.rest[4 + len..];
+            self.good_end += 4 + len;
             Ok(plain)
         })();
         if r.is_err() {
@@ -354,6 +368,17 @@ mod tests {
         let res: Vec<_> = o.collect();
         assert_eq!(res.len(), 3);
         assert_eq!(res[2], Err(CryptoError::Truncated { block: 2 }));
+    }
+
+    #[test]
+    fn resume_continues_chain() {
+        let (mut file, _) = segment();
+        let (_, mut o) = Opener::new(&KEY, &file).unwrap();
+        while o.next().is_some() {}
+        assert_eq!(o.good_end(), file.len());
+        let mut s = o.into_sealer();
+        s.seal(&[9; 10], &mut file).unwrap();
+        assert_eq!(open_all(&KEY, &file).unwrap().len(), 4);
     }
 
     /// Bilinen sınır (spek §5.6): tam blok sınırında kuyruk kesimi tek başına fark edilmez.

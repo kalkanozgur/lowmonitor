@@ -1,6 +1,8 @@
 //! lowmon-svc — servis + install/start/stop/uninstall (spek §11), `run` = konsol modu (geliştirme).
 mod collect;
 mod ticker;
+#[allow(dead_code)] // shortcut: 2d'de (key.bin) servis döngüsüne bağlanır
+mod writer;
 
 use collect::Collector;
 use lowmon_core::metrics::{Sample, TopEntry};

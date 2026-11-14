@@ -4,7 +4,8 @@
 //! - Sample: tüm alanlar düzleştirilir, önceki örneğin aynı indeksine göre zigzag varint delta.
 //!   Delta durumu her blokta sıfırlanır → blok tek başına çözülebilir.
 //! - ProcDict: segment kapsamlı isim sözlüğü; yeni isim ilk kullanıldığı TopN'den hemen önce yazılır.
-// shortcut: Event (0x03) M5'te, Seal (0xFF) yazıcıyla birlikte 2c'de eklenecek
+//! - Seal: STOP/PRESHUTDOWN ve gün dönümünde son blok; ardından (yeniden başlatmada) yeni bloklar gelebilir.
+// shortcut: Event (0x03) M5'te; o zamana kadar bütünlük sorunları Gap(Integrity) olarak yazılır
 use crate::metrics::{DiskIo, NetIo, Sample, TopEntry};
 use std::collections::HashMap;
 
@@ -12,12 +13,30 @@ pub const REC_SAMPLE: u8 = 0x01;
 pub const REC_TOPN: u8 = 0x02;
 pub const REC_PROCDICT: u8 = 0x04;
 pub const REC_GAP: u8 = 0x05;
+pub const REC_SEAL: u8 = 0xFF;
+
+/// Kayıt şeması değişince artar; Header.schema_hash'e yazılır.
+pub const SCHEMA: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GapReason {
     Paused = 0,
     Sleep = 1,
     Boot = 2,
+    /// Önceki çalışma mühürsüz bitti (çökme / elektrik kesintisi).
+    Crash = 3,
+    /// state.bin ile segment uyuşmuyor (kuyruk kesilmiş olabilir).
+    Integrity = 4,
+}
+
+impl GapReason {
+    pub const ALL: [GapReason; 5] = [
+        Self::Paused,
+        Self::Sleep,
+        Self::Boot,
+        Self::Crash,
+        Self::Integrity,
+    ];
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -29,6 +48,12 @@ pub enum Record {
         from_ms: u64,
         to_ms: u64,
         reason: GapReason,
+    },
+    /// `prev`: mühürden önceki zincir başı (son tag; blok yoksa başlık).
+    Seal {
+        block_count: u64,
+        sample_count: u64,
+        prev: Vec<u8>,
     },
 }
 
@@ -85,6 +110,15 @@ pub struct Dict {
     ids: HashMap<String, u32>,
 }
 
+impl Dict {
+    /// Yeniden açılan segmentte çözücünün topladığı isimlerden sözlüğü kurar.
+    pub fn from_names(names: Vec<String>) -> Self {
+        Self {
+            ids: names.into_iter().zip(0..).collect(),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct BlockEncoder {
     buf: Vec<u8>,
@@ -130,6 +164,14 @@ impl BlockEncoder {
         put_var(&mut self.buf, from_ms);
         put_var(&mut self.buf, to_ms);
         self.buf.push(reason as u8);
+    }
+
+    pub fn seal(&mut self, block_count: u64, sample_count: u64, prev: &[u8]) {
+        self.buf.push(REC_SEAL);
+        put_var(&mut self.buf, block_count);
+        put_var(&mut self.buf, sample_count);
+        put_var(&mut self.buf, prev.len() as u64);
+        self.buf.extend_from_slice(prev);
     }
 
     pub fn len(&self) -> usize {
@@ -299,16 +341,24 @@ impl<'a> BlockDecoder<'a> {
                 REC_GAP => {
                     let from_ms = self.r.var()?;
                     let to_ms = self.r.var()?;
-                    let reason = match self.r.u8()? {
-                        0 => GapReason::Paused,
-                        1 => GapReason::Sleep,
-                        2 => GapReason::Boot,
-                        _ => return Err(DecodeError::BadRecord(REC_GAP)),
-                    };
+                    let reason = *GapReason::ALL
+                        .get(self.r.u8()? as usize)
+                        .ok_or(DecodeError::BadRecord(REC_GAP))?;
                     return Ok(Some(Record::Gap {
                         from_ms,
                         to_ms,
                         reason,
+                    }));
+                }
+                REC_SEAL => {
+                    let block_count = self.r.var()?;
+                    let sample_count = self.r.var()?;
+                    let len = self.r.count()?;
+                    let prev = self.r.bytes(len)?.to_vec();
+                    return Ok(Some(Record::Seal {
+                        block_count,
+                        sample_count,
+                        prev,
                     }));
                 }
                 t => return Err(DecodeError::BadRecord(t)),
@@ -382,15 +432,26 @@ mod tests {
             0..6,
         );
         let gap =
-            (any::<u64>(), any::<u64>(), 0u8..3).prop_map(|(from_ms, to_ms, r)| Record::Gap {
+            (any::<u64>(), any::<u64>(), 0usize..5).prop_map(|(from_ms, to_ms, r)| Record::Gap {
                 from_ms,
                 to_ms,
-                reason: [GapReason::Paused, GapReason::Sleep, GapReason::Boot][r as usize],
+                reason: GapReason::ALL[r],
+            });
+        let seal = (
+            any::<u64>(),
+            any::<u64>(),
+            prop::collection::vec(any::<u8>(), 0..64),
+        )
+            .prop_map(|(block_count, sample_count, prev)| Record::Seal {
+                block_count,
+                sample_count,
+                prev,
             });
         prop_oneof![
             sample().prop_map(Record::Sample),
             top.prop_map(Record::Top),
-            gap
+            gap,
+            seal
         ]
     }
 
@@ -403,6 +464,11 @@ mod tests {
                 to_ms,
                 reason,
             } => enc.gap(*from_ms, *to_ms, *reason),
+            Record::Seal {
+                block_count,
+                sample_count,
+                prev,
+            } => enc.seal(*block_count, *sample_count, prev),
         }
     }
 
