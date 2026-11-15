@@ -1,6 +1,4 @@
 //! lowmon-svc — servis + install/start/stop/uninstall (spek §11), `run` = konsol modu (geliştirme).
-// shortcut: M5 adım 3'te döngüye bağlanır (allow o zaman kalkar); şimdilik yalnız testler
-#[allow(dead_code)]
 mod alarm;
 mod collect;
 mod export;
@@ -13,10 +11,11 @@ mod security;
 mod ticker;
 mod writer;
 
+use alarm::{Engine, Transition};
 use collect::Collector;
 use lowmon_core::{
     config::{Config, DEFAULT_TOML},
-    metrics::{Sample, TopEntry},
+    metrics::{EventKind, Sample, TopEntry},
     proto::{CH_SAMPLE, CH_TOP, Control, ErrorCode, PIPE_NAME, ServerMsg},
 };
 use pipe::{Cmd, CmdReq, Publisher, Server};
@@ -102,7 +101,6 @@ fn load_config(root: &Path) -> (Config, Option<String>) {
         Err(_) => (Config::default(), None),
         Ok(text) => match Config::parse(&text) {
             Ok(c) => (c, None),
-            // shortcut: hatalı config sessizce varsayılana düşer; M5'te Event olarak loglanır
             Err(e) => (Config::default(), Some(e)),
         },
     }
@@ -249,7 +247,7 @@ fn run_service() -> windows_service::Result<()> {
     };
     let root = service_root();
     let sid = security::service_sid(NAME).ok();
-    let (cfg, _) = load_config(&root);
+    let (cfg, cfg_err) = load_config(&root);
     let init = (|| {
         let key = keystore::load_or_create(&root.join("key.bin"), sid.as_deref())?;
         let ticker = Ticker::new(cfg.sampling.interval_ms)?;
@@ -272,9 +270,9 @@ fn run_service() -> windows_service::Result<()> {
     ))?;
     let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
     let publ = Publisher::default();
-    // shortcut: pipe açılamazsa servis pipe'sız toplamaya devam eder; Event kaydı M5'te
+    // Pipe açılamazsa servis pipe'sız toplamaya devam eder (pipe_unavailable olayı)
     let (srv, cmds) = server(&publ, &cfg, &root, key);
-    let _ = pipe::spawn(PIPE_NAME, srv);
+    let start = start_events(cfg_err.is_some(), pipe::spawn(PIPE_NAME, srv).is_ok());
     collect_loop(
         &ticker,
         &cfg,
@@ -283,6 +281,7 @@ fn run_service() -> windows_service::Result<()> {
         &mut sched,
         &publ,
         &cmds,
+        &start,
         false,
     );
     handle.set_service_status(status(
@@ -316,7 +315,7 @@ fn run_console(args: &[String]) -> Result<(), Box<dyn Error>> {
     };
     fs::create_dir_all(&root)?;
     let (cfg, err) = load_config(&root);
-    if let Some(e) = err {
+    if let Some(e) = &err {
         eprintln!("config.toml hatalı, varsayılanlar kullanılıyor: {e}");
     }
     let key = keystore::load_or_create(&root.join("key.bin"), None)?;
@@ -329,9 +328,11 @@ fn run_console(args: &[String]) -> Result<(), Box<dyn Error>> {
     let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
     let publ = Publisher::default();
     let (srv, cmds) = server(&publ, &cfg, &root, key);
-    if let Err(e) = pipe::spawn(PIPE_NAME, srv) {
+    let pipe = pipe::spawn(PIPE_NAME, srv);
+    if let Err(e) = &pipe {
         eprintln!("pipe açılamadı (servis çalışıyor olabilir), pipe'sız devam: {e}");
     }
+    let start = start_events(err.is_some(), pipe.is_ok());
     collect_loop(
         &ticker,
         &cfg,
@@ -340,6 +341,7 @@ fn run_console(args: &[String]) -> Result<(), Box<dyn Error>> {
         &mut sched,
         &publ,
         &cmds,
+        &start,
         true,
     );
     Ok(())
@@ -369,6 +371,43 @@ fn reload_config(root: &Path) -> Result<Config, ErrorCode> {
     Config::parse(&text).map_err(|_| ErrorCode::Io)
 }
 
+/// Açılışta bilinen sistem olayları (ilk örnekten sonra yazılır).
+fn start_events(config_invalid: bool, pipe_ok: bool) -> Vec<&'static str> {
+    let mut v = vec!["service_start"];
+    if config_invalid {
+        v.push("config_invalid");
+    }
+    if !pipe_ok {
+        v.push("pipe_unavailable");
+    }
+    v
+}
+
+/// System olayları (ADR-0028): aynı ad dakikada ≤ 1 (disk dolu sırasında taşkın yok).
+/// Kuyrukta bekler, örnekten sonra yazılır → zamanı o örneğin ts'i.
+#[derive(Default)]
+struct SysEvents {
+    pending: Vec<(&'static str, i64)>,
+    last: Vec<(&'static str, u64)>,
+}
+
+impl SysEvents {
+    fn push(&mut self, name: &'static str, value: i64, now_ms: u64) {
+        match self.last.iter_mut().find(|l| l.0 == name) {
+            Some(l) if now_ms < l.1 + 60_000 => return,
+            Some(l) => l.1 = now_ms,
+            None => self.last.push((name, now_ms)),
+        }
+        self.pending.push((name, value));
+    }
+
+    fn drain(&mut self, w: &mut Writer) {
+        for (name, value) in self.pending.drain(..) {
+            w.event(EventKind::System, name, value);
+        }
+    }
+}
+
 /// Servis ve `run` konsol modu aynı döngüyü kullanır; durdurulunca Seal yazılır.
 #[allow(clippy::too_many_arguments)]
 fn collect_loop(
@@ -379,6 +418,7 @@ fn collect_loop(
     sched: &mut Scheduler,
     publ: &Publisher,
     cmds: &Receiver<CmdReq>,
+    start: &[&'static str],
     print: bool,
 ) {
     ticker::enter_eco_mode();
@@ -387,6 +427,19 @@ fn collect_loop(
     let mut collector = new_collector(&cfg);
     let (mut s, mut top) = (Sample::default(), Vec::new());
     let mut paused = false;
+    let (mut engine, mut fired) = (Engine::new(&cfg.alarm), Vec::new());
+    let mut sys = SysEvents::default();
+    for &name in start {
+        sys.push(name, 0, now_ms());
+    }
+    if writer.integrity {
+        sys.push("integrity", 0, now_ms());
+    }
+    let retention = |sys: &mut SysEvents, r: Option<std::io::Result<retention::Report>>| match r {
+        Some(Ok(rep)) => sys.push("retention_ok", rep.deleted as i64, now_ms()),
+        Some(Err(_)) => sys.push("retention_error", 0, now_ms()),
+        None => {}
+    };
     while ticker.wait() {
         // Pipe komutları (≤ 1 tick gecikme, ek uyanma yok)
         while let Ok((cmd, done)) = cmds.try_recv() {
@@ -394,11 +447,15 @@ fn collect_loop(
                 Cmd::Flush => writer.flush().map_err(|_| ErrorCode::Io),
                 Cmd::Control(Control::Pause) => {
                     paused = true;
+                    engine.gap();
+                    sys.push("control_pause", 0, now_ms());
+                    sys.drain(writer); // duraklamadan önce, son örneğin ts'iyle
                     writer.pause().map_err(|_| ErrorCode::Io)
                 }
                 Cmd::Control(Control::Resume) => {
                     if std::mem::take(&mut paused) {
                         collector = new_collector(&cfg); // eski delta'lar duraklamayı kapsar → ilk örnek atılır
+                        sys.push("control_resume", 0, now_ms());
                     }
                     Ok(())
                 }
@@ -412,26 +469,50 @@ fn collect_loop(
                     }
                     sched.set_days(new.retention.raw_days, new.retention.total_days);
                     collector = new_collector(&new); // aralık/Top-N değişti → delta'lar sıfırdan
+                    for id in engine.reload(&new.alarm) {
+                        writer.event(EventKind::AlarmClear, &id, 0); // kaldırılan/değişen Raised kural
+                    }
                     cfg = new;
                     Ok(())
                 }),
             };
+            if matches!(cmd, Cmd::Control(Control::ReloadConfig)) {
+                sys.push("control_reload", r.is_ok() as i64, now_ms());
+            }
             if print {
                 eprintln!("komut {cmd:?}: {r:?}");
             }
             let _ = done.send(r);
         }
         if paused {
-            sched.tick(now_ms()); // retention duraklamada da çalışır
+            retention(&mut sys, sched.tick(now_ms())); // retention duraklamada da çalışır
             continue;
         }
         let got = collector.collect(&mut s, &mut top);
-        // shortcut: yazma hatası (disk dolu vb.) yalnızca konsolda görünür; servis toplamaya devam eder, Event M5'te
-        if got.sample
-            && let Err(e) = writer.sample(&s)
-            && print
-        {
-            eprintln!("log yazma hatası: {e}");
+        if got.sample {
+            // Yazma hatası (disk dolu vb.): toplama sürer, write_error olayı dakikada ≤ 1
+            let gap = writer.sample(&s).unwrap_or_else(|e| {
+                if print {
+                    eprintln!("log yazma hatası: {e}");
+                }
+                sys.push("write_error", 0, s.ts_unix_ms);
+                false
+            });
+            if gap {
+                engine.gap(); // uyku / duraklama: yarım süreler geçersiz
+            }
+            engine.step(&s, &collector.ctx, &mut fired);
+            for (id, t, v) in &fired {
+                let kind = match t {
+                    Transition::Raise => EventKind::AlarmRaise,
+                    Transition::Clear => EventKind::AlarmClear,
+                };
+                writer.event(kind, id, (v * 100.0) as i64);
+                if print {
+                    eprintln!("alarm {kind:?} {id} = {v:.2}");
+                }
+            }
+            sys.drain(writer);
         }
         if got.top {
             writer.top(&top);
@@ -440,7 +521,7 @@ fn collect_loop(
         if got.sample {
             publ.publish(CH_SAMPLE, || ServerMsg::Sample(s.clone()));
         }
-        sched.tick(s.ts_unix_ms);
+        retention(&mut sys, sched.tick(s.ts_unix_ms));
         if print && got.sample {
             print_sample(&s);
         }
@@ -496,6 +577,21 @@ fn print_sample(s: &Sample) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sys_events_rate_limited_per_name() {
+        let mut e = SysEvents::default();
+        e.push("write_error", 0, 1_000);
+        e.push("write_error", 0, 30_000); // aynı dakika → atılır
+        e.push("retention_ok", 3, 30_000); // başka ad → geçer
+        e.push("write_error", 0, 61_000);
+        let names: Vec<_> = e.pending.iter().map(|p| p.0).collect();
+        assert_eq!(names, ["write_error", "retention_ok", "write_error"]);
+        assert_eq!(
+            start_events(true, false),
+            ["service_start", "config_invalid", "pipe_unavailable"]
+        );
+    }
 
     #[test]
     fn reload_config_accepts_changes_and_rejects_bad_file() {
