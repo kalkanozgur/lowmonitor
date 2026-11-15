@@ -27,7 +27,7 @@
 - [x] M3: pipe protokolü + tray (canlı Sample, tray, HKCU Run, Admin kontrolü, Export)
 - [ ] M4: protokol tarafı: ~~`QueryRange`~~ (kod tamam, servise kurulmadı), `Control`, Export öncesi flush, `lowmon-elev` (UI Slint ile ayrıca, ADR-0019)
 - [ ] M5: alarmlar + bildirim
-- [~] M6: M6a (`/v1/live`), M6b (pair/token/ban/Origin, LAN bind), M6c (`/v1/info`, firewall) kod tamam; M6d HKCU Run/kurulum/ölçüm. `lowmon-net` spek §16 tam (WS + info + pair, token/DPAPI, ban, Origin, firewall, HKCU Run), PR'lara bölünür (M6a–d)
+- [~] M6: M6a–c kod tamam; M6d kurulum (`install.ps1`, firewall) + **telefon kabul testi ✅ 2026-11-15** (Samsung M21, LAN). Kalan: `lowmon-net` HKCU Run/otomatik başlatma (şimdilik elle, konsol), uzun süreli ölçüm; `bind` sabit IP → DHCP rezervasyonu
 - [ ] LowDeck entegrasyonu (yol a, ADR-0022): `lowdeck-agent` pipe Viewer → telefona CPU/RAM/disk/ağ/Top-N; LowDeck'te ayrı oturum
 
 ## Fikirler / açık konular (spek §15)
