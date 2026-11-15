@@ -40,15 +40,15 @@ use windows_sys::Win32::{
     UI::{
         Shell::{
             NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_WARNING, NIM_ADD, NIM_DELETE,
-            NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
+            NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW, ShellExecuteW,
         },
         WindowsAndMessaging::{
             AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
             DestroyIcon, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
             HICON, ICONINFO, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostMessageW,
-            PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow,
-            TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP,
-            WM_DESTROY, WM_NULL, WM_RBUTTONUP, WNDCLASSW,
+            PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SW_SHOWNORMAL,
+            SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
+            TranslateMessage, WM_APP, WM_DESTROY, WM_NULL, WM_RBUTTONUP, WNDCLASSW,
         },
     },
 };
@@ -304,7 +304,15 @@ fn menu(hwnd: HWND) {
             // shortcut: başlatma hatası sessiz (exe silinmiş/taşınmış); uygulama açılınca değer düzelir
             ID_UI => {
                 if let Some(exe) = ui {
-                    let _ = std::process::Command::new(exe).spawn();
+                    // ShellExecuteW: std::process::Command exe'ye ~75 KB ekliyordu.
+                    ShellExecuteW(
+                        hwnd,
+                        ptr::null(),
+                        wide(&exe).as_ptr(),
+                        ptr::null(),
+                        ptr::null(),
+                        SW_SHOWNORMAL,
+                    );
                 }
             }
             ID_MUTE => {
