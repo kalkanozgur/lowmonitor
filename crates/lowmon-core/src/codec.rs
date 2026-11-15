@@ -5,12 +5,13 @@
 //!   Delta durumu her blokta sıfırlanır → blok tek başına çözülebilir.
 //! - ProcDict: segment kapsamlı isim sözlüğü; yeni isim ilk kullanıldığı TopN'den hemen önce yazılır.
 //! - Seal: STOP/PRESHUTDOWN ve gün dönümünde son blok; ardından (yeniden başlatmada) yeni bloklar gelebilir.
-// shortcut: Event (0x03) M5'te; o zamana kadar bütünlük sorunları Gap(Integrity) olarak yazılır
+//! - Event (ADR-0028): alarm Raise/Clear ve sistem olayları; isim ProcDict'i paylaşır, zamanı önceki Sample'ın ts'i.
 use crate::metrics::{DiskIo, NetIo, Sample, TopEntry};
 use std::collections::HashMap;
 
 pub const REC_SAMPLE: u8 = 0x01;
 pub const REC_TOPN: u8 = 0x02;
+pub const REC_EVENT: u8 = 0x03;
 pub const REC_PROCDICT: u8 = 0x04;
 pub const REC_GAP: u8 = 0x05;
 /// Downsample (spek §5.5): dakika başına min/avg/max örnek.
@@ -18,9 +19,10 @@ pub const REC_AGG: u8 = 0x06;
 pub const REC_SEAL: u8 = 0xFF;
 
 /// Kayıt şeması değişince artar; Header.schema_hash'e yazılır.
-pub const SCHEMA: u32 = 1;
+/// 2: REC_EVENT. Okuyucu 1'i de okur; başlık alanı okumada denetlenmez.
+pub const SCHEMA: u32 = 2;
 
-pub use crate::metrics::{AggKind, GapReason};
+pub use crate::metrics::{AggKind, EventKind, GapReason};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Record {
@@ -32,6 +34,12 @@ pub enum Record {
     },
     /// Zamanı, bloktaki bir önceki Sample'ın ts'idir.
     Top(Vec<TopEntry>),
+    /// Zamanı, bloktaki bir önceki Sample'ın ts'idir. `value`: alarmda değer × 100.
+    Event {
+        kind: EventKind,
+        name: String,
+        value: i64,
+    },
     Gap {
         from_ms: u64,
         to_ms: u64,
@@ -136,19 +144,22 @@ impl BlockEncoder {
         std::mem::swap(&mut self.prev, &mut self.cur);
     }
 
-    pub fn top(&mut self, top: &[TopEntry], dict: &mut Dict) {
-        let mut ids = Vec::with_capacity(top.len());
-        for e in top {
-            let next = dict.ids.len() as u32;
-            let id = *dict.ids.entry(e.name.clone()).or_insert_with(|| {
-                self.buf.push(REC_PROCDICT);
-                put_var(&mut self.buf, next as u64);
-                put_var(&mut self.buf, e.name.len() as u64);
-                self.buf.extend_from_slice(e.name.as_bytes());
-                next
-            });
-            ids.push(id);
+    /// İsmin sözlük id'si; yeni isimse önce ProcDict kaydı yazılır.
+    fn name_id(&mut self, name: &str, dict: &mut Dict) -> u32 {
+        if let Some(&id) = dict.ids.get(name) {
+            return id;
         }
+        let id = dict.ids.len() as u32;
+        dict.ids.insert(name.to_owned(), id);
+        self.buf.push(REC_PROCDICT);
+        put_var(&mut self.buf, id as u64);
+        put_var(&mut self.buf, name.len() as u64);
+        self.buf.extend_from_slice(name.as_bytes());
+        id
+    }
+
+    pub fn top(&mut self, top: &[TopEntry], dict: &mut Dict) {
+        let ids: Vec<u32> = top.iter().map(|e| self.name_id(&e.name, dict)).collect();
         self.buf.push(REC_TOPN);
         put_var(&mut self.buf, top.len() as u64);
         for (e, id) in top.iter().zip(ids) {
@@ -156,6 +167,14 @@ impl BlockEncoder {
                 put_var(&mut self.buf, v);
             }
         }
+    }
+
+    pub fn event(&mut self, kind: EventKind, name: &str, value: i64, dict: &mut Dict) {
+        let id = self.name_id(name, dict);
+        self.buf.push(REC_EVENT);
+        self.buf.push(kind as u8);
+        put_var(&mut self.buf, id as u64);
+        put_var(&mut self.buf, zig(value as u64));
     }
 
     pub fn gap(&mut self, from_ms: u64, to_ms: u64, reason: GapReason) {
@@ -344,6 +363,19 @@ impl<'a> BlockDecoder<'a> {
                         .map(|sample| Some(Record::Agg { kind, sample }));
                 }
                 REC_TOPN => return self.top().map(|t| Some(Record::Top(t))),
+                REC_EVENT => {
+                    let kind = *EventKind::ALL
+                        .get(self.r.u8()? as usize)
+                        .ok_or(DecodeError::BadRecord(REC_EVENT))?;
+                    let id: u32 = narrow(self.r.var()?)?;
+                    let name = self
+                        .names
+                        .get(id as usize)
+                        .ok_or(DecodeError::UnknownName(id))?
+                        .clone();
+                    let value = unzig(self.r.var()?) as i64;
+                    return Ok(Some(Record::Event { kind, name, value }));
+                }
                 REC_PROCDICT => self.proc_dict()?,
                 REC_GAP => {
                     let from_ms = self.r.var()?;
@@ -527,10 +559,17 @@ mod tests {
             kind: AggKind::ALL[k],
             sample,
         });
+        let event =
+            (0usize..3, "[a-z_]{1,12}", any::<i64>()).prop_map(|(k, name, value)| Record::Event {
+                kind: EventKind::ALL[k],
+                name,
+                value,
+            });
         prop_oneof![
             sample().prop_map(Record::Sample),
             agg,
             top.prop_map(Record::Top),
+            event,
             gap,
             seal
         ]
@@ -541,6 +580,7 @@ mod tests {
             Record::Sample(s) => enc.sample(s),
             Record::Agg { kind, sample } => enc.agg(*kind, sample),
             Record::Top(t) => enc.top(t, dict),
+            Record::Event { kind, name, value } => enc.event(*kind, name, *value, dict),
             Record::Gap {
                 from_ms,
                 to_ms,

@@ -102,7 +102,15 @@ fn segment(
                     to_ms,
                     reason,
                 })?,
-                Ok(_) => {} // Top, Seal, kapsam dışı Gap
+                Ok(Record::Event { kind, name, value }) if (from..to).contains(last) => {
+                    emit(RangeItem::Event {
+                        ts_ms: *last,
+                        kind,
+                        name,
+                        value,
+                    })?
+                }
+                Ok(_) => {} // Top, Seal, kapsam dışı Gap/Event
             }
         }
     }
@@ -198,6 +206,43 @@ mod tests {
                 from_ms: t0 + 3_000,
                 to_ms: t0 + 6_000,
                 reason: GapReason::Integrity
+            }
+        );
+        let _ = fs::remove_dir_all(&r);
+    }
+
+    #[test]
+    fn event_gets_previous_sample_ts() {
+        let r = std::env::temp_dir().join(format!("lowmon-test-{}-qevent", std::process::id()));
+        let _ = fs::remove_dir_all(&r);
+        let key = [7; 32];
+        let t0 = 20_000 * DAY_MS;
+        let mut w = Writer::open(&r, key, 1000, t0, 3_600_000).unwrap();
+        for i in 0..3 {
+            w.sample(&Sample {
+                ts_unix_ms: t0 + i * 1000,
+                ..Default::default()
+            })
+            .unwrap();
+            if i == 1 {
+                w.event(lowmon_core::metrics::EventKind::AlarmClear, "ram", 42);
+            }
+        }
+        w.close().unwrap();
+        let mut v = Vec::new();
+        query(&r, &key, t0, t0 + 3_000, Resolution::Raw, &mut |it| {
+            v.push(it);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(v.len(), 4, "{v:?}");
+        assert_eq!(
+            v[2],
+            RangeItem::Event {
+                ts_ms: t0 + 1000,
+                kind: lowmon_core::metrics::EventKind::AlarmClear,
+                name: "ram".into(),
+                value: 42
             }
         );
         let _ = fs::remove_dir_all(&r);

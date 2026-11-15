@@ -97,6 +97,10 @@ pub fn segment(
                         .collect();
                     (last_ts, other_row("top", last_ts, &info.join(" ")))
                 }
+                Ok(Record::Event { kind, name, value }) => (
+                    last_ts,
+                    other_row("event", last_ts, &format!("{kind:?} {name} {value}")),
+                ),
                 Ok(Record::Gap {
                     from_ms,
                     to_ms,

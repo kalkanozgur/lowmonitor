@@ -3,7 +3,7 @@
 //! Değiştirme sırası çökmeye dayanıklı: `.tmp` yaz → baştan doğrula → ham dosyayı sil → `.tmp`'yi yeniden adlandır.
 //! Yarım kalan `.tmp` bir sonraki çalışmada tamamlanır (orijinal yoksa) ya da silinir.
 use lowmon_core::{
-    codec::{AggKind, BlockDecoder, BlockEncoder, Dict, Record, SCHEMA, aggregate},
+    codec::{AggKind, BlockDecoder, BlockEncoder, Dict, EventKind, Record, SCHEMA, aggregate},
     crypto::{FLAG_DOWNSAMPLED, Header, MasterKey, Opener, Sealer},
     metrics::{Sample, TopEntry},
     time::parse_day,
@@ -102,6 +102,8 @@ struct Out {
     enc: BlockEncoder,
     dict: Dict,
     minutes: u64,
+    /// Açık dakikanın olayları: özetten sonra yazılır (zamanları dakika başına iner).
+    events: Vec<(EventKind, String, i64)>,
 }
 
 impl Out {
@@ -119,14 +121,21 @@ impl Out {
         top: &mut Option<Vec<TopEntry>>,
         minute: u64,
     ) -> Result<(), lowmon_core::crypto::CryptoError> {
-        if let Some(aggs) = aggregate(bucket, minute * 60_000) {
-            for (kind, s) in AggKind::ALL.iter().zip(&aggs) {
+        let aggs = aggregate(bucket, minute * 60_000);
+        if let Some(aggs) = &aggs {
+            for (kind, s) in AggKind::ALL.iter().zip(aggs) {
                 self.enc.agg(*kind, s);
             }
             // Dakikanın ilk TopN'i korunur (spek: 1 dk çözünürlük)
             if let Some(t) = top.take() {
                 self.enc.top(&t, &mut self.dict);
             }
+        }
+        // Olaylar özetlenmez, hepsi taşınır (ADR-0028)
+        for (k, n, v) in std::mem::take(&mut self.events) {
+            self.enc.event(k, &n, v, &mut self.dict);
+        }
+        if aggs.is_some() {
             self.minutes += 1;
             if self.minutes.is_multiple_of(MINUTES_PER_BLOCK) {
                 self.flush()?;
@@ -151,6 +160,7 @@ fn build(
         enc: BlockEncoder::default(),
         dict: Dict::default(),
         minutes: 0,
+        events: Vec::new(),
     };
     let (mut bucket, mut top, mut cur) = (Vec::new(), None, None);
     for r in records {
@@ -164,6 +174,13 @@ fn build(
                 bucket.push(s.clone());
             }
             Record::Top(t) if top.is_none() && cur.is_some() => top = Some(t.clone()),
+            Record::Event { kind, name, value } if cur.is_some() => {
+                out.events.push((*kind, name.clone(), *value))
+            }
+            // Açık dakika yok (ör. gap sonrası, ilk örnekten önce): hemen yaz
+            Record::Event { kind, name, value } => {
+                out.enc.event(*kind, name, *value, &mut out.dict)
+            }
             Record::Gap {
                 from_ms,
                 to_ms,
@@ -387,6 +404,46 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn events_survive_downsampling() {
+        let r = root("event");
+        let t0 = (TODAY - 10) * DAY_MS;
+        let mut w = Writer::open(&r, KEY, 1000, t0, 3_600_000).unwrap();
+        for i in 0..4 {
+            w.sample(&Sample {
+                ts_unix_ms: t0 + i * 1000,
+                ..Default::default()
+            })
+            .unwrap();
+            if i == 1 {
+                w.event(EventKind::AlarmRaise, "cpu", 9000);
+            }
+        }
+        w.close().unwrap();
+        run(&r, &KEY, 7, 30, TODAY).unwrap();
+        let (_, recs) = records(&r.join("logs").join(segment_name(TODAY - 10)));
+        let ev = recs
+            .iter()
+            .position(|r| matches!(r, Record::Event { .. }))
+            .expect("event kayboldu");
+        assert_eq!(
+            recs[ev],
+            Record::Event {
+                kind: EventKind::AlarmRaise,
+                name: "cpu".into(),
+                value: 9000
+            }
+        );
+        // Dakikanın Agg'larından sonra gelir → okuyucu ts'i dakika sonu olarak görür
+        assert!(matches!(
+            recs[ev - 1],
+            Record::Agg {
+                kind: AggKind::Max,
+                ..
+            }
+        ));
     }
 
     #[test]

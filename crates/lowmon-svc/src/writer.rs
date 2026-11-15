@@ -3,7 +3,7 @@
 //! Dizin düzeni: `<root>/logs/YYYY-MM-DD.lwm`, `<root>/state/state.bin`.
 //! Açılışta bugünün segmenti baştan doğrulanır; zincir + isim sözlüğü geri kurulur ve sona eklenir.
 use lowmon_core::{
-    codec::{BlockDecoder, BlockEncoder, Dict, GapReason, Record, SCHEMA},
+    codec::{BlockDecoder, BlockEncoder, Dict, EventKind, GapReason, Record, SCHEMA},
     crypto::{CryptoError, Header, MasterKey, Opener, Sealer},
     metrics::{Sample, TopEntry},
     time::{day_of, segment_name},
@@ -282,6 +282,13 @@ impl Writer {
 
     pub fn top(&mut self, top: &[TopEntry]) {
         self.seg.enc.top(top, &mut self.seg.dict);
+    }
+
+    /// Alarm / sistem olayı (ADR-0028); zamanı son örneğin ts'i.
+    // shortcut: toplayıcı döngüsü henüz çağırmıyor, M5 adım 3'te bağlanınca allow kalkar
+    #[allow(dead_code)]
+    pub fn event(&mut self, kind: EventKind, name: &str, value: i64) {
+        self.seg.enc.event(kind, name, value, &mut self.seg.dict);
     }
 
     /// Tamponu tek blok olarak yazar (tek WriteFile) ve zincir başını state.bin'e kaydeder.

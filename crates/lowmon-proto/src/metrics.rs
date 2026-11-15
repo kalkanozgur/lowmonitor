@@ -66,6 +66,19 @@ impl GapReason {
     ];
 }
 
+/// Event kaydı türü (spek §5.4, ADR-0028).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum EventKind {
+    AlarmRaise = 0,
+    AlarmClear = 1,
+    /// Servis olayı: `name` = olay kodu (`config_invalid`, `write_error`, …).
+    System = 2,
+}
+
+impl EventKind {
+    pub const ALL: [EventKind; 3] = [Self::AlarmRaise, Self::AlarmClear, Self::System];
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AggKind {
     Min = 0,
