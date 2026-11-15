@@ -1,6 +1,6 @@
 # ADR-0019: Arayüz egui yerine Slint, ayrı geliştirilecek
 - Tarih: 2026-11-14
-- Durum: Kabul (ADR-0007'nin, spek §9'un ve M4'ün UI kısmının yerini alır)
+- Durum: Kabul (ADR-0007'nin, spek §9'un ve M4'ün UI kısmının yerini alır); repo yeri [ADR-0029](ADR-0029-pc-arayuzu-lowdeck.md) ile kapandı: LowDeck
 
 ## Bağlam
 Spek §9'da `lowmon-ui` egui/eframe (glow) ile yapılacaktı. Kullanıcı arayüzü Slint ile, yine Rust'ta, kendisi ayrıca geliştirecek.

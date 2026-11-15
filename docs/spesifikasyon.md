@@ -25,7 +25,7 @@
 | `lowmon-svc` | ~0.4 ms/s → tek çekirdeğin ~%0.04'ü; Görev Yöneticisi'nde %0.00–0.01 | 2–3 MB | Sürekli |
 | `lowmon-tray` | ~50 µs / 2 s → ~%0 | 1.5–2 MB | Sürekli |
 | `lowmon-net` | ~20 µs/s (istemci varken) | 1.5–2.5 MB | İsteğe bağlı, sürekli |
-| `lowmon-ui` | %0.3–1 (1 Hz repaint) | 50–90 MB (çoğu GPU sürücüsü) | Sadece açıkken |
+| Arayüz (LowDeck masaüstü, ADR-0029) | %0.3–1 (≤ 1 Hz çizim) | ölçümü LowDeck'te | Sadece açıkken |
 
 - **svc CPU:** okuma ~50 µs + kodlama ~10 µs + Top-N ortalaması ~400 µs/s (maliyetin ~%85'i). Şifreleme ~1 µs/dk.
 - **svc RAM:** runtime + exe ~1 MB, `SystemProcessInformation` buffer'ı 0.5–1 MB, diğer < 100 KB.
@@ -48,7 +48,7 @@
 | `lowmon-core` (lib) | Kayıt formatı, kripto, config; `lowmon-proto`'yu yeniden dışa verir | — | Tüm exe'ler paylaşır |
 | `lowmon-svc` | Toplayıcı, log yazıcı, alarm motoru, pipe sunucu | LocalService + servis SID'i | Windows servisi |
 | `lowmon-tray` | Tray ikon, tooltip, alarm bildirimi | Kullanıcı | GUI framework yok |
-| `lowmon-ui` | Grafikler, geçmiş, müdahale | Kullanıcı (asInvoker) | egui/eframe (glow) |
+| Arayüz (LowDeck repo, ADR-0029) | Grafikler, olaylar, geçmiş | Kullanıcı (asInvoker), `lowdeck-agent` üzerinden | Slint |
 | `lowmon-elev` | Yükseltilmiş tek seferlik işlem | Admin (UAC) | İşini yapıp çıkar |
 | `lowmon-gpu` | NVML üretici | Kullanıcı | **Sonra tasarlanacak** |
 | `lowmon-net` | LAN veri yayıncısı (WebSocket), Mi Note 10 Lite vb. istemciler için | Kullanıcı | Bkz. §16 |
@@ -57,7 +57,7 @@
 ┌──────────────┐  named pipe (postcard)  ┌──────────────┐
 │ lowmon-tray  │◄──────────────────────►│              │
 ├──────────────┤                         │  lowmon-svc  │──► %ProgramData%\LowMonitor\logs\*.lwm
-│ lowmon-ui    │◄──────────────────────►│  (session 0) │      (XChaCha20-Poly1305 + zincir)
+│ lowdeck-agent│◄──────────────────────►│  (session 0) │      (XChaCha20-Poly1305 + zincir)
 ├──────────────┤                         │              │
 │ lowmon-gpu   │───── producer ─────────►│              │
 ├──────────────┤                         │              │
@@ -87,7 +87,6 @@ LowMonitor/
 │  │  └─ src/{main.rs, service.rs, install.rs, collect/{cpu,mem,disk,net,proc}.rs,
 │  │          writer.rs, retention.rs, alarm.rs, pipe.rs}
 │  ├─ lowmon-tray/
-│  ├─ lowmon-ui/
 │  └─ lowmon-elev/
 ├─ docs/
 │  ├─ adr/                   # mimari karar kayıtları
@@ -297,28 +296,29 @@ clear    = { below = 85.0, for_s = 30 }
 - `windows-sys` + gizli üst düzey pencere + `Shell_NotifyIconW` (ADR-0018).
 - 16×16 ikon: CPU/RAM çift çubuk, `CreateDIBSection` + `CreateIconIndirect`, 2 s'de bir güncelleme.
 - Tooltip: `CPU 12% · RAM 58% · ↓1.2 MB/s`.
-- Sol tık → `lowmon-ui.exe` (named mutex ile tek örnek, açıksa `SetForegroundWindow`).
-- Sağ tık menü: UI aç, alarmları sessize al (1 saat), çıkış.
+- "Arayüzü aç" → `HKCU\Software\LowMonitor` `UiExe` değerindeki LowDeck masaüstü exe'si (ADR-0029); değer yoksa pasif.
+- Sağ tık menü: arayüzü aç, alarmları sessize al (1 saat), Windows ile başlat, çıkış.
 - Servis yoksa ikon gri, 10 s'de bir yeniden bağlanma denemesi.
 - Otomatik başlatma: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
 ---
 
-## 9. lowmon-ui (egui)
+## 9. Arayüz (LowDeck masaüstü)
 
-> **ADR-0019:** UI Slint ile, kullanıcı tarafından ayrıca geliştirilecek. Aşağıdaki ekran listesi geçerli; egui'ye özgü maddeler Slint karşılığıyla yorumlanır.
+> **ADR-0019 → ADR-0029:** UI Slint ile, **LowDeck** reposunda (masaüstü uygulaması). Bu repoda `lowmon-ui` yok. Arayüz veriye yalnız `lowdeck-agent` üzerinden erişir (loopback); pipe'a bağlanan tek LowDeck bileşeni agent'tır. Sözleşme = §6 pipe protokolü.
 
-**Ekranlar**
-1. **Canlı:** CPU (toplam + çekirdek ısı haritası), RAM/commit, disk, ağ grafikleri (son 5 dk).
-2. **Geçmiş:** zaman aralığı seçici → `QueryRange`, otomatik çözünürlük (aralık > 6 saat → 1 dk).
-3. **Süreçler:** Top-N tablosu + müdahale butonları.
-4. **Olaylar:** alarm geçmişi.
-5. **Ayarlar:** servis kontrolü, retention, alarm kuralları (Admin gerekli).
+**Ekranlar** (sıra = teslim sırası)
+1. **Canlı:** CPU (toplam + çekirdek), RAM/commit, disk, ağ (son 5 dk). — ilk teslimat
+2. **Olaylar:** `CH_EVENT` canlı + `QueryRange` `RangeItem::Event` geçmişi; aktif alarmlar. — ilk teslimat
+3. **Geçmiş:** zaman aralığı → `QueryRange`, otomatik çözünürlük (aralık > 6 saat → 1 dk).
+4. **Süreçler:** Top-N tablosu + müdahale (`lowmon-elev`, §10).
+5. **Ayarlar:** servis kontrolü, retention, alarm kuralları (`lowmon-elev --op write-config` + `ReloadConfig`).
 
-**Performans kuralları**
-- `eframe` glow backend, `request_repaint_after(1s)`; sürekli repaint yok.
-- Minimize → `Unsubscribe`; restore → yeniden abone.
-- Grafik verisi ring buffer (`VecDeque`, sabit kapasite).
+**Performans kuralları (Slint)**
+- Yeniden çizim yalnız veri değişince, ≤ 1 Hz; sürekli timer/animasyon yok.
+- Simge durumu → abonelik bırakılır; geri gelince yeniden abone.
+- Grafik verisi sabit kapasiteli ring buffer.
+- Yetki: arayüz ve agent yükseltilmemiş; Admin işleri yalnız `lowmon-elev` (UAC).
 
 ---
 
@@ -389,7 +389,7 @@ clear    = { below = 85.0, for_s = 30 }
 | **M1** | CPU/RAM/Disk/Ağ/Top-N toplayıcı | 24 saatte CPU < %0.05 (toplam, ADR-0026), Private WS / Private Bytes < 3 MB |
 | **M2** | Şifreli + zincirli log, seal, retention, `lwm-dump` | Kurcalama testlerinin tamamı yakalanıyor |
 | **M3** | Pipe protokolü + tray | Abone yokken sıfır akış, tray yeniden bağlanıyor |
-| **M4** | UI (Slint, ADR-0019), geçmiş sorgusu, müdahale + `lowmon-elev` | Yükseltilmiş süreç kill'i UAC ile çalışıyor |
+| **M4** | Geçmiş sorgusu, müdahale + `lowmon-elev` (UI LowDeck'te, ADR-0029) | Yükseltilmiş süreç kill'i UAC ile çalışıyor |
 | **M5** | Alarmlar + bildirim | Histerezis testleri geçiyor, toast görünüyor |
 | **M6** | `lowmon-net` (WS + eşleştirme + firewall kuralı) | `websocat` ile token'lı bağlantı 1 Hz JSON alıyor; token'sız bağlantı reddediliyor |
 | Sonra | `lowmon-gpu` (NVML), MQTT → Home Assistant | Ayrı tasarım |
