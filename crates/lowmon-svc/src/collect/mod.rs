@@ -78,3 +78,47 @@ impl Collector {
         mem::read(s) && cpu_ok
     }
 }
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+
+    /// Çağrı başına duvar süresi (kernel dahil). `cargo test -p lowmon-svc --release cost_per_call -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn cost_per_call() {
+        fn t(name: &str, n: u32, mut f: impl FnMut()) -> f64 {
+            f();
+            let s = Instant::now();
+            for _ in 0..n {
+                f();
+            }
+            let us = s.elapsed().as_secs_f64() * 1e6 / n as f64;
+            println!("{name:<14} {us:>9.1} µs/çağrı");
+            us
+        }
+        let mut s = Sample::default();
+        let mut top = Vec::new();
+        let (mut c, mut d, mut ni, mut tn) = (
+            cpu::Cpu::default(),
+            disk::Disks::default(),
+            net::Nics::default(),
+            topn::TopN::default(),
+        );
+        d.rediscover();
+        ni.rediscover();
+        let cpu = t("cpu", 500, || _ = c.read(&mut s));
+        let mem = t("mem", 500, || _ = mem::read(&mut s));
+        let disk = t("disk", 500, || d.read(1000, &mut s.disk));
+        let net = t("net", 500, || ni.read(1000, &mut s.net));
+        let topn = t("topn", 100, || _ = tn.scan(50_000_000, 16, 5, &mut top));
+        t("topn sorgu", 100, || _ = tn.query());
+        let red_d = t("disk keşif", 20, || {
+            d = disk::Disks::default();
+            d.rediscover()
+        });
+        let red_n = t("nic keşif", 20, || ni.rediscover());
+        let per_s = cpu + mem + disk + net + topn / 5.0 + (red_d + red_n) / 60.0;
+        println!("tahmini toplam {:.0} µs/s", per_s);
+    }
+}
