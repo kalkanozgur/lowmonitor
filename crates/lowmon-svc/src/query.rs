@@ -42,6 +42,27 @@ pub fn query(
     Ok(())
 }
 
+/// Pipe `QueryEvents` (LowDeck ADR-0003): yalnız `RangeItem::Event`; segment yine çözülür.
+pub fn query_events(
+    root: &Path,
+    master: &MasterKey,
+    from: u64,
+    to: u64,
+    emit: &mut impl FnMut(RangeItem) -> io::Result<()>,
+) -> io::Result<()> {
+    query(
+        root,
+        master,
+        from,
+        to,
+        Resolution::Raw,
+        &mut |it| match it {
+            RangeItem::Event { .. } => emit(it),
+            _ => Ok(()),
+        },
+    )
+}
+
 /// Segmenti baştan doğrulayarak akıtır. `false`: doğrulama/çözme hatası, `last` = son geçerli ts.
 fn segment(
     master: &MasterKey,
@@ -245,6 +266,13 @@ mod tests {
                 value: 42
             }
         );
+        let mut ev = Vec::new();
+        query_events(&r, &key, t0, t0 + 3_000, &mut |it| {
+            ev.push(it);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(ev, [v[2].clone()], "yalnız olay");
         let _ = fs::remove_dir_all(&r);
     }
 }

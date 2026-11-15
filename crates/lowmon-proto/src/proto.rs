@@ -46,6 +46,11 @@ pub enum ClientMsg {
     },
     /// Admin. Toplayıcı döngüsü ≤ 1 tick içinde uygular; `Ack` ya da `Error`.
     Control(Control),
+    /// Herkes. `[from_ms, to_ms)` yalnız olaylar: `Range` çerçevelerinde `RangeItem::Event`, `Ack` ile biter (LowDeck ADR-0003).
+    QueryEvents {
+        from_ms: u64,
+        to_ms: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
