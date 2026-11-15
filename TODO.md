@@ -3,7 +3,8 @@
 - [x] Rust toolchain kur (rustup, 1.100.0-msvc)
 - [x] M0: workspace, toolchain, crt-static, boş servis (install/start/stop/uninstall)
 
-- [ ] Soak (M3 exe `f8e1d7f`) bitişi ~2026-11-15 22:42 → `2026-11-14_m3-soak.csv` analizi, M1 kabul kriteri (CPU < %0,05, Private < 3 MB, sızıntı yok)
+- [ ] 24 saat soak yeniden (ilk koşu 2,76 sa'te kesildi, [kısmi ölçüm](docs/olcumler/2026-11-15_m3-kismi-soak.md)): yönetici pwsh ile `scripts/soak.ps1`, M1 kabulü (CPU < %0,05 toplam — ADR-0026, Private < 3 MB, sızıntı yok)
+- [ ] CPU 2,26 ms/s vs tahmin 0,4 ms/s: profille (WPR), nereye gidiyor
 - [ ] Soak sonrası: aynı koşullarda `opt-level` 3 / "s" / "z" karşılaştırması (CPU + exe boyutu)
 - [ ] Servis modunda ilk gece 03:00 retention çalışmasının sonucu (export ile kontrol)
 - [ ] Dakikalık özet segmentinin gerçek boyutu (7 gün sonra veya elle tetikleyerek)
