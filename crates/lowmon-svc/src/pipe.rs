@@ -3,7 +3,9 @@
 use crate::{export::export, query::query, security::wide};
 use lowmon_core::{
     crypto::MasterKey,
-    proto::{self, CH_SAMPLE, ClientMsg, Control, ErrorCode, PROTO, RangeItem, ServerMsg},
+    proto::{
+        self, CH_EVENT, CH_SAMPLE, ClientMsg, Control, ErrorCode, PROTO, RangeItem, ServerMsg,
+    },
 };
 use std::{
     io::{self, Read, Write},
@@ -99,6 +101,8 @@ struct Subs {
     list: Vec<Sub>,
     /// Örnekleme aralığı; ReloadConfig değiştirebilir (ADR-0027) → `every` yeniden hesaplanır.
     interval_ms: u32,
+    /// Raised kural id'leri; `CH_EVENT` abonesine ilk çerçeve.
+    alarms: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -109,6 +113,7 @@ impl Default for Publisher {
         Self(Arc::new(Mutex::new(Subs {
             list: Vec::new(),
             interval_ms: 1000,
+            alarms: Vec::new(),
         })))
     }
 }
@@ -130,6 +135,10 @@ impl Publisher {
             s.every = every(s.rate_ms, interval_ms);
             s.count = s.count.min(s.every - 1);
         }
+    }
+
+    pub fn set_alarms(&self, alarms: Vec<String>) {
+        self.lock().alarms = alarms;
     }
 
     /// `msg` yalnızca en az bir abonenin sırası geldiyse çağrılır ve bir kez serileştirilir.
@@ -165,6 +174,12 @@ impl Publisher {
     fn subscribe(&self, id: u64, channels: u8, rate_ms: u32, tx: SyncSender<Frame>) {
         let mut g = self.lock();
         g.list.retain(|s| s.id != id);
+        // Kilit altında: anlık liste ile sonraki `Event`'ler arasında boşluk/çakışma yok
+        if channels & CH_EVENT != 0
+            && let Ok(f) = proto::encode(&ServerMsg::Alarms(g.alarms.clone()))
+        {
+            let _ = tx.try_send(f.into());
+        }
         // count = every-1 → ilk örnek hemen gider
         let every = every(rate_ms, g.interval_ms);
         g.list.push(Sub {
@@ -620,6 +635,26 @@ mod tests {
         }
         assert_eq!(sent, 3);
         assert_eq!(every(500, 1000), 1); // aralıktan hızlı istek → her örnek
+    }
+
+    #[test]
+    fn event_subscriber_gets_alarms_snapshot_first() {
+        let publ = Publisher::default();
+        publ.set_alarms(vec!["cpu_high".into()]);
+        let (tx, rx) = sync_channel(16);
+        publ.subscribe(1, CH_EVENT, 1000, tx);
+        let (tx2, rx2) = sync_channel(16);
+        publ.subscribe(2, CH_SAMPLE, 1000, tx2);
+        publ.publish(CH_EVENT, || ServerMsg::Ack);
+        let got: Vec<ServerMsg> = rx
+            .try_iter()
+            .map(|f| proto::read(&mut &f[..]).unwrap())
+            .collect();
+        assert_eq!(
+            got,
+            [ServerMsg::Alarms(vec!["cpu_high".into()]), ServerMsg::Ack]
+        );
+        assert!(rx2.try_recv().is_err(), "Sample abonesi olay almamalı");
     }
 
     #[test]
