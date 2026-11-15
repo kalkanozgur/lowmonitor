@@ -49,7 +49,7 @@
 | `lowmon-svc` | Toplayıcı, log yazıcı, alarm motoru, pipe sunucu | LocalService + servis SID'i | Windows servisi |
 | `lowmon-tray` | Tray ikon, tooltip, alarm bildirimi | Kullanıcı | GUI framework yok |
 | Arayüz (LowDeck repo, ADR-0029) | Grafikler, olaylar, geçmiş | Kullanıcı (asInvoker), `lowdeck-agent` üzerinden | Slint |
-| `lowmon-elev` | Yükseltilmiş tek seferlik işlem | Admin (UAC) | İşini yapıp çıkar |
+| `lowmon-elev` | Yükseltilmiş tek seferlik işlem: yalnız ayar yazma (§9.5); süreç müdahalesi LowDeck masaüstünde (ADR-0030) | Admin (UAC) | İşini yapıp çıkar; henüz yok |
 | `lowmon-gpu` | NVML üretici | Kullanıcı | **Sonra tasarlanacak** |
 | `lowmon-net` | LAN veri yayıncısı (WebSocket), Mi Note 10 Lite vb. istemciler için | Kullanıcı | Bkz. §16 |
 
@@ -66,7 +66,7 @@
        │ ShellExecuteExW("runas")
        ▼
 ┌──────────────┐
-│ lowmon-elev  │  kill / priority / affinity / EcoQoS (yükseltilmiş hedefler için)
+│ lowmon-elev  │  write-config (§9.5); süreç müdahalesi LowDeck'te (ADR-0030)
 └──────────────┘
 ```
 
@@ -87,7 +87,7 @@ LowMonitor/
 │  │  └─ src/{main.rs, service.rs, install.rs, collect/{cpu,mem,disk,net,proc}.rs,
 │  │          writer.rs, retention.rs, alarm.rs, pipe.rs}
 │  ├─ lowmon-tray/
-│  └─ lowmon-elev/
+│  └─ lowmon-elev/          # planlı: yalnız write-config (ADR-0030)
 ├─ docs/
 │  ├─ adr/                   # mimari karar kayıtları
 │  └─ log-format.md
@@ -312,14 +312,14 @@ clear    = { below = 85.0, for_s = 30 }
 1. **Canlı:** CPU (toplam + çekirdek), RAM/commit, disk, ağ (son 5 dk). — ilk teslimat
 2. **Olaylar:** `CH_EVENT` canlı + `QueryRange` `RangeItem::Event` geçmişi; aktif alarmlar. — ilk teslimat
 3. **Geçmiş:** zaman aralığı → `QueryRange`, otomatik çözünürlük (aralık > 6 saat → 1 dk).
-4. **Süreçler:** Top-N tablosu + müdahale (`lowmon-elev`, §10).
+4. **Süreçler:** LowDeck masaüstü süreçleri kendisi tarar (2 s, yalnız sekme açıkken; Top-N kullanılmaz) + müdahale (§10, ADR-0030).
 5. **Ayarlar:** servis kontrolü, retention, alarm kuralları (`lowmon-elev --op write-config` + `ReloadConfig`).
 
 **Performans kuralları (Slint)**
 - Yeniden çizim yalnız veri değişince, ≤ 1 Hz; sürekli timer/animasyon yok.
 - Simge durumu → abonelik bırakılır; geri gelince yeniden abone.
 - Grafik verisi sabit kapasiteli ring buffer.
-- Yetki: arayüz ve agent yükseltilmemiş; Admin işleri yalnız `lowmon-elev` (UAC).
+- Yetki: arayüz ve agent yükseltilmemiş; Admin işleri UAC ile: ayar yazma `lowmon-elev`, süreç müdahalesi LowDeck masaüstünün yükseltilmiş kopyası (ADR-0030).
 
 ---
 
@@ -335,11 +335,13 @@ clear    = { below = 85.0, for_s = 30 }
 **Akış**
 1. UI, kullanıcı token'ıyla `OpenProcess(gerekli_hak | PROCESS_QUERY_LIMITED_INFORMATION)` dener.
 2. **PID reuse koruması:** `GetProcessTimes` → `CreationTime` snapshot'takiyle eşleşmezse **iptal**.
-3. `ERROR_ACCESS_DENIED` → onay diyaloğu → `ShellExecuteExW(verb="runas", "lowmon-elev.exe --op kill --pid 1234 --ctime 133...")`.
-4. `lowmon-elev` aynı kontrolü tekrar yapar, işlemi uygular, exit code ile sonucu döner, kapanır.
-5. Her müdahale servise bildirilir → `Event` olarak loglanır (kim, ne, hangi süreç).
+3. `ERROR_ACCESS_DENIED` → onay → `ShellExecuteExW(verb="runas", "lowdeck-desktop.exe --kill 1234 133...")` (ADR-0030; LowDeck ADR-0006).
+4. Yükseltilmiş kopya pencere açmadan aynı kontrolleri (CreationTime + yasak liste) tekrar yapar, işlemi uygular, exit code ile sonucu döner, kapanır.
+5. Her müdahale servise bildirilir → `Event` olarak loglanır (kim, ne, hangi süreç). **Ertelendi** (ADR-0030 madde 4).
 
-**Yasak liste:** `csrss`, `wininit`, `smss`, `lsass`, `services`, `winlogon`, `System`, PID 0/4 → kill butonu devre dışı.
+İlk teslimat yalnız Sonlandır; öncelik / affinity / EcoQoS sonra.
+
+**Yasak liste:** `csrss`, `wininit`, `smss`, `lsass`, `services`, `winlogon`, `System`, `Registry`, PID 0/4, arayüzün kendisi → kill butonu yok.
 
 ---
 
@@ -390,7 +392,7 @@ clear    = { below = 85.0, for_s = 30 }
 | **M1** | CPU/RAM/Disk/Ağ/Top-N toplayıcı | 24 saatte CPU < %0.05 (toplam, ADR-0026), Private WS / Private Bytes < 3 MB |
 | **M2** | Şifreli + zincirli log, seal, retention, `lwm-dump` | Kurcalama testlerinin tamamı yakalanıyor |
 | **M3** | Pipe protokolü + tray | Abone yokken sıfır akış, tray yeniden bağlanıyor |
-| **M4** | Geçmiş sorgusu, müdahale + `lowmon-elev` (UI LowDeck'te, ADR-0029) | Yükseltilmiş süreç kill'i UAC ile çalışıyor |
+| **M4** | Geçmiş sorgusu, müdahale (UI ve müdahale LowDeck'te, ADR-0029/0030) | Yükseltilmiş süreç kill'i UAC ile çalışıyor |
 | **M5** | Alarmlar + bildirim | Histerezis testleri geçiyor, toast görünüyor |
 | **M6** | `lowmon-net` (WS + eşleştirme + firewall kuralı) | `websocat` ile token'lı bağlantı 1 Hz JSON alıyor; token'sız bağlantı reddediliyor |
 | Sonra | `lowmon-gpu` (NVML), MQTT → Home Assistant | Ayrı tasarım |
