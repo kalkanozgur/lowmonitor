@@ -215,6 +215,11 @@ impl Scheduler {
         }
     }
 
+    /// ReloadConfig: sonraki çalışmada geçerli (süren çalışma eski değerle biter).
+    pub fn set_days(&mut self, raw_days: u32, total_days: u32) {
+        (self.raw_days, self.total_days) = (raw_days, total_days);
+    }
+
     /// Her tick çağrılır; 60 tick'te bir saat kontrolü yapar (maliyet ~0).
     pub fn tick(&mut self, now_ms: u64) {
         self.tick += 1;

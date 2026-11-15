@@ -25,7 +25,7 @@
 - [~] M1: CPU/RAM/Disk/Ağ/Top-N toplayıcı — 24 saatte CPU < %0.05, Private WS / Private Bytes < 3 MB — kod tamam, 24 saat soak bekliyor
 - [~] M2: şifreli + zincirli log, seal, retention, `lwm-dump` — kod tamam; servis kurulum testi soak sonrası
 - [x] M3: pipe protokolü + tray (canlı Sample, tray, HKCU Run, Admin kontrolü, Export)
-- [ ] M4: protokol tarafı: ~~`QueryRange`~~ (kod tamam, servise kurulmadı), `Control`, Export öncesi flush, `lowmon-elev` (UI Slint ile ayrıca, ADR-0019)
+- [~] M4: `QueryRange` ✅, Export öncesi flush ✅, `Control` Pause/Resume/ReloadConfig ✅ (2026-11-15). Kalan: `SetInterval`/`SetRetention` (ADR: segment aralığı + config yazma ACL), `lowmon-elev`, uçtan uca Admin testi (soak sonrası). UI Slint ile ayrı (ADR-0019)
 - [ ] M5: alarmlar + bildirim
 - [~] M6: M6a–c kod tamam; M6d kurulum (`install.ps1`, firewall) + **telefon kabul testi ✅ 2026-11-15** (Samsung M21, LAN). Kalan: `lowmon-net` HKCU Run/otomatik başlatma (şimdilik elle, konsol), uzun süreli ölçüm; `bind` sabit IP → DHCP rezervasyonu
 - [ ] LowDeck entegrasyonu (yol a, ADR-0022): `lowdeck-agent` pipe Viewer → telefona CPU/RAM/disk/ağ/Top-N; LowDeck'te ayrı oturum

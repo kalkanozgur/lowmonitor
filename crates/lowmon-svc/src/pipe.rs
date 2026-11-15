@@ -3,7 +3,7 @@
 use crate::{export::export, query::query, security::wide};
 use lowmon_core::{
     crypto::MasterKey,
-    proto::{self, CH_SAMPLE, ClientMsg, ErrorCode, PROTO, RangeItem, ServerMsg},
+    proto::{self, CH_SAMPLE, ClientMsg, Control, ErrorCode, PROTO, RangeItem, ServerMsg},
 };
 use std::{
     io::{self, Read, Write},
@@ -63,14 +63,27 @@ pub struct Server {
     /// Export: `logs/` kökü ve segment anahtarı.
     pub root: PathBuf,
     pub key: MasterKey,
-    /// Export öncesi: toplayıcı döngüsü yazıcı tamponunu diske yazıp ack döner.
-    pub flush: SyncSender<FlushAck>,
+    /// Writer/toplayıcı döngü thread'inde: komut oraya gider, sonuç cevap kanalıyla döner.
+    pub cmd: SyncSender<CmdReq>,
 }
 
-/// Flush tamamlanınca döngünün sinyal verdiği kanal.
-pub type FlushAck = SyncSender<()>;
-/// Döngü her tick'te bakar; daha uzun beklenirse Export son ≤ 60 s'siz devam eder.
-const FLUSH_WAIT: Duration = Duration::from_secs(3);
+/// Toplayıcı döngüsünün uyguladığı komutlar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cmd {
+    /// Export öncesi yazıcı tamponu diske.
+    Flush,
+    Control(Control),
+}
+pub type CmdReq = (Cmd, SyncSender<Result<(), ErrorCode>>);
+/// Döngü her tick'te bakar; daha uzun beklenirse cevapsız sayılır.
+const CMD_WAIT: Duration = Duration::from_secs(3);
+
+/// Kuyruk dolu ya da döngü cevapsızsa `None`.
+fn ask(srv: &Server, cmd: Cmd) -> Option<Result<(), ErrorCode>> {
+    let (tx, rx) = sync_channel(1);
+    srv.cmd.try_send((cmd, tx)).ok()?;
+    rx.recv_timeout(CMD_WAIT).ok()
+}
 
 type Frame = Arc<[u8]>;
 
@@ -478,14 +491,21 @@ fn client(pipe: Arc<Handle>, srv: &Server, id: u64) {
             ClientMsg::Hello { .. } => reply(&ServerMsg::Error {
                 code: ErrorCode::Unsupported,
             }),
-            ClientMsg::Export { .. } if !client_is_admin(pipe.0) => reply(&ServerMsg::Error {
-                code: ErrorCode::Forbidden,
+            ClientMsg::Export { .. } | ClientMsg::Control(_) if !client_is_admin(pipe.0) => {
+                reply(&ServerMsg::Error {
+                    code: ErrorCode::Forbidden,
+                })
+            }
+            ClientMsg::Control(c) => reply(&match ask(srv, Cmd::Control(c)) {
+                Some(Ok(())) => ServerMsg::Ack,
+                Some(Err(code)) => ServerMsg::Error { code },
+                None => ServerMsg::Error {
+                    code: ErrorCode::Io,
+                },
             }),
             ClientMsg::Export { from_ms, to_ms } => {
-                let (ack, done) = sync_channel(1);
-                if srv.flush.try_send(ack).is_ok() {
-                    let _ = done.recv_timeout(FLUSH_WAIT);
-                }
+                // Cevapsızsa Export son ≤ 60 s'siz devam eder
+                let _ = ask(srv, Cmd::Flush);
                 let mut out = Chunks {
                     buf: Vec::with_capacity(CHUNK),
                     tx: &tx,
@@ -563,7 +583,7 @@ mod tests {
                 interval_ms: 1000,
                 root: std::env::temp_dir(),
                 key: [0; 32],
-                flush: sync_channel(1).0,
+                cmd: sync_channel(1).0,
             })
         };
         spawn(&name, srv(publ.clone())).unwrap();
@@ -610,6 +630,14 @@ mod tests {
                 },
             )
             .unwrap();
+            assert_eq!(
+                proto::read::<ServerMsg>(&mut c).unwrap(),
+                ServerMsg::Error {
+                    code: ErrorCode::Forbidden
+                }
+            );
+            // Yetkisiz Control (spek §12): döngüye hiç ulaşmaz
+            proto::write(&mut c, &ClientMsg::Control(Control::Pause)).unwrap();
             assert_eq!(
                 proto::read::<ServerMsg>(&mut c).unwrap(),
                 ServerMsg::Error {

@@ -24,6 +24,8 @@ pub struct Writer {
     interval_ms: u32,
     seg: Segment,
     out: Vec<u8>,
+    /// Control::Pause sonrası: sonraki örnekten önce Gap(Paused) yazılır.
+    paused: bool,
 }
 
 struct Segment {
@@ -202,6 +204,7 @@ impl Writer {
             interval_ms,
             seg,
             out: Vec::new(),
+            paused: false,
         };
         for (from, reason) in gaps {
             w.seg.enc.gap(from, now_ms, reason);
@@ -258,10 +261,17 @@ impl Writer {
             self.flush()?;
         }
         let seg = &mut self.seg;
+        let paused = std::mem::take(&mut self.paused);
+        // shortcut: duraklama gün dönümünü aşarsa yeni segmentte last_ts yok → Gap(Paused) yazılmaz
         if let Some(last) = seg.last_ts
-            && s.ts_unix_ms > last + 5 * self.interval_ms as u64
+            && (paused || s.ts_unix_ms > last + 5 * self.interval_ms as u64)
         {
-            seg.enc.gap(last, s.ts_unix_ms, GapReason::Sleep);
+            let reason = if paused {
+                GapReason::Paused
+            } else {
+                GapReason::Sleep
+            };
+            seg.enc.gap(last, s.ts_unix_ms, reason);
         }
         seg.enc.sample(s);
         seg.in_block += 1;
@@ -286,6 +296,12 @@ impl Writer {
         seg.file.write_all(&self.out)?;
         seg.in_block = 0;
         save_state(&self.root, seg)
+    }
+
+    /// Control::Pause: tampon diske, sonraki örnekte Gap(Paused).
+    pub fn pause(&mut self) -> io::Result<()> {
+        self.paused = true;
+        self.flush()
     }
 
     /// STOP / PRESHUTDOWN / gün dönümü: kalan örnekler + Seal bloğu.
@@ -443,6 +459,20 @@ mod tests {
         let recs = records(&seg_path(&r, T0));
         assert_eq!(samples(&recs), 70);
         assert!(gaps(&recs).is_empty());
+    }
+
+    #[test]
+    fn pause_writes_paused_gap_even_when_short() {
+        let r = root("pause");
+        let mut w = Writer::open(&r, KEY, 1000, T0, LONG_UP).unwrap();
+        let t = write_n(&mut w, T0, 5);
+        w.pause().unwrap();
+        // 2 s duraklama: Sleep eşiğinin (5 aralık) altında ama Paused yine yazılır
+        write_n(&mut w, t + 2_000, 3);
+        w.close().unwrap();
+        let recs = records(&seg_path(&r, T0));
+        assert_eq!(samples(&recs), 8);
+        assert_eq!(gaps(&recs), [GapReason::Paused]);
     }
 
     #[test]
