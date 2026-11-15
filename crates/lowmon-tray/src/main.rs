@@ -142,6 +142,11 @@ fn on_event(alarms: &mut Vec<String>, kind: EventKind, name: &str, value: i64) -
     }
 }
 
+/// Bağlanışta aktif liste boş değilse tek balon.
+fn snapshot_text(alarms: &[String]) -> Option<String> {
+    (!alarms.is_empty()).then(|| format!("Aktif alarm: {}", alarms.join(", ")))
+}
+
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -392,7 +397,15 @@ fn session(f: &mut File) -> io::Result<()> {
     loop {
         match proto::read::<ServerMsg>(f)? {
             ServerMsg::Sample(s) => post(Some(summarize(&s))),
-            ServerMsg::Alarms(a) => *lock(&ALARMS) = a,
+            ServerMsg::Alarms(a) => {
+                // Bağlanmadan önce Raise olmuş alarmlar (tray geç açıldı / servis yeniden başladı)
+                if let Some(text) = snapshot_text(&a).filter(|_| !muted()) {
+                    *lock(&BALLOON) = Some(text);
+                }
+                *lock(&ALARMS) = a;
+                let live = *lock(&LATEST);
+                post(live);
+            }
             ServerMsg::Event {
                 kind, name, value, ..
             } => {
@@ -533,6 +546,8 @@ mod tests {
         assert_eq!(on_event(&mut a, EventKind::AlarmClear, "old", 0), None);
         assert_eq!(on_event(&mut a, EventKind::System, "write_error", 0), None);
         assert_eq!(a, ["cpu_high"]);
+        assert_eq!(snapshot_text(&[]), None);
+        assert_eq!(snapshot_text(&a).as_deref(), Some("Aktif alarm: cpu_high"));
     }
 
     #[test]
@@ -570,7 +585,7 @@ mod live_debug {
         proto::write(
             &mut f,
             &ClientMsg::Subscribe {
-                channels: CH_SAMPLE,
+                channels: CH_SAMPLE | CH_EVENT,
                 rate_ms: RATE_MS,
             },
         )
