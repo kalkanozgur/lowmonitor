@@ -275,7 +275,7 @@ impl Writer {
     }
 
     /// Tamponu tek blok olarak yazar (tek WriteFile) ve zincir başını state.bin'e kaydeder.
-    fn flush(&mut self) -> io::Result<()> {
+    pub fn flush(&mut self) -> io::Result<()> {
         let seg = &mut self.seg;
         if seg.enc.is_empty() {
             return Ok(());
@@ -429,6 +429,20 @@ mod tests {
         let mut w = Writer::open(&r, KEY, 1000, t + 60_000, 30_000).unwrap();
         w.close().unwrap();
         assert_eq!(gaps(&records(&seg_path(&r, T0))), [GapReason::Boot]);
+    }
+
+    #[test]
+    fn explicit_flush_makes_partial_block_readable_and_continues() {
+        let r = root("flush");
+        let mut w = Writer::open(&r, KEY, 1000, T0, LONG_UP).unwrap();
+        let t = write_n(&mut w, T0, 10);
+        w.flush().unwrap(); // Export öncesi
+        assert_eq!(samples(&records(&seg_path(&r, T0))), 10);
+        write_n(&mut w, t, 60);
+        w.close().unwrap();
+        let recs = records(&seg_path(&r, T0));
+        assert_eq!(samples(&recs), 70);
+        assert!(gaps(&recs).is_empty());
     }
 
     #[test]

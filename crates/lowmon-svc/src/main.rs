@@ -16,14 +16,17 @@ use lowmon_core::{
     metrics::{Sample, TopEntry},
     proto::{CH_SAMPLE, CH_TOP, PIPE_NAME, ServerMsg},
 };
-use pipe::{Publisher, Server};
+use pipe::{FlushAck, Publisher, Server};
 use retention::Scheduler;
 use std::{
     error::Error,
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, OnceLock,
+        mpsc::{Receiver, sync_channel},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use ticker::{StopHandle, Ticker};
@@ -267,8 +270,9 @@ fn run_service() -> windows_service::Result<()> {
     let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
     let publ = Publisher::default();
     // shortcut: pipe açılamazsa servis pipe'sız toplamaya devam eder; Event kaydı M5'te
-    let _ = pipe::spawn(PIPE_NAME, server(&publ, &cfg, &root, key));
-    collect_loop(&ticker, &cfg, &mut writer, &mut sched, &publ, false);
+    let (srv, flush) = server(&publ, &cfg, &root, key);
+    let _ = pipe::spawn(PIPE_NAME, srv);
+    collect_loop(&ticker, &cfg, &mut writer, &mut sched, &publ, &flush, false);
     handle.set_service_status(status(
         ServiceState::Stopped,
         ServiceControlAccept::empty(),
@@ -312,20 +316,30 @@ fn run_console(args: &[String]) -> Result<(), Box<dyn Error>> {
     eprintln!("veri: {} (çıkış: Ctrl+C)", root.display());
     let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
     let publ = Publisher::default();
-    if let Err(e) = pipe::spawn(PIPE_NAME, server(&publ, &cfg, &root, key)) {
+    let (srv, flush) = server(&publ, &cfg, &root, key);
+    if let Err(e) = pipe::spawn(PIPE_NAME, srv) {
         eprintln!("pipe açılamadı (servis çalışıyor olabilir), pipe'sız devam: {e}");
     }
-    collect_loop(&ticker, &cfg, &mut writer, &mut sched, &publ, true);
+    collect_loop(&ticker, &cfg, &mut writer, &mut sched, &publ, &flush, true);
     Ok(())
 }
 
-fn server(publ: &Publisher, cfg: &Config, root: &Path, key: [u8; 32]) -> Arc<Server> {
-    Arc::new(Server {
+fn server(
+    publ: &Publisher,
+    cfg: &Config,
+    root: &Path,
+    key: [u8; 32],
+) -> (Arc<Server>, Receiver<FlushAck>) {
+    // Kapasite = eşzamanlı Export sayısı; dolarsa Export flush beklemeden devam eder.
+    let (tx, rx) = sync_channel(8);
+    let srv = Arc::new(Server {
         publ: publ.clone(),
         interval_ms: cfg.sampling.interval_ms,
         root: root.to_path_buf(),
         key,
-    })
+        flush: tx,
+    });
+    (srv, rx)
 }
 
 /// Servis ve `run` konsol modu aynı döngüyü kullanır; durdurulunca Seal yazılır.
@@ -335,6 +349,7 @@ fn collect_loop(
     writer: &mut Writer,
     sched: &mut Scheduler,
     publ: &Publisher,
+    flush: &Receiver<FlushAck>,
     print: bool,
 ) {
     ticker::enter_eco_mode();
@@ -355,6 +370,15 @@ fn collect_loop(
         }
         if got.sample {
             publ.publish(CH_SAMPLE, || ServerMsg::Sample(s.clone()));
+        }
+        // Export öncesi: yarım blok da diske (yalnız Admin Export tetikler → ek yazma sınırlı)
+        while let Ok(ack) = flush.try_recv() {
+            if let Err(e) = writer.flush()
+                && print
+            {
+                eprintln!("flush hatası: {e}");
+            }
+            let _ = ack.send(());
         }
         sched.tick(s.ts_unix_ms);
         if print && got.sample {

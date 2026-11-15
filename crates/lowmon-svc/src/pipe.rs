@@ -63,7 +63,14 @@ pub struct Server {
     /// Export: `logs/` kökü ve segment anahtarı.
     pub root: PathBuf,
     pub key: MasterKey,
+    /// Export öncesi: toplayıcı döngüsü yazıcı tamponunu diske yazıp ack döner.
+    pub flush: SyncSender<FlushAck>,
 }
+
+/// Flush tamamlanınca döngünün sinyal verdiği kanal.
+pub type FlushAck = SyncSender<()>;
+/// Döngü her tick'te bakar; daha uzun beklenirse Export son ≤ 60 s'siz devam eder.
+const FLUSH_WAIT: Duration = Duration::from_secs(3);
 
 type Frame = Arc<[u8]>;
 
@@ -475,6 +482,10 @@ fn client(pipe: Arc<Handle>, srv: &Server, id: u64) {
                 code: ErrorCode::Forbidden,
             }),
             ClientMsg::Export { from_ms, to_ms } => {
+                let (ack, done) = sync_channel(1);
+                if srv.flush.try_send(ack).is_ok() {
+                    let _ = done.recv_timeout(FLUSH_WAIT);
+                }
                 let mut out = Chunks {
                     buf: Vec::with_capacity(CHUNK),
                     tx: &tx,
@@ -552,6 +563,7 @@ mod tests {
                 interval_ms: 1000,
                 root: std::env::temp_dir(),
                 key: [0; 32],
+                flush: sync_channel(1).0,
             })
         };
         spawn(&name, srv(publ.clone())).unwrap();
