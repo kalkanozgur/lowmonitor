@@ -1,7 +1,7 @@
 //! Pipe protokolü (spek §6): çerçeve = `u32 LE uzunluk | postcard`, maks. 1 MB.
 //! shortcut: Producer yok; Control'de SetInterval/SetRetention yok (ADR-0027: config + ReloadConfig); Export yalnızca CSV, format alanı yok
 //! Yeni varyantlar enum sonuna eklenir → postcard indeksleri değişmez, `PROTO` artmaz.
-use crate::metrics::{AggKind, GapReason, Sample, TopEntry};
+use crate::metrics::{AggKind, EventKind, GapReason, Sample, TopEntry};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
 
@@ -78,6 +78,13 @@ pub enum RangeItem {
         from_ms: u64,
         to_ms: u64,
         reason: GapReason,
+    },
+    /// Alarm / sistem olayı (ADR-0028). `ts_ms`: önceki örneğin zamanı (özet günlerde dakika sonu).
+    Event {
+        ts_ms: u64,
+        kind: EventKind,
+        name: String,
+        value: i64,
     },
 }
 
