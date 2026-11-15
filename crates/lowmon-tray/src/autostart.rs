@@ -21,7 +21,20 @@ fn check(e: WIN32_ERROR) -> io::Result<()> {
 
 /// Kayıtlı komut satırı; değer yoksa None.
 pub fn get(value: &str) -> io::Result<Option<String>> {
-    let (key, name) = (wide(RUN), wide(value));
+    get_in(RUN, value)
+}
+
+/// LowDeck masaüstü exe'si (ADR-0029): uygulama her açılışta kendisi yazar; yoksa None.
+pub fn ui_exe() -> Option<String> {
+    get_in(r"Software\LowMonitor", "UiExe")
+        .ok()
+        .flatten()
+        .filter(|p| !p.is_empty())
+}
+
+/// `HKCU\<key>` altındaki REG_SZ; değer yoksa None.
+fn get_in(key: &str, value: &str) -> io::Result<Option<String>> {
+    let (key, name) = (wide(key), wide(value));
     let mut buf = [0u16; 1024];
     let mut size = size_of_val(&buf) as u32;
     // SAFETY: buf ve size eşleşiyor; RRF_RT_REG_SZ sonucu NUL ile bitirir.
