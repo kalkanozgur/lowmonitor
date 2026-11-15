@@ -53,21 +53,31 @@ impl Ticker {
                 TIMER_ALL_ACCESS,
             ))?;
             let stop = check(CreateEventW(ptr::null(), 1, 0, ptr::null()))?;
-            let due: i64 = -(period_ms as i64) * 10_000; // göreli, 100 ns birimi
-            if SetWaitableTimerEx(
-                timer,
+            let t = Self { timer, stop }; // hata yolunda Drop handle'ları kapatır
+            t.set_period(period_ms)?;
+            Ok(t)
+        }
+    }
+
+    /// Periyodu (yeniden) kurar; ilk tick bir periyot sonra. ReloadConfig'te çağrılır (ADR-0027).
+    pub fn set_period(&self, period_ms: u32) -> io::Result<()> {
+        let due: i64 = -(period_ms as i64) * 10_000; // göreli, 100 ns birimi
+        // SAFETY: timer handle canlı; tamamlama rutini ve bağlam yok.
+        let ok = unsafe {
+            SetWaitableTimerEx(
+                self.timer,
                 &due,
                 period_ms as i32,
                 None,
                 ptr::null(),
                 ptr::null(),
                 TOLERABLE_DELAY_MS,
-            ) == 0
-            {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(Self { timer, stop })
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
         }
+        Ok(())
     }
 
     pub fn stop_handle(&self) -> StopHandle {
@@ -127,5 +137,16 @@ mod tests {
         assert!(start.elapsed() >= Duration::from_millis(90));
         t.stop_handle().signal();
         assert!(!t.wait());
+    }
+
+    #[test]
+    fn set_period_takes_effect() {
+        let t = Ticker::new(10_000).unwrap();
+        t.set_period(50).unwrap();
+        let start = Instant::now();
+        assert!(t.wait());
+        assert!(t.wait());
+        // 10 s'lik eski periyot kalsaydı burada saniyelerce beklenirdi
+        assert!(start.elapsed() < Duration::from_secs(2));
     }
 }

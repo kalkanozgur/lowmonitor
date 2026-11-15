@@ -59,7 +59,6 @@ const CHUNK: usize = 64 * 1024;
 /// Pipe sunucusunun paylaşılan durumu.
 pub struct Server {
     pub publ: Publisher,
-    pub interval_ms: u32,
     /// Export: `logs/` kökü ve segment anahtarı.
     pub root: PathBuf,
     pub key: MasterKey,
@@ -90,18 +89,53 @@ type Frame = Arc<[u8]>;
 struct Sub {
     id: u64,
     channels: u8,
+    rate_ms: u32,
     every: u32,
     count: u32,
     tx: SyncSender<Frame>,
 }
 
-#[derive(Clone, Default)]
-pub struct Publisher(Arc<Mutex<Vec<Sub>>>);
+struct Subs {
+    list: Vec<Sub>,
+    /// Örnekleme aralığı; ReloadConfig değiştirebilir (ADR-0027) → `every` yeniden hesaplanır.
+    interval_ms: u32,
+}
+
+#[derive(Clone)]
+pub struct Publisher(Arc<Mutex<Subs>>);
+
+impl Default for Publisher {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(Subs {
+            list: Vec::new(),
+            interval_ms: 1000,
+        })))
+    }
+}
+
+/// Kaç örnekte bir gönderilir (en az 1).
+fn every(rate_ms: u32, interval_ms: u32) -> u32 {
+    (rate_ms / interval_ms.max(1)).max(1)
+}
 
 impl Publisher {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Subs> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn set_interval(&self, interval_ms: u32) {
+        let mut g = self.lock();
+        g.interval_ms = interval_ms;
+        for s in &mut g.list {
+            s.every = every(s.rate_ms, interval_ms);
+            s.count = s.count.min(s.every - 1);
+        }
+    }
+
     /// `msg` yalnızca en az bir abonenin sırası geldiyse çağrılır ve bir kez serileştirilir.
     pub fn publish(&self, ch: u8, msg: impl FnOnce() -> ServerMsg) {
-        let mut subs = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut g = self.lock();
+        let subs = &mut g.list;
         if subs.is_empty() {
             return;
         }
@@ -128,14 +162,15 @@ impl Publisher {
         });
     }
 
-    fn subscribe(&self, id: u64, channels: u8, every: u32, tx: SyncSender<Frame>) {
-        let mut subs = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        subs.retain(|s| s.id != id);
+    fn subscribe(&self, id: u64, channels: u8, rate_ms: u32, tx: SyncSender<Frame>) {
+        let mut g = self.lock();
+        g.list.retain(|s| s.id != id);
         // count = every-1 → ilk örnek hemen gider
-        let every = every.max(1);
-        subs.push(Sub {
+        let every = every(rate_ms, g.interval_ms);
+        g.list.push(Sub {
             id,
             channels,
+            rate_ms,
             every,
             count: every - 1,
             tx,
@@ -143,10 +178,7 @@ impl Publisher {
     }
 
     fn remove(&self, id: u64) {
-        self.0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .retain(|s| s.id != id);
+        self.lock().list.retain(|s| s.id != id);
     }
 }
 
@@ -481,7 +513,7 @@ fn client(pipe: Arc<Handle>, srv: &Server, id: u64) {
     while let Ok(msg) = proto::read::<ClientMsg>(&mut rd) {
         match msg {
             ClientMsg::Subscribe { channels, rate_ms } => {
-                publ.subscribe(id, channels, rate_ms / srv.interval_ms.max(1), tx.clone());
+                publ.subscribe(id, channels, rate_ms, tx.clone());
                 reply(&ServerMsg::Ack);
             }
             ClientMsg::Unsubscribe => {
@@ -574,13 +606,29 @@ mod tests {
     }
 
     #[test]
+    fn set_interval_rescales_existing_subscribers() {
+        let publ = Publisher::default(); // 1000 ms
+        let (tx, rx) = sync_channel(16);
+        publ.subscribe(1, CH_SAMPLE, 4000, tx); // her 4. örnek
+        publ.set_interval(2000); // artık her 2. örnek
+        let mut sent = 0;
+        for _ in 0..6 {
+            publ.publish(CH_SAMPLE, || ServerMsg::Ack);
+        }
+        while rx.try_recv().is_ok() {
+            sent += 1;
+        }
+        assert_eq!(sent, 3);
+        assert_eq!(every(500, 1000), 1); // aralıktan hızlı istek → her örnek
+    }
+
+    #[test]
     fn subscribe_receive_and_reject_bad_hello() {
         let name = format!(r"\\.\pipe\LowMonitor-test-{}", std::process::id());
         let publ = Publisher::default();
         let srv = |publ| {
             Arc::new(Server {
                 publ,
-                interval_ms: 1000,
                 root: std::env::temp_dir(),
                 key: [0; 32],
                 cmd: sync_channel(1).0,
@@ -678,7 +726,7 @@ mod tests {
         drop(c);
         // Kopan istemci aboneliği düşürür → publish hiç serileştirmez
         for _ in 0..50 {
-            if publ.0.lock().unwrap().is_empty() {
+            if publ.lock().list.is_empty() {
                 break;
             }
             thread::sleep(Duration::from_millis(20));
