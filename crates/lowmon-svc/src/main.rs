@@ -16,7 +16,7 @@ use collect::Collector;
 use lowmon_core::{
     config::{Config, DEFAULT_TOML},
     metrics::{EventKind, Sample, TopEntry},
-    proto::{CH_SAMPLE, CH_TOP, Control, ErrorCode, PIPE_NAME, ServerMsg},
+    proto::{CH_EVENT, CH_SAMPLE, CH_TOP, Control, ErrorCode, PIPE_NAME, ServerMsg},
 };
 use pipe::{Cmd, CmdReq, Publisher, Server};
 use retention::Scheduler;
@@ -401,11 +401,22 @@ impl SysEvents {
         self.pending.push((name, value));
     }
 
-    fn drain(&mut self, w: &mut Writer) {
+    fn drain(&mut self, w: &mut Writer, publ: &Publisher, ts_ms: u64) {
         for (name, value) in self.pending.drain(..) {
-            w.event(EventKind::System, name, value);
+            emit(w, publ, ts_ms, EventKind::System, name, value);
         }
     }
+}
+
+/// Olay: log'a yazılır + `CH_EVENT` abonelerine gider.
+fn emit(w: &mut Writer, publ: &Publisher, ts_ms: u64, kind: EventKind, name: &str, value: i64) {
+    w.event(kind, name, value);
+    publ.publish(CH_EVENT, || ServerMsg::Event {
+        ts_ms,
+        kind,
+        name: name.to_owned(),
+        value,
+    });
 }
 
 /// Servis ve `run` konsol modu aynı döngüyü kullanır; durdurulunca Seal yazılır.
@@ -449,7 +460,7 @@ fn collect_loop(
                     paused = true;
                     engine.gap();
                     sys.push("control_pause", 0, now_ms());
-                    sys.drain(writer); // duraklamadan önce, son örneğin ts'iyle
+                    sys.drain(writer, publ, s.ts_unix_ms); // duraklamadan önce, son örneğin ts'iyle
                     writer.pause().map_err(|_| ErrorCode::Io)
                 }
                 Cmd::Control(Control::Resume) => {
@@ -470,8 +481,10 @@ fn collect_loop(
                     sched.set_days(new.retention.raw_days, new.retention.total_days);
                     collector = new_collector(&new); // aralık/Top-N değişti → delta'lar sıfırdan
                     for id in engine.reload(&new.alarm) {
-                        writer.event(EventKind::AlarmClear, &id, 0); // kaldırılan/değişen Raised kural
+                        // kaldırılan/değişen Raised kural
+                        emit(writer, publ, s.ts_unix_ms, EventKind::AlarmClear, &id, 0);
                     }
+                    publ.set_alarms(engine.active());
                     cfg = new;
                     Ok(())
                 }),
@@ -507,12 +520,15 @@ fn collect_loop(
                     Transition::Raise => EventKind::AlarmRaise,
                     Transition::Clear => EventKind::AlarmClear,
                 };
-                writer.event(kind, id, (v * 100.0) as i64);
+                emit(writer, publ, s.ts_unix_ms, kind, id, (v * 100.0) as i64);
                 if print {
                     eprintln!("alarm {kind:?} {id} = {v:.2}");
                 }
             }
-            sys.drain(writer);
+            if !fired.is_empty() {
+                publ.set_alarms(engine.active());
+            }
+            sys.drain(writer, publ, s.ts_unix_ms);
         }
         if got.top {
             writer.top(&top);

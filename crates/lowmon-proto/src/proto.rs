@@ -11,6 +11,8 @@ pub const MAX_FRAME: usize = 1 << 20;
 /// `Subscribe.channels` bitleri.
 pub const CH_SAMPLE: u8 = 1;
 pub const CH_TOP: u8 = 2;
+/// Alarm + sistem olayları (ADR-0028); abonelikte önce `Alarms` anlık listesi gelir.
+pub const CH_EVENT: u8 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Role {
@@ -111,6 +113,15 @@ pub enum ServerMsg {
     Error {
         code: ErrorCode,
     },
+    /// `CH_EVENT`: log'a yazılan olay (`RangeItem::Event` ile aynı alanlar).
+    Event {
+        ts_ms: u64,
+        kind: EventKind,
+        name: String,
+        value: i64,
+    },
+    /// `CH_EVENT` aboneliğinde ilk çerçeve (`Ack`'tan önce): şu an Raised olan kural id'leri.
+    Alarms(Vec<String>),
 }
 
 fn invalid(e: impl ToString) -> io::Error {

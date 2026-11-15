@@ -252,7 +252,7 @@ Seal block (segment kapanırken, kayıt tipi 0xFF)
 | C→S | `Control(Pause \| Resume \| ReloadConfig)` — ayar değişikliği = Admin `config.toml` yazar + `ReloadConfig`; `interval_ms` dahil çalışırken uygulanır (ADR-0027) | Admin |
 | C→S | `Export { from, to, format: Csv }` | Admin |
 | C→S | `ProducerPush { channel_id, payload }` (GPU vb.) | Producer |
-| S→C | `Sample`, `TopN`, `Event`, `Alarms` (CH_EVENT aboneliğinde aktif liste), `RangeChunk` (Export), `Range` (QueryRange, Event dahil), `Ack`, `Error { code }` — ADR-0028 | — |
+| S→C | `Sample`, `TopN`, `Event`, `Alarms` (CH_EVENT = 4 aboneliğinde aktif liste, `Ack`'tan önce), `RangeChunk` (Export), `Range` (QueryRange, Event dahil), `Ack`, `Error { code }` — ADR-0028 | — |
 
 - Abone yoksa canlı mesaj serileştirilmez bile.
 - `QueryRange` sonucu ≤ 64 KB'lık `Range(Vec<RangeItem>)` çerçeveleriyle akıtılır, `Ack` ile biter (ADR-0020). Export CSV'si `RangeChunk` ile.

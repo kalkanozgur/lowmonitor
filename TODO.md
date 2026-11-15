@@ -25,7 +25,7 @@
 - [~] M2: şifreli + zincirli log, seal, retention, `lwm-dump` — kod tamam; servis kurulum testi soak sonrası
 - [x] M3: pipe protokolü + tray (canlı Sample, tray, HKCU Run, Admin kontrolü, Export)
 - [~] M4: `QueryRange` ✅, Export öncesi flush ✅, `Control` Pause/Resume/ReloadConfig ✅ (2026-11-15). ReloadConfig'te çalışırken `interval_ms` + `lwm-dump` etiketi ✅. Kalan: `lowmon-elev` (kill/priority/affinity + `--op write-config`), uçtan uca Admin testi (soak sonrası). UI Slint ile ayrı (ADR-0019)
-- [~] M5: alarmlar + bildirim — tasarım ✅ [ADR-0028](docs/kararlar/ADR-0028-alarm-ve-event.md) (2026-11-15); kod: config ayrıştırma + durum makinesi + tablo testleri ✅ (adım 1); REC_EVENT (SCHEMA 2) ✅ (adım 2); döngü + sistem olayları ✅ (adım 3); kalan: CH_EVENT/Alarms, tray balonu, lowmon-net `alarms`
+- [~] M5: alarmlar + bildirim — tasarım ✅ [ADR-0028](docs/kararlar/ADR-0028-alarm-ve-event.md) (2026-11-15); kod: config ayrıştırma + durum makinesi + tablo testleri ✅ (adım 1); REC_EVENT (SCHEMA 2) ✅ (adım 2); döngü + sistem olayları ✅ (adım 3); pipe CH_EVENT/Alarms ✅ (adım 4a); kalan: tray balonu, lowmon-net `alarms`
 - [~] M6: M6a–c kod tamam; M6d kurulum (`install.ps1`, firewall) + **telefon kabul testi ✅ 2026-11-15** (Samsung M21, LAN). Kalan: `lowmon-net` HKCU Run/otomatik başlatma (şimdilik elle, konsol), uzun süreli ölçüm; `bind` sabit IP → DHCP rezervasyonu
 - [x] LowDeck entegrasyonu (yol a, ADR-0022): `lowdeck-agent` pipe Viewer → telefona CPU/RAM/disk/ağ/Top-N; LowDeck'te ayrı oturum — telefonda doğrulandı 2026-11-15
 
