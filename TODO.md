@@ -11,7 +11,7 @@
 - [ ] Ctrl+C ile `run` modunda temiz kapanış testi
 - [x] Tray kurulumu: `scripts/install.ps1` Program Files'a kopyalıyor + `--autostart on` (M6d)
 
-- [ ] Slint UI pipe istemcisi: erişim modu ve bağlantı kuralları → [#1](https://github.com/kalkanozgur/lowmonitor/issues/1)
+- [ ] PC arayüzü LowDeck'te (ADR-0029): agent köprüsü + Canlı/Olaylar (LowDeck ADR-0003); pipe istemci kuralları → [#1](https://github.com/kalkanozgur/lowmonitor/issues/1) (artık agent için); tray "Arayüzü aç" → `UiExe`
 
 ## Kısayollar (`shortcut:` borcu)
 - Firewall kuralı portu sabit 47800; `tokens.bin` atomik değil; istemcisiz `/v1/info` ağ thread'ini ≤ 1 örnek bloklar
@@ -24,7 +24,7 @@
 - [~] M1: CPU/RAM/Disk/Ağ/Top-N toplayıcı — 24 saatte CPU < %0.05, Private WS / Private Bytes < 3 MB — kod tamam, 24 saat soak bekliyor
 - [~] M2: şifreli + zincirli log, seal, retention, `lwm-dump` — kod tamam; servis kurulum testi soak sonrası
 - [x] M3: pipe protokolü + tray (canlı Sample, tray, HKCU Run, Admin kontrolü, Export)
-- [~] M4: `QueryRange` ✅, Export öncesi flush ✅, `Control` Pause/Resume/ReloadConfig ✅ (2026-11-15). ReloadConfig'te çalışırken `interval_ms` + `lwm-dump` etiketi ✅. Kalan: `lowmon-elev` (kill/priority/affinity + `--op write-config`), uçtan uca Admin testi (soak sonrası). UI Slint ile ayrı (ADR-0019)
+- [~] M4: `QueryRange` ✅, Export öncesi flush ✅, `Control` Pause/Resume/ReloadConfig ✅ (2026-11-15). ReloadConfig'te çalışırken `interval_ms` + `lwm-dump` etiketi ✅. Kalan: `lowmon-elev` (kill/priority/affinity + `--op write-config`), uçtan uca Admin testi (soak sonrası). UI LowDeck'te (ADR-0029)
 - [~] M5: alarmlar + bildirim — tasarım ✅ [ADR-0028](docs/kararlar/ADR-0028-alarm-ve-event.md) (2026-11-15); kod: config ayrıştırma + durum makinesi + tablo testleri ✅ (adım 1); REC_EVENT (SCHEMA 2) ✅ (adım 2); döngü + sistem olayları ✅ (adım 3); pipe CH_EVENT/Alarms ✅ (adım 4a); tray balonu ✅ (adım 4b); lowmon-net `alarms` ✅ (adım 4c); Event yolu balonu canlı görüldü ✅; kalan: bağlanış balonu canlı gözlemi, nihai kabul soak'u, lowmon-net `alarms`
 - [~] M6: M6a–c kod tamam; M6d kurulum (`install.ps1`, firewall) + **telefon kabul testi ✅ 2026-11-15** (Samsung M21, LAN). Kalan: `lowmon-net` HKCU Run/otomatik başlatma (şimdilik elle, konsol), uzun süreli ölçüm; `bind` sabit IP → DHCP rezervasyonu
 - [x] LowDeck entegrasyonu (yol a, ADR-0022): `lowdeck-agent` pipe Viewer → telefona CPU/RAM/disk/ağ/Top-N; LowDeck'te ayrı oturum — telefonda doğrulandı 2026-11-15
