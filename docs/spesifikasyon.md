@@ -297,7 +297,7 @@ clear    = { below = 85.0, for_s = 30 }
 - `windows-sys` + gizli üst düzey pencere + `Shell_NotifyIconW` (ADR-0018).
 - 16×16 ikon: CPU/RAM çift çubuk, `CreateDIBSection` + `CreateIconIndirect`, 2 s'de bir güncelleme.
 - Tooltip: `CPU 12% · RAM 58% · ↓1.2 MB/s`.
-- "Arayüzü aç" → `HKCU\Software\LowMonitor` `UiExe` değerindeki LowDeck masaüstü exe'si (ADR-0029); değer yoksa pasif.
+- "Arayüzü aç" → `HKCU\Software\LowMonitor` `UiExe` değerindeki LowDeck masaüstü exe'si (ADR-0029; değeri LowDeck masaüstü ve agent yazar, LowDeck ADR-0004). Değer yoksa ya da exe bulunamazsa pasif; etiket nedeni söyler ("LowDeck kurulu değil" / "exe bulunamadı").
 - Sağ tık menü: arayüzü aç, alarmları sessize al (1 saat), Windows ile başlat, çıkış.
 - Servis yoksa ikon gri, 10 s'de bir yeniden bağlanma denemesi.
 - Otomatik başlatma: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
