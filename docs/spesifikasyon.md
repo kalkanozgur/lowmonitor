@@ -207,7 +207,7 @@ Seal block (segment kapanırken, kayıt tipi 0xFF)
 |---|---|---|---|
 | Sample | 0x01 | ts, cpu_total, cpu_core[n], ram_used, commit, cache, disk[i].r/w, net[i].rx/tx | ts delta + zigzag varint delta |
 | TopN | 0x02 | (dict_id, pid, cpu ‱, ws_kb) × N | varint |
-| Event | 0x03 | alarm_id, state (raise/clear), değer | varint |
+| Event | 0x03 | kind (AlarmRaise/AlarmClear/System), name (ProcDict id), değer (zigzag) — ADR-0028, SCHEMA 2 | varint |
 | ProcDict | 0x04 | dict_id → exe adı (segment başına bir kez) | UTF-8 |
 | Gap | 0x05 | servis duraklatıldı / uyku / boot | ts aralığı |
 | Seal | 0xFF | bkz. 5.3 | — |
@@ -252,7 +252,7 @@ Seal block (segment kapanırken, kayıt tipi 0xFF)
 | C→S | `Control(Pause \| Resume \| ReloadConfig)` — ayar değişikliği = Admin `config.toml` yazar + `ReloadConfig`; `interval_ms` dahil çalışırken uygulanır (ADR-0027) | Admin |
 | C→S | `Export { from, to, format: Csv }` | Admin |
 | C→S | `ProducerPush { channel_id, payload }` (GPU vb.) | Producer |
-| S→C | `Sample`, `TopN`, `Event`, `RangeChunk` (Export), `Range` (QueryRange), `Ack`, `Error { code }` | — |
+| S→C | `Sample`, `TopN`, `Event`, `Alarms` (CH_EVENT aboneliğinde aktif liste), `RangeChunk` (Export), `Range` (QueryRange, Event dahil), `Ack`, `Error { code }` — ADR-0028 | — |
 
 - Abone yoksa canlı mesaj serileştirilmez bile.
 - `QueryRange` sonucu ≤ 64 KB'lık `Range(Vec<RangeItem>)` çerçeveleriyle akıtılır, `Ack` ile biter (ADR-0020). Export CSV'si `RangeChunk` ile.
@@ -285,7 +285,8 @@ raise    = { above = 90.0, for_s = 60 }
 clear    = { below = 85.0, for_s = 30 }
 ```
 
-- Değerlendirme her tick'te, histerezis + süre sayacı (durum makinesi: `Normal → Pending → Raised → Clearing → Normal`).
+- Değerlendirme her tick'te, histerezis + süre sayacı (durum makinesi: `Normal → Pending → Raised → Clearing → Normal`); süre örnek ts'iyle ölçülür, tick sayılmaz.
+- Metrikler, `device` seçimi (disk no / arayüz takma adı), gap/pause ve ReloadConfig davranışı, Event kapsamı (alarm + sistem olayları): [ADR-0028](kararlar/ADR-0028-alarm-ve-event.md).
 - Raise/Clear → `Event` kaydı + pipe üzerinden tray'e push.
 - Servis session 0'da → bildirimi **tray** gösterir: `Shell_NotifyIconW(NIM_MODIFY, NIF_INFO)` (Win10/11'de toast olarak görünür, WinRT gerekmez).
 
