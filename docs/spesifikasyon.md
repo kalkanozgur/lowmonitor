@@ -187,7 +187,7 @@ Header (64 B, düz metin, ilk bloğun AAD'sine dahil)
   flags        u16
   segment_id   u64     (monoton, state dosyasında tutulur)
   created_unix u64
-  interval_ms  u32
+  interval_ms  u32     (segment açılışındaki aralık, bilgi; çalışırken değişebilir — ADR-0027)
   schema_hash  u32     (kayıt şeması değişince değişir)
   salt         [u8;16]
   reserved     [u8;16]  (alanlar 48 B; 64 B için 16 — 2026-11-14 düzeltme)
@@ -249,7 +249,7 @@ Seal block (segment kapanırken, kayıt tipi 0xFF)
 | C→S | `Hello { proto, role: Viewer \| Tray \| Producer }` | Herkes |
 | C→S | `Subscribe { channels, rate_ms }` / `Unsubscribe` | Herkes |
 | C→S | `QueryRange { from, to, resolution: Raw \| Minute }` (Top-N dönmez, ADR-0020) | Herkes |
-| C→S | `Control(Pause \| Resume \| SetInterval \| SetRetention \| ReloadConfig)` | Admin |
+| C→S | `Control(Pause \| Resume \| ReloadConfig)` — ayar değişikliği = Admin `config.toml` yazar + `ReloadConfig`; `interval_ms` dahil çalışırken uygulanır (ADR-0027) | Admin |
 | C→S | `Export { from, to, format: Csv }` | Admin |
 | C→S | `ProducerPush { channel_id, payload }` (GPU vb.) | Producer |
 | S→C | `Sample`, `TopN`, `Event`, `RangeChunk` (Export), `Range` (QueryRange), `Ack`, `Error { code }` | — |
