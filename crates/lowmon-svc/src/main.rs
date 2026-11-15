@@ -350,9 +350,9 @@ fn server(
 ) -> (Arc<Server>, Receiver<CmdReq>) {
     // Kapasite = eşzamanlı istek; dolarsa Export flush'sız devam eder, Control `Io` alır.
     let (tx, rx) = sync_channel(8);
+    publ.set_interval(cfg.sampling.interval_ms);
     let srv = Arc::new(Server {
         publ: publ.clone(),
-        interval_ms: cfg.sampling.interval_ms,
         root: root.to_path_buf(),
         key,
         cmd: tx,
@@ -360,14 +360,10 @@ fn server(
     (srv, rx)
 }
 
-/// ReloadConfig: hatalı/okunamayan dosya ya da `interval_ms` değişikliği reddedilir (mevcut ayar kalır).
-fn reload_config(root: &Path, cur: &Config) -> Result<Config, ErrorCode> {
+/// ReloadConfig: hatalı/okunamayan dosya reddedilir (`Io`, mevcut ayar kalır).
+fn reload_config(root: &Path) -> Result<Config, ErrorCode> {
     let text = fs::read_to_string(root.join("config.toml")).map_err(|_| ErrorCode::Io)?;
-    let new = Config::parse(&text).map_err(|_| ErrorCode::Io)?;
-    if new.sampling.interval_ms != cur.sampling.interval_ms {
-        return Err(ErrorCode::Unsupported); // segment başlığı aralığı taşır; ADR bekliyor
-    }
-    Ok(new)
+    Config::parse(&text).map_err(|_| ErrorCode::Io)
 }
 
 /// Servis ve `run` konsol modu aynı döngüyü kullanır; durdurulunca Seal yazılır.
@@ -403,10 +399,18 @@ fn collect_loop(
                     }
                     Ok(())
                 }
-                Cmd::Control(Control::ReloadConfig) => reload_config(root, &cfg).map(|new| {
+                Cmd::Control(Control::ReloadConfig) => reload_config(root).and_then(|new| {
+                    let ms = new.sampling.interval_ms;
+                    // Aralık çalışırken (ADR-0027): önce timer — kurulamazsa hiçbir şey değişmez
+                    if ms != cfg.sampling.interval_ms {
+                        ticker.set_period(ms).map_err(|_| ErrorCode::Io)?;
+                        writer.set_interval(ms);
+                        publ.set_interval(ms);
+                    }
                     sched.set_days(new.retention.raw_days, new.retention.total_days);
-                    collector = new_collector(&new);
+                    collector = new_collector(&new); // aralık/Top-N değişti → delta'lar sıfırdan
                     cfg = new;
+                    Ok(())
                 }),
             };
             if print {
@@ -491,15 +495,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reload_config_accepts_changes_and_rejects_bad_or_interval() {
+    fn reload_config_accepts_changes_and_rejects_bad_file() {
         let dir = std::env::temp_dir().join(format!("lowmon-test-{}-reload", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let cur = Config::default();
         let write = |s: &str| fs::write(dir.join("config.toml"), s).unwrap();
-        assert_eq!(reload_config(&dir, &cur), Err(ErrorCode::Io)); // dosya yok
+        assert_eq!(reload_config(&dir), Err(ErrorCode::Io)); // dosya yok
         write("[sampling]\ntopn_every = 10\n[retention]\nraw_days = 3\ntotal_days = 20\n");
-        let new = reload_config(&dir, &cur).unwrap();
+        let new = reload_config(&dir).unwrap();
         assert_eq!(
             (
                 new.sampling.topn_every,
@@ -509,9 +512,9 @@ mod tests {
             (10, 3, 20)
         );
         write("[retention]\nraw_days = 40\n");
-        assert_eq!(reload_config(&dir, &cur), Err(ErrorCode::Io)); // doğrulama hatası
+        assert_eq!(reload_config(&dir), Err(ErrorCode::Io)); // doğrulama hatası
         write("[sampling]\ninterval_ms = 2000\n");
-        assert_eq!(reload_config(&dir, &cur), Err(ErrorCode::Unsupported));
+        assert_eq!(reload_config(&dir).unwrap().sampling.interval_ms, 2000); // ADR-0027: kabul
         let _ = fs::remove_dir_all(&dir);
     }
 }

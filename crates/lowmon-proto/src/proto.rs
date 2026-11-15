@@ -1,5 +1,5 @@
 //! Pipe protokolü (spek §6): çerçeve = `u32 LE uzunluk | postcard`, maks. 1 MB.
-//! shortcut: Producer yok; Control'de SetInterval/SetRetention yok (ADR bekliyor); Export yalnızca CSV, format alanı yok
+//! shortcut: Producer yok; Control'de SetInterval/SetRetention yok (ADR-0027: config + ReloadConfig); Export yalnızca CSV, format alanı yok
 //! Yeni varyantlar enum sonuna eklenir → postcard indeksleri değişmez, `PROTO` artmaz.
 use crate::metrics::{AggKind, GapReason, Sample, TopEntry};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -52,8 +52,8 @@ pub enum Control {
     Pause,
     /// Log'a `Gap(Paused)` yazılır, ilk örnek atılır.
     Resume,
-    /// `config.toml` yeniden okunur: Top-N ve retention uygulanır. `interval_ms` değişmişse
-    /// `Unsupported`, dosya okunamaz/hatalıysa `Io`; her iki durumda mevcut ayar kalır.
+    /// `config.toml` yeniden okunur; `interval_ms` dahil hepsi çalışırken uygulanır (ADR-0027).
+    /// Dosya okunamaz/hatalıysa `Io`, mevcut ayar kalır. Ayar değişikliği = Admin dosyayı yazar + bu komut.
     ReloadConfig,
 }
 

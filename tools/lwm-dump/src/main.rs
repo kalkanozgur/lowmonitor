@@ -54,7 +54,7 @@ fn file_mode(seg: PathBuf, key: Option<PathBuf>) -> ExitCode {
         Ok(o) => {
             if let Some(h) = o.header {
                 eprintln!(
-                    "segment {} | oluşturma {} | aralık {} ms | {}",
+                    "segment {} | oluşturma {} | açılış aralığı {} ms | {}", // ADR-0027: gün içinde değişebilir
                     h.segment_id,
                     h.created_unix,
                     h.interval_ms,

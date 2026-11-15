@@ -298,6 +298,11 @@ impl Writer {
         save_state(&self.root, seg)
     }
 
+    /// ReloadConfig (ADR-0027): Sleep eşiği yeni aralığa; segment başlığı açılış aralığında kalır.
+    pub fn set_interval(&mut self, interval_ms: u32) {
+        self.interval_ms = interval_ms;
+    }
+
     /// Control::Pause: tampon diske, sonraki örnekte Gap(Paused).
     pub fn pause(&mut self) -> io::Result<()> {
         self.paused = true;
