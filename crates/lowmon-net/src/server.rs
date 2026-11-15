@@ -7,8 +7,11 @@ use crate::{
     live::{info_json, live_json, parse_rate},
     sysinfo,
 };
+use lowmon_proto::metrics::EventKind;
 use lowmon_proto::metrics::Sample;
-use lowmon_proto::proto::{self, CH_SAMPLE, CH_TOP, ClientMsg, PIPE_NAME, PROTO, Role, ServerMsg};
+use lowmon_proto::proto::{
+    self, CH_EVENT, CH_SAMPLE, CH_TOP, ClientMsg, PIPE_NAME, PROTO, Role, ServerMsg,
+};
 use std::{
     fs::File,
     io::{self, ErrorKind, Read, Write},
@@ -394,18 +397,24 @@ fn one_sample() -> io::Result<Sample> {
 
 /// `Ok`: istemci kalmadı, pipe kapatılabilir. `Err`: servis yok / koptu.
 fn session(f: &mut File, shared: &Shared, total_mb: u64) -> io::Result<()> {
-    hello(f, CH_SAMPLE | CH_TOP)?;
-    let mut top = Vec::new();
+    hello(f, CH_SAMPLE | CH_TOP | CH_EVENT)?;
+    let (mut top, mut alarms) = (Vec::new(), Vec::<String>::new());
     loop {
         match proto::read::<ServerMsg>(f)? {
             ServerMsg::Sample(s) => {
-                let text = live_json(&s, &top, total_mb);
+                let text = live_json(&s, &top, total_mb, &alarms);
                 shared.set_last(Some(s));
                 if !shared.broadcast(&text) {
                     return Ok(());
                 }
             }
             ServerMsg::Top(t) => top = t,
+            ServerMsg::Alarms(a) => alarms = a,
+            ServerMsg::Event { kind, name, .. } => match kind {
+                EventKind::AlarmRaise if !alarms.contains(&name) => alarms.push(name),
+                EventKind::AlarmClear => alarms.retain(|a| *a != name),
+                _ => {}
+            },
             ServerMsg::Error { code } => return Err(io::Error::other(format!("{code:?}"))),
             _ => {}
         }

@@ -17,8 +17,8 @@ struct Live<'a> {
     /// `lowmon-gpu` gelene kadar null.
     gpu: Option<()>,
     top: Vec<(&'a str, f32)>,
-    /// shortcut: alarm motoru M5'te; o zamana kadar hep boş
-    alarms: [&'a str; 0],
+    /// Şu an Raised kural id'leri (pipe `CH_EVENT`: `Alarms` + olaylar).
+    alarms: &'a [String],
 }
 
 #[derive(Serialize)]
@@ -44,7 +44,7 @@ fn pct(units: u16) -> f32 {
     (units as f32 / 10.0).round() / 10.0
 }
 
-pub fn live_json(s: &Sample, top: &[TopEntry], total_mb: u64) -> String {
+pub fn live_json(s: &Sample, top: &[TopEntry], total_mb: u64, alarms: &[String]) -> String {
     let live = Live {
         v: 1,
         ts: s.ts_unix_ms / 1000,
@@ -64,7 +64,7 @@ pub fn live_json(s: &Sample, top: &[TopEntry], total_mb: u64) -> String {
         },
         gpu: None,
         top: top.iter().map(|t| (t.name.as_str(), pct(t.cpu))).collect(),
-        alarms: [],
+        alarms,
     };
     serde_json::to_string(&live).unwrap_or_default()
 }
@@ -166,9 +166,10 @@ mod tests {
             name: "a\"b.exe".into(),
         }];
         assert_eq!(
-            live_json(&s, &top, 16384),
+            live_json(&s, &top, 16384, &[]),
             r#"{"v":1,"ts":1763128800,"cpu":12.4,"cores":[8,15],"ram":{"used_mb":9300,"total_mb":16384},"disk":{"r_bps":120,"w_bps":5},"net":{"rx_bps":7,"tx_bps":8},"gpu":null,"top":[["a\"b.exe",4.1]],"alarms":[]}"#
         );
+        assert!(live_json(&s, &[], 1, &["cpu_high".into()]).ends_with(r#""alarms":["cpu_high"]}"#));
     }
 
     #[test]
