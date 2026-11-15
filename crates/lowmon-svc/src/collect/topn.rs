@@ -104,7 +104,7 @@ impl TopN {
         true
     }
 
-    fn query(&mut self) -> bool {
+    pub(super) fn query(&mut self) -> bool {
         loop {
             let mut len = 0u32;
             // SAFETY: buf bayt boyutuyla birlikte veriliyor.
