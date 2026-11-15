@@ -1,5 +1,6 @@
 //! Pipe protokolü (spek §6): çerçeve = `u32 LE uzunluk | postcard`, maks. 1 MB.
-//! shortcut: Control/Producer yok (M4); Export yalnızca CSV, format alanı yok
+//! shortcut: Producer yok; Control'de SetInterval/SetRetention yok (ADR bekliyor); Export yalnızca CSV, format alanı yok
+//! Yeni varyantlar enum sonuna eklenir → postcard indeksleri değişmez, `PROTO` artmaz.
 use crate::metrics::{AggKind, GapReason, Sample, TopEntry};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
@@ -41,6 +42,19 @@ pub enum ClientMsg {
         to_ms: u64,
         resolution: Resolution,
     },
+    /// Admin. Toplayıcı döngüsü ≤ 1 tick içinde uygular; `Ack` ya da `Error`.
+    Control(Control),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Control {
+    /// Toplama/yazma/yayın durur (kalıcı değil: servis yeniden başlarsa devam eder).
+    Pause,
+    /// Log'a `Gap(Paused)` yazılır, ilk örnek atılır.
+    Resume,
+    /// `config.toml` yeniden okunur: Top-N ve retention uygulanır. `interval_ms` değişmişse
+    /// `Unsupported`, dosya okunamaz/hatalıysa `Io`; her iki durumda mevcut ayar kalır.
+    ReloadConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

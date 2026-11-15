@@ -14,9 +14,9 @@ use collect::Collector;
 use lowmon_core::{
     config::{Config, DEFAULT_TOML},
     metrics::{Sample, TopEntry},
-    proto::{CH_SAMPLE, CH_TOP, PIPE_NAME, ServerMsg},
+    proto::{CH_SAMPLE, CH_TOP, Control, ErrorCode, PIPE_NAME, ServerMsg},
 };
-use pipe::{FlushAck, Publisher, Server};
+use pipe::{Cmd, CmdReq, Publisher, Server};
 use retention::Scheduler;
 use std::{
     error::Error,
@@ -270,9 +270,18 @@ fn run_service() -> windows_service::Result<()> {
     let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
     let publ = Publisher::default();
     // shortcut: pipe açılamazsa servis pipe'sız toplamaya devam eder; Event kaydı M5'te
-    let (srv, flush) = server(&publ, &cfg, &root, key);
+    let (srv, cmds) = server(&publ, &cfg, &root, key);
     let _ = pipe::spawn(PIPE_NAME, srv);
-    collect_loop(&ticker, &cfg, &mut writer, &mut sched, &publ, &flush, false);
+    collect_loop(
+        &ticker,
+        &cfg,
+        &root,
+        &mut writer,
+        &mut sched,
+        &publ,
+        &cmds,
+        false,
+    );
     handle.set_service_status(status(
         ServiceState::Stopped,
         ServiceControlAccept::empty(),
@@ -316,11 +325,20 @@ fn run_console(args: &[String]) -> Result<(), Box<dyn Error>> {
     eprintln!("veri: {} (çıkış: Ctrl+C)", root.display());
     let mut sched = Scheduler::new(&root, key, cfg.retention.raw_days, cfg.retention.total_days);
     let publ = Publisher::default();
-    let (srv, flush) = server(&publ, &cfg, &root, key);
+    let (srv, cmds) = server(&publ, &cfg, &root, key);
     if let Err(e) = pipe::spawn(PIPE_NAME, srv) {
         eprintln!("pipe açılamadı (servis çalışıyor olabilir), pipe'sız devam: {e}");
     }
-    collect_loop(&ticker, &cfg, &mut writer, &mut sched, &publ, &flush, true);
+    collect_loop(
+        &ticker,
+        &cfg,
+        &root,
+        &mut writer,
+        &mut sched,
+        &publ,
+        &cmds,
+        true,
+    );
     Ok(())
 }
 
@@ -329,33 +347,77 @@ fn server(
     cfg: &Config,
     root: &Path,
     key: [u8; 32],
-) -> (Arc<Server>, Receiver<FlushAck>) {
-    // Kapasite = eşzamanlı Export sayısı; dolarsa Export flush beklemeden devam eder.
+) -> (Arc<Server>, Receiver<CmdReq>) {
+    // Kapasite = eşzamanlı istek; dolarsa Export flush'sız devam eder, Control `Io` alır.
     let (tx, rx) = sync_channel(8);
     let srv = Arc::new(Server {
         publ: publ.clone(),
         interval_ms: cfg.sampling.interval_ms,
         root: root.to_path_buf(),
         key,
-        flush: tx,
+        cmd: tx,
     });
     (srv, rx)
 }
 
+/// ReloadConfig: hatalı/okunamayan dosya ya da `interval_ms` değişikliği reddedilir (mevcut ayar kalır).
+fn reload_config(root: &Path, cur: &Config) -> Result<Config, ErrorCode> {
+    let text = fs::read_to_string(root.join("config.toml")).map_err(|_| ErrorCode::Io)?;
+    let new = Config::parse(&text).map_err(|_| ErrorCode::Io)?;
+    if new.sampling.interval_ms != cur.sampling.interval_ms {
+        return Err(ErrorCode::Unsupported); // segment başlığı aralığı taşır; ADR bekliyor
+    }
+    Ok(new)
+}
+
 /// Servis ve `run` konsol modu aynı döngüyü kullanır; durdurulunca Seal yazılır.
+#[allow(clippy::too_many_arguments)]
 fn collect_loop(
     ticker: &Ticker,
     cfg: &Config,
+    root: &Path,
     writer: &mut Writer,
     sched: &mut Scheduler,
     publ: &Publisher,
-    flush: &Receiver<FlushAck>,
+    cmds: &Receiver<CmdReq>,
     print: bool,
 ) {
     ticker::enter_eco_mode();
-    let mut collector = Collector::new(cfg.sampling.topn_every, cfg.sampling.topn_count);
+    let mut cfg = cfg.clone();
+    let new_collector = |c: &Config| Collector::new(c.sampling.topn_every, c.sampling.topn_count);
+    let mut collector = new_collector(&cfg);
     let (mut s, mut top) = (Sample::default(), Vec::new());
+    let mut paused = false;
     while ticker.wait() {
+        // Pipe komutları (≤ 1 tick gecikme, ek uyanma yok)
+        while let Ok((cmd, done)) = cmds.try_recv() {
+            let r = match cmd {
+                Cmd::Flush => writer.flush().map_err(|_| ErrorCode::Io),
+                Cmd::Control(Control::Pause) => {
+                    paused = true;
+                    writer.pause().map_err(|_| ErrorCode::Io)
+                }
+                Cmd::Control(Control::Resume) => {
+                    if std::mem::take(&mut paused) {
+                        collector = new_collector(&cfg); // eski delta'lar duraklamayı kapsar → ilk örnek atılır
+                    }
+                    Ok(())
+                }
+                Cmd::Control(Control::ReloadConfig) => reload_config(root, &cfg).map(|new| {
+                    sched.set_days(new.retention.raw_days, new.retention.total_days);
+                    collector = new_collector(&new);
+                    cfg = new;
+                }),
+            };
+            if print {
+                eprintln!("komut {cmd:?}: {r:?}");
+            }
+            let _ = done.send(r);
+        }
+        if paused {
+            sched.tick(now_ms()); // retention duraklamada da çalışır
+            continue;
+        }
         let got = collector.collect(&mut s, &mut top);
         // shortcut: yazma hatası (disk dolu vb.) yalnızca konsolda görünür; servis toplamaya devam eder, Event M5'te
         if got.sample
@@ -370,15 +432,6 @@ fn collect_loop(
         }
         if got.sample {
             publ.publish(CH_SAMPLE, || ServerMsg::Sample(s.clone()));
-        }
-        // Export öncesi: yarım blok da diske (yalnız Admin Export tetikler → ek yazma sınırlı)
-        while let Ok(ack) = flush.try_recv() {
-            if let Err(e) = writer.flush()
-                && print
-            {
-                eprintln!("flush hatası: {e}");
-            }
-            let _ = ack.send(());
         }
         sched.tick(s.ts_unix_ms);
         if print && got.sample {
@@ -431,4 +484,34 @@ fn print_sample(s: &Sample) {
         s.net.iter().map(|n| n.tx_bps).sum::<u64>() / 1024,
         cores.join(" ")
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reload_config_accepts_changes_and_rejects_bad_or_interval() {
+        let dir = std::env::temp_dir().join(format!("lowmon-test-{}-reload", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let cur = Config::default();
+        let write = |s: &str| fs::write(dir.join("config.toml"), s).unwrap();
+        assert_eq!(reload_config(&dir, &cur), Err(ErrorCode::Io)); // dosya yok
+        write("[sampling]\ntopn_every = 10\n[retention]\nraw_days = 3\ntotal_days = 20\n");
+        let new = reload_config(&dir, &cur).unwrap();
+        assert_eq!(
+            (
+                new.sampling.topn_every,
+                new.retention.raw_days,
+                new.retention.total_days
+            ),
+            (10, 3, 20)
+        );
+        write("[retention]\nraw_days = 40\n");
+        assert_eq!(reload_config(&dir, &cur), Err(ErrorCode::Io)); // doğrulama hatası
+        write("[sampling]\ninterval_ms = 2000\n");
+        assert_eq!(reload_config(&dir, &cur), Err(ErrorCode::Unsupported));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
