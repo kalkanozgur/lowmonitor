@@ -118,7 +118,25 @@ mod bench {
             d.rediscover()
         });
         let red_n = t("nic keşif", 20, || ni.rediscover());
-        let per_s = cpu + mem + disk + net + topn / 5.0 + (red_d + red_n) / 60.0;
+        // ADR-0028 hedefi: 32 kuralda < 5 µs/tick
+        let rules: Vec<_> = (0..lowmon_core::config::MAX_ALARMS)
+            .map(|i| {
+                let mut c = lowmon_core::config::Config::parse(&format!(
+                    "[[alarm]]\nid = \"a{i}\"\nmetric = \"{}\"\nraise = {{ above = 90.0, for_s = 30 }}\nclear = {{ below = 80.0 }}\n",
+                    ["cpu.total", "mem.used_pct", "disk.bps", "net.rx_bps"][i % 4]
+                ))
+                .unwrap();
+                c.alarm.remove(0)
+            })
+            .collect();
+        let mut eng = crate::alarm::Engine::new(&rules);
+        let ctx = crate::alarm::Ctx {
+            ram_total_kb: 16_000_000,
+            ..Default::default()
+        };
+        let mut fired = Vec::new();
+        let alarm = t("alarm (32)", 2000, || eng.step(&s, &ctx, &mut fired));
+        let per_s = cpu + mem + disk + net + alarm + topn / 5.0 + (red_d + red_n) / 60.0;
         println!("tahmini toplam {:.0} µs/s", per_s);
     }
 }
