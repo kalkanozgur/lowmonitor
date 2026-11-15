@@ -16,7 +16,7 @@ Windows'ta sürekli çalışan, ölçülebilir derecede düşük tüketimli kayn
 ## Performans bütçesi (lowmon-svc)
 | Metrik | Hedef |
 |---|---|
-| CPU (24 saat ort.) | < %0.05 |
+| CPU (24 saat ort.) | < %0.05 toplam CPU (ADR-0026) |
 | Private WS + Private Bytes | < 3 MB (ADR-0015) |
 | Disk yazma | Dakikada 1 (~1.5 KB) |
 | Wake-up | 1/s (coalescing) |

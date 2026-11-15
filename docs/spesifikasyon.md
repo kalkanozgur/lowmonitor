@@ -12,7 +12,7 @@
 
 | Metrik | Hedef (lowmon-svc) | Ölçüm yöntemi |
 |---|---|---|
-| CPU (ortalama, 24 saat) | < %0.05 | `Get-Counter "\Process(lowmon-svc)\% Processor Time"`, WPR/WPA |
+| CPU (ortalama, 24 saat) | < %0.05 **toplam CPU** (CPU süresi ÷ (süre × mantıksal çekirdek); ms/s da raporlanır — ADR-0026) | `scripts/soak.ps1` `cpu_s` farkı, WPR/WPA |
 | Private WS + Private Bytes | < 3 MB (her biri; toplam WS paylaşılan DLL sayfası içerir, hedef değil — ADR-0015) | `Get-Counter "\Process(lowmon-svc)\Working Set - Private"`, Process Explorer → Private Bytes |
 | Disk yazma | Dakikada 1 `WriteFile` (~1.5 KB) | Resource Monitor → Disk |
 | Wake-up | 1/s (timer coalescing açık) | `powercfg /energy` |
@@ -385,7 +385,7 @@ clear    = { below = 85.0, for_s = 30 }
 | # | Kapsam | Tamam kriteri |
 |---|---|---|
 | **M0** | Workspace, release profili, CI (`cargo fmt --check`, `clippy -D warnings`), boş servis | `install/start/stop/uninstall` çalışıyor |
-| **M1** | CPU/RAM/Disk/Ağ/Top-N toplayıcı | 24 saatte CPU < %0.05, Private WS / Private Bytes < 3 MB |
+| **M1** | CPU/RAM/Disk/Ağ/Top-N toplayıcı | 24 saatte CPU < %0.05 (toplam, ADR-0026), Private WS / Private Bytes < 3 MB |
 | **M2** | Şifreli + zincirli log, seal, retention, `lwm-dump` | Kurcalama testlerinin tamamı yakalanıyor |
 | **M3** | Pipe protokolü + tray | Abone yokken sıfır akış, tray yeniden bağlanıyor |
 | **M4** | UI (Slint, ADR-0019), geçmiş sorgusu, müdahale + `lowmon-elev` | Yükseltilmiş süreç kill'i UAC ile çalışıyor |
