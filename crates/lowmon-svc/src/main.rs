@@ -1,4 +1,7 @@
 //! lowmon-svc — servis + install/start/stop/uninstall (spek §11), `run` = konsol modu (geliştirme).
+// shortcut: M5 adım 3'te döngüye bağlanır (allow o zaman kalkar); şimdilik yalnız testler
+#[allow(dead_code)]
+mod alarm;
 mod collect;
 mod export;
 mod firewall;
