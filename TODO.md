@@ -11,7 +11,7 @@
 - [ ] Ctrl+C ile `run` modunda temiz kapanış testi
 - [x] Tray kurulumu: `scripts/install.ps1` Program Files'a kopyalıyor + `--autostart on` (M6d)
 
-- [ ] PC arayüzü LowDeck'te (ADR-0029): agent köprüsü + Canlı/Olaylar (LowDeck ADR-0003); pipe istemci kuralları → [#1](https://github.com/kalkanozgur/lowmonitor/issues/1) (artık agent için); tray "Arayüzü aç" → `UiExe`
+- [x] PC arayüzü LowDeck'te (ADR-0029): agent köprüsü + Canlı/Olaylar (LowDeck ADR-0003, PR #12/#13); tray "Arayüzü aç" → `UiExe` ✅ (2026-11-15). Kalan: Geçmiş sekmesi; pipe istemci kuralları → [#1](https://github.com/kalkanozgur/lowmonitor/issues/1) (artık agent için)
 
 ## Kısayollar (`shortcut:` borcu)
 - Firewall kuralı portu sabit 47800; `tokens.bin` atomik değil; istemcisiz `/v1/info` ağ thread'ini ≤ 1 örnek bloklar

@@ -263,8 +263,9 @@ fn menu(hwnd: HWND) {
     // SAFETY: menü bu fonksiyonda oluşturulup yok edilir.
     unsafe {
         let m = CreatePopupMenu();
-        // Slint UI'ye kadar pasif
-        AppendMenuW(m, MF_STRING | MF_GRAYED, ID_UI, wide("Arayüzü aç").as_ptr());
+        let ui = autostart::ui_exe();
+        let grayed = if ui.is_some() { 0 } else { MF_GRAYED };
+        AppendMenuW(m, MF_STRING | grayed, ID_UI, wide("Arayüzü aç").as_ptr());
         AppendMenuW(
             m,
             MF_STRING | if muted() { MF_CHECKED } else { 0 },
@@ -298,6 +299,13 @@ fn menu(hwnd: HWND) {
         match cmd as usize {
             ID_EXIT => {
                 DestroyWindow(hwnd);
+            }
+            // Uygulama tek örnek: zaten açıksa kendi penceresini öne getirip çıkar.
+            // shortcut: başlatma hatası sessiz (exe silinmiş/taşınmış); uygulama açılınca değer düzelir
+            ID_UI => {
+                if let Some(exe) = ui {
+                    let _ = std::process::Command::new(exe).spawn();
+                }
             }
             ID_MUTE => {
                 let until = if muted() {
