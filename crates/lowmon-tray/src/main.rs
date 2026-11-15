@@ -1,12 +1,13 @@
 //! lowmon-tray (spek §8): tray ikonu (CPU/RAM çift çubuk) + tooltip, pipe'tan 2 s'de bir Sample.
+//! Alarm (ADR-0028): `CH_EVENT` abonesi; AlarmRaise → balon (1 saat sessize alınabilir).
 //! Spekten farkı: windows-rs yerine windows-sys (diğer crate'lerle aynı, ADR-0018).
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod autostart;
 
 use lowmon_core::{
-    metrics::Sample,
-    proto::{self, CH_SAMPLE, ClientMsg, PIPE_NAME, PROTO, Role, ServerMsg},
+    metrics::{EventKind, Sample},
+    proto::{self, CH_EVENT, CH_SAMPLE, ClientMsg, PIPE_NAME, PROTO, Role, ServerMsg},
 };
 use std::{
     cell::Cell,
@@ -16,7 +17,7 @@ use std::{
     ptr,
     sync::{
         Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     thread,
     time::Duration,
@@ -33,13 +34,13 @@ use windows_sys::Win32::{
     Storage::FileSystem::{CreateFileW, FILE_WRITE_DATA, OPEN_EXISTING},
     System::{
         LibraryLoader::GetModuleHandleW,
-        SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX},
+        SystemInformation::{GetTickCount64, GlobalMemoryStatusEx, MEMORYSTATUSEX},
         Threading::CreateMutexW,
     },
     UI::{
         Shell::{
-            NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
-            Shell_NotifyIconW,
+            NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_WARNING, NIM_ADD, NIM_DELETE,
+            NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
         },
         WindowsAndMessaging::{
             AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
@@ -60,6 +61,7 @@ const ID_EXIT: usize = 3;
 const ID_AUTO: usize = 4;
 const RATE_MS: u32 = 2_000;
 const RETRY: Duration = Duration::from_secs(10);
+const MUTE_MS: u64 = 3_600_000;
 // shortcut: sabit 16 px; yüksek DPI'da kabuk ölçekler (bulanık), SM_CXSMICON + DPI manifest M4'te
 const N: usize = 16;
 
@@ -73,6 +75,12 @@ struct Live {
 
 static LATEST: Mutex<Option<Live>> = Mutex::new(None);
 static HWND_: AtomicUsize = AtomicUsize::new(0);
+/// Şu an Raised kural id'leri (servisten `Alarms` + olaylar).
+static ALARMS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Gösterilmeyi bekleyen balon metni.
+static BALLOON: Mutex<Option<String>> = Mutex::new(None);
+/// Sessiz bitişi (GetTickCount64 ms); 0 = sessiz değil. Yalnız tray belleğinde.
+static MUTE_UNTIL: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static ICON: Cell<HICON> = const { Cell::new(ptr::null_mut()) };
@@ -100,8 +108,8 @@ fn rate(bps: u64) -> String {
     }
 }
 
-fn tooltip(live: Option<Live>, total_kb: u64) -> String {
-    match live {
+fn tooltip(live: Option<Live>, total_kb: u64, alarms: &[String]) -> String {
+    let base = match live {
         None => "LowMonitor: servise bağlı değil".into(),
         Some(l) => format!(
             "CPU {:.0}% · RAM {:.0}% · ↓{}",
@@ -109,7 +117,39 @@ fn tooltip(live: Option<Live>, total_kb: u64) -> String {
             pct(l.ram_kb, total_kb),
             rate(l.rx_bps)
         ),
+    };
+    if alarms.is_empty() || live.is_none() {
+        base
+    } else {
+        format!("{base} · ⚠ {}", alarms.join(", "))
     }
+}
+
+/// Olayı aktif listeye uygular; balon gösterilecekse metnini döner (sessizlik çağıranda).
+fn on_event(alarms: &mut Vec<String>, kind: EventKind, name: &str, value: i64) -> Option<String> {
+    match kind {
+        EventKind::AlarmRaise => {
+            if !alarms.iter().any(|a| a == name) {
+                alarms.push(name.to_owned());
+            }
+            Some(format!("{name}: {:.1}", value as f64 / 100.0))
+        }
+        EventKind::AlarmClear => {
+            alarms.retain(|a| a != name);
+            None
+        }
+        EventKind::System => None,
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn muted() -> bool {
+    // SAFETY: parametresiz, yan etkisiz.
+    let now = unsafe { GetTickCount64() };
+    now < MUTE_UNTIL.load(Ordering::Relaxed)
 }
 
 /// 16×16 ARGB (üstten aşağı): solda CPU, sağda RAM çubuğu; bağlı değilse yalnızca gri iz.
@@ -189,9 +229,23 @@ fn notify(hwnd: HWND, msg: u32) {
         nid.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
         nid.uCallbackMessage = WM_TRAY;
         nid.hIcon = icon;
-        let tip: Vec<u16> = tooltip(live, total).encode_utf16().collect();
+        let tip: Vec<u16> = tooltip(live, total, &lock(&ALARMS))
+            .encode_utf16()
+            .collect();
         let n = tip.len().min(nid.szTip.len() - 1);
         nid.szTip[..n].copy_from_slice(&tip[..n]);
+        if let Some(text) = lock(&BALLOON).take() {
+            nid.uFlags |= NIF_INFO;
+            nid.dwInfoFlags = NIIF_WARNING;
+            for (dst, src) in [
+                (&mut nid.szInfoTitle[..], "LowMonitor alarmı"),
+                (&mut nid.szInfo[..], &text),
+            ] {
+                let w: Vec<u16> = src.encode_utf16().collect();
+                let n = w.len().min(dst.len() - 1);
+                dst[..n].copy_from_slice(&w[..n]);
+            }
+        }
         Shell_NotifyIconW(msg, &nid);
         let old = ICON.replace(icon);
         if !old.is_null() {
@@ -204,11 +258,11 @@ fn menu(hwnd: HWND) {
     // SAFETY: menü bu fonksiyonda oluşturulup yok edilir.
     unsafe {
         let m = CreatePopupMenu();
-        // M4/M5'e kadar pasif
+        // Slint UI'ye kadar pasif
         AppendMenuW(m, MF_STRING | MF_GRAYED, ID_UI, wide("Arayüzü aç").as_ptr());
         AppendMenuW(
             m,
-            MF_STRING | MF_GRAYED,
+            MF_STRING | if muted() { MF_CHECKED } else { 0 },
             ID_MUTE,
             wide("Alarmları sessize al (1 saat)").as_ptr(),
         );
@@ -239,6 +293,14 @@ fn menu(hwnd: HWND) {
         match cmd as usize {
             ID_EXIT => {
                 DestroyWindow(hwnd);
+            }
+            ID_MUTE => {
+                let until = if muted() {
+                    0
+                } else {
+                    GetTickCount64() + MUTE_MS
+                };
+                MUTE_UNTIL.store(until, Ordering::Relaxed);
             }
             ID_AUTO => {
                 // shortcut: kayıt hatası sessiz; menü bir sonraki açılışta gerçek durumu gösterir
@@ -323,13 +385,24 @@ fn session(f: &mut File) -> io::Result<()> {
     proto::write(
         f,
         &ClientMsg::Subscribe {
-            channels: CH_SAMPLE,
+            channels: CH_SAMPLE | CH_EVENT,
             rate_ms: RATE_MS,
         },
     )?;
     loop {
         match proto::read::<ServerMsg>(f)? {
             ServerMsg::Sample(s) => post(Some(summarize(&s))),
+            ServerMsg::Alarms(a) => *lock(&ALARMS) = a,
+            ServerMsg::Event {
+                kind, name, value, ..
+            } => {
+                let text = on_event(&mut lock(&ALARMS), kind, &name, value);
+                if let Some(text) = text.filter(|_| !muted()) {
+                    *lock(&BALLOON) = Some(text);
+                }
+                let live = *lock(&LATEST);
+                post(live); // tooltip / balon hemen
+            }
             ServerMsg::Error { code } => return Err(io::Error::other(format!("{code:?}"))),
             _ => {}
         }
@@ -342,6 +415,7 @@ fn pipe_loop() {
         if let Ok(mut f) = connect() {
             let _ = session(&mut f);
         }
+        lock(&ALARMS).clear();
         post(None);
         thread::sleep(RETRY);
     }
@@ -434,12 +508,31 @@ mod tests {
             ram_kb: 8 << 20,
             rx_bps: 3 << 19,
         };
-        assert_eq!(tooltip(Some(l), 16 << 20), "CPU 12% · RAM 50% · ↓1.5 MB/s");
         assert_eq!(
-            tooltip(Some(Live { rx_bps: 2048, ..l }), 0),
+            tooltip(Some(l), 16 << 20, &[]),
+            "CPU 12% · RAM 50% · ↓1.5 MB/s"
+        );
+        assert_eq!(
+            tooltip(Some(l), 16 << 20, &["cpu_high".into(), "wan_rx".into()]),
+            "CPU 12% · RAM 50% · ↓1.5 MB/s · ⚠ cpu_high, wan_rx"
+        );
+        assert_eq!(
+            tooltip(Some(Live { rx_bps: 2048, ..l }), 0, &[]),
             "CPU 12% · RAM 0% · ↓2 KB/s"
         );
-        assert!(tooltip(None, 1).contains("bağlı değil"));
+        assert!(tooltip(None, 1, &["x".into()]).contains("bağlı değil"));
+    }
+
+    #[test]
+    fn events_update_active_list() {
+        let mut a = vec!["old".to_string()];
+        let b = on_event(&mut a, EventKind::AlarmRaise, "cpu_high", 9350);
+        assert_eq!(b.as_deref(), Some("cpu_high: 93.5"));
+        on_event(&mut a, EventKind::AlarmRaise, "cpu_high", 9400); // yinelenen Raise
+        assert_eq!(a, ["old", "cpu_high"]);
+        assert_eq!(on_event(&mut a, EventKind::AlarmClear, "old", 0), None);
+        assert_eq!(on_event(&mut a, EventKind::System, "write_error", 0), None);
+        assert_eq!(a, ["cpu_high"]);
     }
 
     #[test]
