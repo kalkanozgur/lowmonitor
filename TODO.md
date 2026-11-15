@@ -9,7 +9,7 @@
 - [ ] Servis modunda ilk gece 03:00 retention çalışmasının sonucu (export ile kontrol)
 - [ ] Dakikalık özet segmentinin gerçek boyutu (7 gün sonra veya elle tetikleyerek)
 - [ ] Ctrl+C ile `run` modunda temiz kapanış testi
-- [ ] Tray kurulumu: exe'yi `Program Files\LowMonitor`'a kopyalama + `--autostart on` (şu an `target\release`'ten çalışıyor)
+- [x] Tray kurulumu: `scripts/install.ps1` Program Files'a kopyalıyor + `--autostart on` (M6d)
 
 - [ ] Slint UI pipe istemcisi: erişim modu ve bağlantı kuralları → [#1](https://github.com/kalkanozgur/lowmonitor/issues/1)
 
