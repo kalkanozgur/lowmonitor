@@ -21,6 +21,8 @@ pub struct Collector {
     last: Option<Instant>,
     last_top: Option<Instant>,
     tick: u32,
+    /// Alarm değerleri için; bellek toplamları her örnekte, takma adlar keşifte.
+    pub ctx: crate::alarm::Ctx,
 }
 
 /// Bu tick'te geçerli çıktı üretenler.
@@ -44,7 +46,7 @@ impl Collector {
         self.tick = tick.wrapping_add(1);
         if tick.is_multiple_of(REDISCOVER_EVERY) {
             self.disks.rediscover();
-            self.nics.rediscover();
+            self.nics.rediscover(&mut self.ctx.aliases);
         }
         let sample = self.sample(s);
         let mut top_ok = false;
@@ -75,7 +77,11 @@ impl Collector {
         self.disks.read(dt_ms, &mut s.disk);
         self.nics.read(dt_ms, &mut s.net);
         let cpu_ok = self.cpu.read(s);
-        mem::read(s) && cpu_ok
+        let mem = mem::read(s);
+        if let Some((total, limit)) = mem {
+            (self.ctx.ram_total_kb, self.ctx.commit_limit_kb) = (total, limit);
+        }
+        mem.is_some() && cpu_ok
     }
 }
 
@@ -106,7 +112,7 @@ mod bench {
             topn::TopN::default(),
         );
         d.rediscover();
-        ni.rediscover();
+        ni.rediscover(&mut Vec::new());
         let cpu = t("cpu", 500, || _ = c.read(&mut s));
         let mem = t("mem", 500, || _ = mem::read(&mut s));
         let disk = t("disk", 500, || d.read(1000, &mut s.disk));
@@ -117,7 +123,7 @@ mod bench {
             d = disk::Disks::default();
             d.rediscover()
         });
-        let red_n = t("nic keşif", 20, || ni.rediscover());
+        let red_n = t("nic keşif", 20, || ni.rediscover(&mut Vec::new()));
         // ADR-0028 hedefi: 32 kuralda < 5 µs/tick
         let rules: Vec<_> = (0..lowmon_core::config::MAX_ALARMS)
             .map(|i| {

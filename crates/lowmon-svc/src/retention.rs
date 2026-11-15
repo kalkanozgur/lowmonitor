@@ -214,7 +214,7 @@ pub struct Scheduler {
     total_days: u32,
     tick: u64,
     last_local_day: Option<u16>,
-    running: Option<std::thread::JoinHandle<()>>,
+    running: Option<std::thread::JoinHandle<io::Result<Report>>>,
 }
 
 const FIRST_RUN_TICK: u64 = 300;
@@ -238,20 +238,29 @@ impl Scheduler {
     }
 
     /// Her tick çağrılır; 60 tick'te bir saat kontrolü yapar (maliyet ~0).
-    pub fn tick(&mut self, now_ms: u64) {
+    /// Dönüş: bu tick'te biten çalışmanın sonucu (→ `retention_ok` / `retention_error` olayı).
+    pub fn tick(&mut self, now_ms: u64) -> Option<io::Result<Report>> {
+        // Bitmiş çalışmayı topla (is_finished = atomik okuma); panik de hata sayılır
+        let done = match &self.running {
+            Some(h) if h.is_finished() => self.running.take().map(|h| {
+                h.join()
+                    .unwrap_or_else(|_| Err(io::Error::other("retention thread panik")))
+            }),
+            _ => None,
+        };
         self.tick += 1;
         if self.tick != FIRST_RUN_TICK && !self.tick.is_multiple_of(60) {
-            return;
+            return done;
         }
         let mut lt = windows_sys::Win32::Foundation::SYSTEMTIME::default();
         // SAFETY: çıktı yapısı yığında.
         unsafe { windows_sys::Win32::System::SystemInformation::GetLocalTime(&mut lt) };
         let due_daily = lt.wHour == 3 && self.last_local_day != Some(lt.wDay);
         if self.tick != FIRST_RUN_TICK && !due_daily {
-            return;
+            return done;
         }
         if self.running.as_ref().is_some_and(|h| !h.is_finished()) {
-            return; // öncekisi sürüyor
+            return done; // öncekisi sürüyor
         }
         self.last_local_day = due_daily.then_some(lt.wDay).or(self.last_local_day);
         let (root, master, raw, total) = (
@@ -267,9 +276,9 @@ impl Scheduler {
             };
             // SAFETY: kendi thread handle'ımız.
             unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE) };
-            // shortcut: sonuç/hata loglanmıyor; M5'te Event olarak yazılır
-            let _ = run(&root, &master, raw, total, today);
+            run(&root, &master, raw, total, today)
         }));
+        done
     }
 }
 

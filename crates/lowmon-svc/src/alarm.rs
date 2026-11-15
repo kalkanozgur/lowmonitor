@@ -157,6 +157,8 @@ impl Engine {
     }
 
     /// Şu an Raised (ya da Clearing) olan kural id'leri.
+    // shortcut: `ServerMsg::Alarms` anlık listesi M5 adım 4'te; o zaman allow kalkar
+    #[allow(dead_code)]
     pub fn active(&self) -> Vec<String> {
         self.alarms
             .iter()

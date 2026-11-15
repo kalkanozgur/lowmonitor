@@ -26,6 +26,8 @@ pub struct Writer {
     out: Vec<u8>,
     /// Control::Pause sonrası: sonraki örnekten önce Gap(Paused) yazılır.
     paused: bool,
+    /// Açılışta bozuk segment / doğrulanamayan kuyruk bulundu (Gap(Integrity) yazıldı).
+    pub integrity: bool,
 }
 
 struct Segment {
@@ -205,6 +207,7 @@ impl Writer {
             seg,
             out: Vec::new(),
             paused: false,
+            integrity: gaps.iter().any(|g| g.1 == GapReason::Integrity),
         };
         for (from, reason) in gaps {
             w.seg.enc.gap(from, now_ms, reason);
@@ -242,7 +245,8 @@ impl Writer {
         Ok(seg)
     }
 
-    pub fn sample(&mut self, s: &Sample) -> io::Result<()> {
+    /// `Ok(true)`: örnekten önce Gap (Paused/Sleep) yazıldı → alarm süreleri sıfırlanmalı.
+    pub fn sample(&mut self, s: &Sample) -> io::Result<bool> {
         let day = day_of(s.ts_unix_ms);
         // Saat geri giderse mevcut segmentte kalınır; yalnızca ileri gün dönümü döndürür.
         if day > self.seg.day {
@@ -263,9 +267,10 @@ impl Writer {
         let seg = &mut self.seg;
         let paused = std::mem::take(&mut self.paused);
         // shortcut: duraklama gün dönümünü aşarsa yeni segmentte last_ts yok → Gap(Paused) yazılmaz
-        if let Some(last) = seg.last_ts
-            && (paused || s.ts_unix_ms > last + 5 * self.interval_ms as u64)
-        {
+        let gap = seg
+            .last_ts
+            .filter(|&last| paused || s.ts_unix_ms > last + 5 * self.interval_ms as u64);
+        if let Some(last) = gap {
             let reason = if paused {
                 GapReason::Paused
             } else {
@@ -277,7 +282,7 @@ impl Writer {
         seg.in_block += 1;
         seg.samples += 1;
         seg.last_ts = Some(s.ts_unix_ms);
-        Ok(())
+        Ok(gap.is_some())
     }
 
     pub fn top(&mut self, top: &[TopEntry]) {
@@ -285,8 +290,6 @@ impl Writer {
     }
 
     /// Alarm / sistem olayı (ADR-0028); zamanı son örneğin ts'i.
-    // shortcut: toplayıcı döngüsü henüz çağırmıyor, M5 adım 3'te bağlanınca allow kalkar
-    #[allow(dead_code)]
     pub fn event(&mut self, kind: EventKind, name: &str, value: i64) {
         self.seg.enc.event(kind, name, value, &mut self.seg.dict);
     }
@@ -478,9 +481,12 @@ mod tests {
         let r = root("pause");
         let mut w = Writer::open(&r, KEY, 1000, T0, LONG_UP).unwrap();
         let t = write_n(&mut w, T0, 5);
+        assert!(!w.integrity);
         w.pause().unwrap();
         // 2 s duraklama: Sleep eşiğinin (5 aralık) altında ama Paused yine yazılır
-        write_n(&mut w, t + 2_000, 3);
+        assert!(w.sample(&smp(t + 2_000)).unwrap(), "gap bildirilmeli");
+        assert!(!w.sample(&smp(t + 3_000)).unwrap());
+        write_n(&mut w, t + 4_000, 1);
         w.close().unwrap();
         let recs = records(&seg_path(&r, T0));
         assert_eq!(samples(&recs), 8);
@@ -552,6 +558,7 @@ mod tests {
         bytes[HEADER_LEN + 40] ^= 1; // blok 0 içi
         fs::write(&p, &bytes).unwrap();
         let mut w = Writer::open(&r, KEY, 1000, t, LONG_UP).unwrap();
+        assert!(w.integrity);
         w.close().unwrap();
         assert!(p.with_extension("lwm.bad-2").exists());
         let recs = records(&p);

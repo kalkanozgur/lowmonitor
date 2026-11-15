@@ -16,7 +16,6 @@
 ## Kısayollar (`shortcut:` borcu)
 - Firewall kuralı portu sabit 47800; `tokens.bin` atomik değil; istemcisiz `/v1/info` ağ thread'ini ≤ 1 örnek bloklar
 - state.bin atomik yazılmıyor; anahtar bellekten silinmiyor (zeroize yok)
-- Hatalı config.toml sessizce varsayılana düşüyor; yazma/retention/pipe hataları loglanmıyor (Event M5'te)
 - ~~Export yazıcının bellekteki son ≤ 60 s'sini içermiyor~~ → M4 flush (döngü ≤ 1 s içinde, 3 s zaman aşımı); QueryRange hâlâ son ≤ 60 s'siz (her kullanıcı tetikleyebileceği için flush yok)
 - Tray ikonu sabit 16 px (DPI); menüden autostart kayıt hatası sessiz
 - VPN/vEthernet sayılmıyor; ≤ 64 çekirdek; testler %TEMP%'te `lowmon-test-*` bırakıyor
@@ -26,7 +25,7 @@
 - [~] M2: şifreli + zincirli log, seal, retention, `lwm-dump` — kod tamam; servis kurulum testi soak sonrası
 - [x] M3: pipe protokolü + tray (canlı Sample, tray, HKCU Run, Admin kontrolü, Export)
 - [~] M4: `QueryRange` ✅, Export öncesi flush ✅, `Control` Pause/Resume/ReloadConfig ✅ (2026-11-15). ReloadConfig'te çalışırken `interval_ms` + `lwm-dump` etiketi ✅. Kalan: `lowmon-elev` (kill/priority/affinity + `--op write-config`), uçtan uca Admin testi (soak sonrası). UI Slint ile ayrı (ADR-0019)
-- [~] M5: alarmlar + bildirim — tasarım ✅ [ADR-0028](docs/kararlar/ADR-0028-alarm-ve-event.md) (2026-11-15); kod: config ayrıştırma + durum makinesi + tablo testleri ✅ (adım 1); REC_EVENT (SCHEMA 2) ✅ (adım 2); kalan: döngüye bağlama + sistem olayları, CH_EVENT/Alarms, tray balonu, lowmon-net `alarms`
+- [~] M5: alarmlar + bildirim — tasarım ✅ [ADR-0028](docs/kararlar/ADR-0028-alarm-ve-event.md) (2026-11-15); kod: config ayrıştırma + durum makinesi + tablo testleri ✅ (adım 1); REC_EVENT (SCHEMA 2) ✅ (adım 2); döngü + sistem olayları ✅ (adım 3); kalan: CH_EVENT/Alarms, tray balonu, lowmon-net `alarms`
 - [~] M6: M6a–c kod tamam; M6d kurulum (`install.ps1`, firewall) + **telefon kabul testi ✅ 2026-11-15** (Samsung M21, LAN). Kalan: `lowmon-net` HKCU Run/otomatik başlatma (şimdilik elle, konsol), uzun süreli ölçüm; `bind` sabit IP → DHCP rezervasyonu
 - [x] LowDeck entegrasyonu (yol a, ADR-0022): `lowdeck-agent` pipe Viewer → telefona CPU/RAM/disk/ağ/Top-N; LowDeck'te ayrı oturum — telefonda doğrulandı 2026-11-15
 

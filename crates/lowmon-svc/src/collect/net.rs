@@ -28,7 +28,8 @@ fn counted(row: &MIB_IF_ROW2) -> bool {
 }
 
 impl Nics {
-    pub fn rediscover(&mut self) {
+    /// `aliases`: sayılan arayüzlerin (ifIndex, takma ad) listesi, alarm `device` eşlemesi için.
+    pub fn rediscover(&mut self, aliases: &mut Vec<(u32, String)>) {
         let mut table: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
         // SAFETY: başarılıysa tabloyu iphlpapi ayırır, aşağıda FreeMibTable ile bırakılır.
         if unsafe { GetIfTable2(&mut table) } != 0 {
@@ -38,11 +39,16 @@ impl Nics {
         let rows = unsafe {
             std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize)
         };
-        let up: Vec<u32> = rows
-            .iter()
-            .filter(|r| counted(r))
-            .map(|r| r.InterfaceIndex)
-            .collect();
+        aliases.clear();
+        for r in rows.iter().filter(|r| counted(r)) {
+            let end = r
+                .Alias
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(r.Alias.len());
+            aliases.push((r.InterfaceIndex, String::from_utf16_lossy(&r.Alias[..end])));
+        }
+        let up: Vec<u32> = aliases.iter().map(|a| a.0).collect();
         // SAFETY: GetIfTable2'nin ayırdığı tablo, bir kez bırakılır; rows artık kullanılmıyor.
         unsafe { FreeMibTable(table.cast()) };
         self.nics.retain(|n| up.contains(&n.index));
@@ -104,7 +110,10 @@ mod tests {
     #[test]
     fn discovers_active_nic() {
         let mut n = Nics::default();
-        n.rediscover();
+        let mut a = Vec::new();
+        n.rediscover(&mut a);
         assert!(!n.nics.is_empty(), "aktif fiziksel arayüz yok");
+        assert_eq!(a.len(), n.nics.len());
+        assert!(a.iter().all(|(_, name)| !name.is_empty()));
     }
 }
