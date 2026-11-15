@@ -1,6 +1,10 @@
 //! Pipe sunucusu (spek §6): istemci başına okuyucu + yazıcı thread, overlapped I/O.
 //! Abone yoksa `publish` kilidi alıp hemen döner; mesaj serileştirilmez.
-use crate::{export::export, query::query, security::wide};
+use crate::{
+    export::export,
+    query::{query, query_events},
+    security::wide,
+};
 use lowmon_core::{
     crypto::MasterKey,
     proto::{
@@ -576,6 +580,15 @@ fn client(pipe: Arc<Handle>, srv: &Server, id: u64) {
                 });
                 finish(&tx, r.and_then(|_| b.flush()));
             }
+            ClientMsg::QueryEvents { from_ms, to_ms } => {
+                let mut b = Batch {
+                    items: Vec::new(),
+                    size: 0,
+                    tx: &tx,
+                };
+                let r = query_events(&srv.root, &srv.key, from_ms, to_ms, &mut |it| b.push(it));
+                finish(&tx, r.and_then(|_| b.flush()));
+            }
         }
     }
     // Abonelik + tx düşünce yazıcı thread biter; son Arc ile handle kapanır
@@ -698,6 +711,15 @@ mod tests {
             &ClientMsg::Subscribe {
                 channels: CH_SAMPLE,
                 rate_ms: 2000,
+            },
+        )
+        .unwrap();
+        assert_eq!(proto::read::<ServerMsg>(&mut c).unwrap(), ServerMsg::Ack);
+        proto::write(
+            &mut c,
+            &ClientMsg::QueryEvents {
+                from_ms: 1,
+                to_ms: 1,
             },
         )
         .unwrap();

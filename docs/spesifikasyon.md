@@ -248,6 +248,7 @@ Seal block (segment kapanırken, kayıt tipi 0xFF)
 | C→S | `Hello { proto, role: Viewer \| Tray \| Producer }` | Herkes |
 | C→S | `Subscribe { channels, rate_ms }` / `Unsubscribe` | Herkes |
 | C→S | `QueryRange { from, to, resolution: Raw \| Minute }` (Top-N dönmez, ADR-0020) | Herkes |
+| C→S | `QueryEvents { from, to }`: yalnız `RangeItem::Event` (`Range` + `Ack`), PC arayüzü Olaylar ekranı (LowDeck ADR-0003) | Herkes |
 | C→S | `Control(Pause \| Resume \| ReloadConfig)` — ayar değişikliği = Admin `config.toml` yazar + `ReloadConfig`; `interval_ms` dahil çalışırken uygulanır (ADR-0027) | Admin |
 | C→S | `Export { from, to, format: Csv }` | Admin |
 | C→S | `ProducerPush { channel_id, payload }` (GPU vb.) | Producer |
