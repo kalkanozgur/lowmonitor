@@ -1,9 +1,11 @@
 //! lowmon-tray (spek §8): tray ikonu (CPU/RAM çift çubuk) + tooltip, pipe'tan 2 s'de bir Sample.
 //! Alarm (ADR-0028): `CH_EVENT` abonesi; AlarmRaise → balon (1 saat sessize alınabilir).
 //! Telefon sunucusu (ADR-0031): `lowmon-deck` aynı süreçte; menüde "Telefon ▸", tooltip'te bağlı telefon.
+//! AI kullanımı (ADR-0032): `ai` modülü; taskbar göstergesi + menüde "AI kullanımı ▸".
 //! Spekten farkı: windows-rs yerine windows-sys (diğer crate'lerle aynı, ADR-0018).
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
+mod ai;
 mod autostart;
 
 use lowmon_core::{
@@ -50,7 +52,7 @@ use windows_sys::Win32::{
             MF_STRING, MSG, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
             RegisterWindowMessageW, SW_HIDE, SW_SHOWNORMAL, SetForegroundWindow, TPM_NONOTIFY,
             TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_DESTROY,
-            WM_NULL, WM_RBUTTONUP, WNDCLASSW,
+            WM_DISPLAYCHANGE, WM_NULL, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW,
         },
     },
 };
@@ -247,9 +249,11 @@ fn notify(hwnd: HWND, msg: u32) {
         nid.uCallbackMessage = WM_TRAY;
         nid.hIcon = icon;
         let phone = DECK.with_borrow(|d| d.as_ref().and_then(|d| d.hub.phone_name()));
-        let tip: Vec<u16> = tooltip(live, total, &lock(&ALARMS), phone.as_deref())
-            .encode_utf16()
-            .collect();
+        let mut tip = tooltip(live, total, &lock(&ALARMS), phone.as_deref());
+        if let Some(a) = ai::short() {
+            tip += &format!(" · AI {a}");
+        }
+        let tip: Vec<u16> = tip.encode_utf16().collect();
         let n = tip.len().min(nid.szTip.len() - 1);
         nid.szTip[..n].copy_from_slice(&tip[..n]);
         if let Some(text) = lock(&BALLOON).take() {
@@ -294,6 +298,12 @@ fn menu(hwnd: HWND) {
             MF_STRING | MF_POPUP,
             phone_menu() as usize,
             wide("Telefon").as_ptr(),
+        );
+        AppendMenuW(
+            m,
+            MF_STRING | MF_POPUP,
+            ai::menu() as usize,
+            wide("AI kullanımı").as_ptr(),
         );
         let checked = if autostart::enabled() { MF_CHECKED } else { 0 };
         AppendMenuW(
@@ -347,6 +357,9 @@ fn menu(hwnd: HWND) {
                 MUTE_UNTIL.store(until, Ordering::Relaxed);
             }
             ID_CFG => open_notepad(hwnd, &lowmon_deck::config_path()),
+            ai::ID_NOW => ai::refresh_now(),
+            ai::ID_CFG => open_notepad(hwnd, &lowmon_ai::config_path()),
+            ai::ID_RELOAD => ai::start(hwnd),
             ID_LOG => open_notepad(hwnd, &lowmon_deck::config_path().with_file_name("deck.log")),
             ID_RELOAD => {
                 deck_reload(true);
@@ -471,13 +484,39 @@ fn deck_reload(show: bool) {
     DECK_ERR.replace(err);
 }
 
+/// WM_SETTINGCHANGE lParam'ı (NUL sonlu UTF-16 ya da NULL) `name` mi?
+fn setting_is(lp: LPARAM, name: &str) -> bool {
+    if lp == 0 {
+        return false;
+    }
+    let p = lp as *const u16;
+    // SAFETY: sistem lParam'ı NUL sonlu dizge; en fazla name.len()+1 öğe okunur.
+    let got = (0..=name.len())
+        .map(|i| unsafe { *p.add(i) })
+        .take_while(|&c| c != 0);
+    got.eq(name.encode_utf16())
+}
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         WM_DATA => notify(hwnd, NIM_MODIFY),
         WM_TRAY if lp as u32 == WM_RBUTTONUP => menu(hwnd),
-        // Explorer yeniden başladı → ikon kayboldu, yeniden ekle
-        m if m == TASKBAR_CREATED.get() && m != 0 => notify(hwnd, NIM_ADD),
+        ai::WM_AI | WM_DISPLAYCHANGE => ai::render(),
+        WM_TIMER if wp == ai::TIMER => ai::render(),
+        ai::WM_BAR => {
+            if ai::on_bar(wp) {
+                menu(hwnd);
+            }
+        }
+        // Taskbar açık/koyu tema değişti → metin rengi
+        WM_SETTINGCHANGE if setting_is(lp, "ImmersiveColorSet") => ai::render(),
+        // Explorer yeniden başladı → ikon ve taskbar göstergesi kayboldu, yeniden kur
+        m if m == TASKBAR_CREATED.get() && m != 0 => {
+            notify(hwnd, NIM_ADD);
+            ai::taskbar_created();
+        }
         WM_DESTROY => {
+            ai::stop(hwnd);
             // SAFETY: nid yalnızca kimlik alanlarıyla; ikon silinir.
             unsafe {
                 let mut nid: NOTIFYICONDATAW = std::mem::zeroed();
@@ -658,6 +697,7 @@ fn main() {
         DECK.set(Some(deck));
         deck_reload(false);
         notify(hwnd, NIM_ADD);
+        ai::start(hwnd);
         let _ = thread::Builder::new()
             .name("pipe".into())
             .stack_size(64 * 1024)
