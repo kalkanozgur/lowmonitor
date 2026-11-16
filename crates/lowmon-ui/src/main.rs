@@ -1,12 +1,14 @@
-//! LowMonitor PC arayüzü (ADR-0031, eski LowDeck masaüstü): Canlı, Olaylar, Geçmiş, Süreçler.
+//! LowMonitor PC arayüzü (ADR-0031, eski LowDeck masaüstü): Canlı, Olaylar, Geçmiş, Süreçler, AI.
 //! Veri yalnız tray'deki deck'ten loopback (127.0.0.1); port + token `%APPDATA%\LowMonitor\deck.toml`'dan.
 //! Medya/ses kontrolü yok (ADR-0031 §6): yalnız izler.
 //! Kullanım: `lowmon-ui [port token]` (argümanlar deck.toml'u ezer; mock-server için `47810 dev`).
+//! `lowmon-ui --ai`: AI sekmesiyle açılır; çalışan kopya varsa onu AI sekmesine geçirir (taskbar göstergesi sol tık).
 //! `lowmon-ui --kill <pid> <ctime>`: yükseltilmiş kopya (UAC), pencere açmaz, sonuç = çıkış kodu.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 slint::include_modules!();
 
+mod aitab;
 mod history;
 mod procs;
 #[cfg(windows)]
@@ -31,8 +33,9 @@ fn main() -> Result<(), slint::PlatformError> {
     if let Some(code) = kill_mode() {
         std::process::exit(code);
     }
+    let ai = std::env::args().any(|a| a == "--ai");
     #[cfg(windows)]
-    if !win::single_instance() {
+    if !win::single_instance(ai) {
         return Ok(());
     }
 
@@ -40,8 +43,19 @@ fn main() -> Result<(), slint::PlatformError> {
     let events = Rc::new(VecModel::<EventRow>::default());
     ui.set_events(ModelRc::from(events.clone()));
     let offset = local_offset_s();
-    procs_init(&ui);
+    procs_init(&ui, offset);
     window_events(&ui);
+    aitab::init(&ui, offset);
+    #[cfg(windows)]
+    {
+        let w = ui.as_weak();
+        win::on_show_ai(move || {
+            let _ = w.upgrade_in_event_loop(|ui| ui.set_tab(4));
+        });
+    }
+    if ai {
+        ui.set_tab(4);
+    }
 
     match target() {
         Some((port, token)) => start_client(&ui, events, port, token, offset),
@@ -201,7 +215,7 @@ fn kill_now(pid: u32, ctime: i64) -> i32 {
     }
 }
 
-fn procs_init(ui: &MainWindow) {
+fn procs_init(ui: &MainWindow, offset: i64) {
     ui.set_procs(ModelRc::new(VecModel::<ProcRow>::default()));
     let w = ui.as_weak();
     ui.on_tab_changed(move |t| {
@@ -212,6 +226,9 @@ fn procs_init(ui: &MainWindow) {
             p.confirm = false;
         });
         procs_sync(&ui);
+        if t == 4 {
+            aitab::refresh(&ui, offset);
+        }
     });
     let w = ui.as_weak();
     ui.on_proc_sort_changed(move |i| {
@@ -460,6 +477,7 @@ thread_local! {
 /// (port, token): argümanlar, yoksa `deck.toml` (`bind` LAN adresi; arayüz loopback'e bağlanır).
 fn target() -> Option<(u16, String)> {
     let a: Vec<String> = std::env::args().skip(1).collect();
+    let a: Vec<String> = a.into_iter().filter(|x| x != "--ai").collect();
     if let [port, token] = a.as_slice() {
         return Some((port.parse().ok()?, token.clone()));
     }

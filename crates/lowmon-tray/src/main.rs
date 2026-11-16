@@ -276,6 +276,24 @@ fn notify(hwnd: HWND, msg: u32) {
     }
 }
 
+/// `lowmon-ui.exe`'yi açar (`args` = "--ai" → AI sekmesi). Exe yoksa sessiz: menü satırı zaten pasif.
+fn open_ui(hwnd: HWND, args: &str) {
+    if let autostart::Ui::Ready(exe) = autostart::ui() {
+        // SAFETY: dizgeler çağrı boyunca yaşar.
+        // ShellExecuteW: std::process::Command exe'ye ~75 KB ekliyordu.
+        unsafe {
+            ShellExecuteW(
+                hwnd,
+                ptr::null(),
+                wide(&exe).as_ptr(),
+                wide(args).as_ptr(),
+                ptr::null(),
+                SW_SHOWNORMAL,
+            );
+        }
+    }
+}
+
 fn menu(hwnd: HWND) {
     // SAFETY: menü bu fonksiyonda oluşturulup yok edilir.
     unsafe {
@@ -335,19 +353,8 @@ fn menu(hwnd: HWND) {
             }
             // Uygulama tek örnek: zaten açıksa kendi penceresini öne getirip çıkar.
             // Exe yoksa menü zaten pasif (etiket nedeni söyler); menü açıkken silinmesi ihmal.
-            ID_UI => {
-                if let autostart::Ui::Ready(exe) = ui {
-                    // ShellExecuteW: std::process::Command exe'ye ~75 KB ekliyordu.
-                    ShellExecuteW(
-                        hwnd,
-                        ptr::null(),
-                        wide(&exe).as_ptr(),
-                        ptr::null(),
-                        ptr::null(),
-                        SW_SHOWNORMAL,
-                    );
-                }
-            }
+            ID_UI => open_ui(hwnd, ""),
+            ai::ID_REPORT => open_ui(hwnd, "--ai"),
             ID_MUTE => {
                 let until = if muted() {
                     0
@@ -505,11 +512,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_TRAY if lp as u32 == WM_RBUTTONUP => menu(hwnd),
         ai::WM_AI | WM_DISPLAYCHANGE => ai::render(),
         WM_TIMER if wp == ai::TIMER => ai::render(),
-        ai::WM_BAR => {
-            if ai::on_bar(wp) {
-                menu(hwnd);
-            }
-        }
+        ai::WM_BAR => match ai::on_bar(wp) {
+            ai::Click::Menu => menu(hwnd),
+            ai::Click::Report => open_ui(hwnd, "--ai"),
+            ai::Click::None => {}
+        },
         // Taskbar açık/koyu tema değişti → metin rengi
         WM_SETTINGCHANGE if setting_is(lp, "ImmersiveColorSet") => ai::render(),
         // Explorer yeniden başladı → ikon ve taskbar göstergesi kayboldu, yeniden kur

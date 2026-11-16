@@ -1,12 +1,14 @@
 //! `lowmon-ai`: Claude abonelik kullanımı (5 sa oturum + hafta), tray içinde (ADR-0032).
 //! ai-usage-bar (C++) portu. Sorgu yalnız Claude Desktop, Claude Code CLI ya da VS Code
 //! çalışırken yapılır; hepsi kapalıyken ağ isteği yok, son değer "eski" işaretli kalır.
-//! Rapor / token dökümü Faz 5.
+//! Rapor / token dökümü (`breakdown`, `report`) `lowmon-ui` AI sekmesinde gösterilir (Faz 5).
 pub mod api;
+pub mod breakdown;
 pub mod creds;
 #[cfg(windows)]
 pub mod fetch;
 pub mod json;
+pub mod report;
 pub mod text;
 pub mod usage;
 #[cfg(windows)]
@@ -39,6 +41,10 @@ pub struct Config {
     pub desktop_path_hint: String,
     /// Her başarılı sorguyu `usage-YYYY-MM.csv`'ye yaz
     pub csv_log: bool,
+    /// Rapor için çözümlenen en yeni oturum dökümü sayısı (1..200)
+    pub report_sessions: usize,
+    /// Bulut oturum özetleri (`*_usage.json`); boş = Belgeler\Claude-Logs
+    pub summary_dir: String,
     pub colors: usage::Colors,
 }
 
@@ -51,6 +57,8 @@ impl Default for Config {
             oauth_refresh: true,
             desktop_path_hint: String::new(),
             csv_log: true,
+            report_sessions: 30,
+            summary_dir: String::new(),
             colors: usage::Colors::default(),
         }
     }
@@ -60,6 +68,7 @@ impl Config {
     pub fn parse(s: &str) -> Result<Self, String> {
         let mut c: Self = toml::from_str(s).map_err(|e| e.to_string())?;
         c.refresh_sec = c.refresh_sec.max(30);
+        c.report_sessions = c.report_sessions.clamp(1, 200);
         Ok(c)
     }
 
@@ -85,6 +94,33 @@ pub fn config_path() -> PathBuf {
 /// `%LOCALAPPDATA%\LowMonitor\ai` (CSV, `session.bin`)
 pub fn data_dir() -> PathBuf {
     env_dir("LOCALAPPDATA").join("ai")
+}
+
+/// Rapor girdilerinin yerleri (`ai.toml` `summary_dir` boşsa Belgeler\Claude-Logs).
+pub fn report_paths(cfg: &Config) -> report::Paths {
+    #[cfg(windows)]
+    let docs = win::documents_dir();
+    #[cfg(not(windows))]
+    let docs: Option<PathBuf> = None;
+    report::Paths {
+        data_dir: data_dir(),
+        claude_dir: claude_dir(),
+        summary_dir: if cfg.summary_dir.is_empty() {
+            docs.unwrap_or_default().join("Claude-Logs")
+        } else {
+            PathBuf::from(&cfg.summary_dir)
+        },
+    }
+}
+
+/// `CLAUDE_CONFIG_DIR` ya da `%USERPROFILE%\.claude`.
+pub fn claude_dir() -> PathBuf {
+    std::env::var_os("CLAUDE_CONFIG_DIR")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default()).join(".claude")
+        })
 }
 
 /// Son durum; tray / taskbar / deck okur.

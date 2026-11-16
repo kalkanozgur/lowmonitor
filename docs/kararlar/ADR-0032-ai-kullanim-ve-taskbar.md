@@ -61,6 +61,15 @@ Gereken: exe manifesti (supportedOS Win10) — katmanlı alt pencere Win8+ uyuml
 | sessionKey | "AI kullanımı ▸" menüsünde "Panodan sessionKey kaydet" / "sessionKey'i sil". Pano `sk-ant-…` ya da `sessionKey=sk-ant-…` ise DPAPI ile `session.bin`'e yazılır, pano boşaltılır; değilse pano dokunulmaz. Anahtar loga/ekrana çıkmaz |
 | Geçiş (`install.ps1`) | `claude-usage-bar` süreci durur, HKCU Run `ClaudeUsageBar` silinir; `usage-*.csv` hedefle birleşir (ts tekil + sıralı, CRLF), `session.bin` hedefte yoksa kopyalanır, `%LOCALAPPDATA%\ClaudeUsageBar` silinir. Eski exe klasörüne dokunulmaz |
 
+## Faz 5 kararları (kullanıcı, 2026-11-17)
+| Konu | Karar |
+|---|---|
+| Gösterim | `lowmon-ui` 5. sekme "AI": limit çizgisi (oturum + hafta %), token dökümü (grup çubukları), oturum tablosu; görünüm Son oturum / Bugün / Bu hafta. HTML üretici taşınmaz |
+| Veri | `lowmon_ai::breakdown` (analizör, C++ ile aynı formül ve testler) + `lowmon_ai::report` (döküm listesi, `breakdown-cache.jsonl`, CSV). Arayüz dosyaları kendisi okur (arka iş parçacığı, sekme açılınca / Yenile); deck ve proto değişmez |
+| Sol tık | Taskbar göstergesine sol tık raporu açar (`lowmon-ui --ai`; çalışan kopya isimli olayla AI sekmesine geçer). "Şimdi yenile" menüde kalır |
+| Bulut özetleri | `*_usage.json` rapora girer; klasör `ai.toml` `summary_dir`, boşsa Belgeler\Claude-Logs. Proje adına "(bulut)" eklenir |
+| Taşınmayan | Tahmin kartları (%100'e varış, oturum→hafta oranı), grafik eksen etiketleri / imleç, CSV budama (`csv_keep_months`), İngilizce grup adları (arayüz Türkçe) |
+
 ## Fazlar (her biri ayrı PR, ölçümle)
 | Faz | Repo | İş | Doğrulama |
 |---|---|---|---|
@@ -68,7 +77,7 @@ Gereken: exe manifesti (supportedOS Win10) — katmanlı alt pencere Win8+ uyuml
 | 2 | LM | `lowmon-taskbar` crate + tray entegrasyonu: "AI ▸" menüsü (durum, şimdi yenile, ayar), tooltip'e kısa satır. sessionKey kaydet/sil ve `config.ini` göçü Faz 4'e | tray exe boyutu, private, boşta CPU önce/sonra; C++ widget ile görsel karşılaştırma |
 | 3 | LowDeck + LM | proto varyantı + telefon kartı (LowDeck PR), deck push + `lowmon-ui` kartı (LM PR) | telefonda gerçek veri |
 | 4 | LM | sessionKey kaydet/sil, `config.ini` → `ai.toml`/`taskbar.toml` göçü; `install.ps1`: eski widget süreci + `ClaudeUsageBar` Run kaydı temizliği, `%LOCALAPPDATA%\ClaudeUsageBar` CSV/`session.bin` kopyası → klasör silinir; spek, README | geçiş senaryosu |
-| 5 | LM | rapor / token dökümü (`lowmon-ui` sekmesi ya da HTML; o fazda karar) | |
+| 5 | LM | rapor / token dökümü: `lowmon-ui` AI sekmesi (Faz 5 kararları) | `cargo test` (C++ testleri), canlı sekme, ölçüm `2026-11-17_lowmon-ui-ai-raporu` |
 
 ## Sonuçlar
 - (+) Tek süreç, tek kurulum, tek dil/toolchain; veri telefona ve ui'a gider.
