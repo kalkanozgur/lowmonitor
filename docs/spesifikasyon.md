@@ -23,7 +23,7 @@
 | Bileşen | CPU | RAM (WS) | Ne zaman |
 |---|---|---|---|
 | `lowmon-svc` | ~0.4 ms/s → tek çekirdeğin ~%0.04'ü; Görev Yöneticisi'nde %0.00–0.01 | 2–3 MB | Sürekli |
-| `lowmon-tray` (deck dahil, ADR-0031) | ~50 µs / 2 s → ~%0 (ölçüm: 78 ms / 5 dk) | ~3.3 MB private | Sürekli |
+| `lowmon-tray` (deck + AI + taskbar, ADR-0031/0032) | ~0,5–0,8 ms/s (ölçüm `2026-11-16_tray-ai-taskbar`) | ~5.1 MB private | Sürekli |
 | `lowmon-net` | ~20 µs/s (istemci varken) | 1.5–2.5 MB | İsteğe bağlı, sürekli |
 | `lowmon-ui` (ADR-0031) | %0.3–1 (≤ 1 Hz çizim; LowDeck ölçümü Canlı ≈ 1 ms/s) | ~5 MB private (software renderer) | Sadece açıkken |
 
@@ -49,7 +49,8 @@
 | `lowmon-svc` | Toplayıcı, log yazıcı, alarm motoru, pipe sunucu | LocalService + servis SID'i | Windows servisi |
 | `lowmon-deck` (lib) | Telefon/arayüz sunucusu: hub, TCP dinleyici (LAN + loopback), UDP keşif, Core Audio/SMTC/kilit, pipe köprüsü (ADR-0031) | — | `windows` crate (COM/WinRT); `lowdeck-proto` LowDeck'ten git rev |
 | `lowmon-ai` (lib) | Claude abonelik kullanımı (5 sa oturum + hafta): Claude Code OAuth (+ yenileme) / sessionKey, WinHTTP, tempo seviyesi, limit CSV'si; sorgu yalnız Claude Desktop/CLI/VS Code açıkken (ADR-0032) | — | `windows-sys` (WinHTTP, DPAPI, ToolHelp); JSON span tabanlı (kimlik dosyası bayt-korumalı yamalanır) |
-| `lowmon-tray` | Tray ikon, tooltip, alarm bildirimi; `lowmon-deck`'i süreç içinde çalıştırır | Kullanıcı | GUI framework yok |
+| `lowmon-taskbar` (lib) | Taskbar'a gömülü iki satırlık renkli metin göstergesi (`Shell_TrayWnd` alt penceresi, GDI+); AI kullanımı, ileride trafik vb. (ADR-0032) | — | `windows-sys` (GDI+, WinEvent); katmanlı alt pencere için exe manifesti (supportedOS Win10) |
+| `lowmon-tray` | Tray ikon, tooltip, alarm bildirimi; `lowmon-deck`'i ve AI işçisini süreç içinde çalıştırır | Kullanıcı | GUI framework yok |
 | `lowmon-ui` | Grafikler, olaylar, geçmiş, süreçler (ADR-0031; eski LowDeck masaüstü) | Kullanıcı (asInvoker), tray'deki deck'e loopback | Slint (Royalty-free 2.0, README atfı) |
 | `lowmon-elev` | Yükseltilmiş tek seferlik işlem: yalnız ayar yazma (§9.5); süreç müdahalesi `lowmon-ui`'da (ADR-0030) | Admin (UAC) | İşini yapıp çıkar; henüz yok |
 | `lowmon-gpu` | NVML üretici | Kullanıcı | **Sonra tasarlanacak** |
@@ -302,9 +303,10 @@ clear    = { below = 85.0, for_s = 30 }
 
 - `windows-sys` + gizli üst düzey pencere + `Shell_NotifyIconW` (ADR-0018).
 - 16×16 ikon: CPU/RAM çift çubuk, `CreateDIBSection` + `CreateIconIndirect`, 2 s'de bir güncelleme.
-- Tooltip: `CPU 12% · RAM 58% · ↓1.2 MB/s · 📱 telefon · ⚠ alarmlar` (telefon yalnız bağlıyken).
+- Tooltip: `CPU 12% · RAM 58% · ↓1.2 MB/s · 📱 telefon · ⚠ alarmlar · AI %33/%68` (telefon yalnız bağlıyken, AI yalnız veri varken).
 - "Arayüzü aç" → tray ile aynı klasördeki `lowmon-ui.exe` (ADR-0031; `UiExe` kaydı kullanılmaz). Exe yoksa pasif, etiket nedeni söyler.
-- Sağ tık menü: arayüzü aç, alarmları sessize al (1 saat), **Telefon ▸** (durum: `bind · port · token` + bağlı telefon ya da kapalı nedeni; ayar dosyasını aç, ayarı yeniden yükle, log'u aç, firewall kuralı ekle), Windows ile başlat, çıkış.
+- Sağ tık menü: arayüzü aç, alarmları sessize al (1 saat), **Telefon ▸** (durum: `bind · port · token` + bağlı telefon ya da kapalı nedeni; ayar dosyasını aç, ayarı yeniden yükle, log'u aç, firewall kuralı ekle), **AI kullanımı ▸** (durum: kaynak + son sorgu / hata / Claude kapalı; şimdi yenile, `ai.toml`'u aç, ayarı yeniden yükle), Windows ile başlat, çıkış.
+- AI kullanımı (`lowmon-ai` + `lowmon-taskbar`, ADR-0032): taskbar'da bildirim alanının solunda `Oturum %33 · 4s16dk` / `Hafta %68 · 16s26dk`; renk tempo/eşik seviyesi (turuncu uyarı, kırmızı kritik, gri eski). Veri hiç yoksa gizli. Sol tık şimdi yenile, sağ tık tray menüsü. Ayar `ai.toml` + `taskbar.toml` (monitör, boşluk, yazı tipi); log `deck.log` (`ai:` öneki).
 - Telefon sunucusu (`lowmon-deck`, ADR-0031): ayar `%APPDATA%\LowMonitor\deck.toml` (ilk açılışta LowDeck `agent.cfg`'den taşınır), log `deck.log`. Port kullanımdaysa tray çalışır, telefon pasif (menüde neden). Medya/ses kontrolü yalnız telefondan (ADR-0031 §6).
 - Servis yoksa ikon gri, 10 s'de bir yeniden bağlanma denemesi.
 - Otomatik başlatma: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.

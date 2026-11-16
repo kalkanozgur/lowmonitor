@@ -18,7 +18,8 @@
 - [ ] `lowdeck-proto` rev'i: LowDeck'te proto değişirse `lowmon-deck`/`lowmon-ui` git rev'i güncellenir; `lowmon-proto` `PROTO` artarsa deck `servis: BadHello` loglar
 - [x] Kurulu `lowmon-ui` `release-ui` profilinde (8 903 680 B; `install.ps1`, 2026-11-16 17:04)
 
-- [ ] ADR-0032 AI kullanımı: Faz 1 `lowmon-ai` → 2 `lowmon-taskbar` + tray → 3 telefon/ui → 4 kurulum/geçiş → 5 rapor
+- [ ] ADR-0032 AI kullanımı: ~~Faz 1 `lowmon-ai`~~ ✅ → ~~2 `lowmon-taskbar` + tray~~ ✅ → 3 telefon/ui → 4 kurulum/geçiş (+ sessionKey menüsü, `config.ini` göçü, eski widget) → 5 rapor
+  - Faz 2 canlı doğrulanmadı: explorer yeniden başlatma, bildirim alanı genişleyince yeniden konum, açık tema, gösterge tıkları gerçek fareyle
 
 ## Kısayollar (`shortcut:` borcu)
 - Firewall kuralı portu sabit 47800; `tokens.bin` atomik değil; istemcisiz `/v1/info` ağ thread'ini ≤ 1 örnek bloklar

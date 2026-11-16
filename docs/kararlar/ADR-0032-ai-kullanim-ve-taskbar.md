@@ -32,15 +32,26 @@
 | Veri yeri | `%LOCALAPPDATA%\LowMonitor\ai\` (CSV, `session.bin` — aynı DPAPI entropisi, eski blob aynen çözülür); ayar `%APPDATA%\LowMonitor\ai.toml`. Eski `%LOCALAPPDATA%\ClaudeUsageBar\` geçişten sonra **silinir** (Faz 4; widget durdurulduktan sonra) |
 | Dil | Seçilebilir `language = "tr" \| "en"` (varsayılan tr) |
 | JSON | `json_lite` portu (span tabanlı): kimlik dosyasında 3 alan bayt-korumalı değişir; serde_json bunu vermez |
-| Taskbar çizimi | C++'taki yöntemler (kullanıcı beğenmedi) Faz 2'de yeniden tasarlanır; o fazda kartla sorulur |
+| Taskbar çizimi | C++'taki yöntemler (kullanıcı beğenmedi) Faz 2'de yeniden tasarlanır; o fazda kartla sorulur → aşağıda |
+
+## Faz 2 kararları (kullanıcı, 2026-11-16)
+| Konu | C++ | Karar |
+|---|---|---|
+| Yerleşim | Taskbar üstünde yüzen `WS_EX_TOPMOST` pencere, her 1 s `SetWindowPos(TOPMOST)` | `Shell_TrayWnd`'nin **alt penceresi** (`WS_CHILD`, katmanlı): taskbar'la hareket eder, tam ekranda onunla gizlenir; z-sırası kavgası yok |
+| Takip | 1 s zamanlayıcıyla konum/DPI/tam ekran yoklaması | `EVENT_OBJECT_LOCATIONCHANGE` (taskbar + `TrayNotifyWnd`, out-of-context) → yeniden konum; `TaskbarCreated` → yeniden kur. Metin için 30 s zamanlayıcı (kalan süre) |
+| Metin | GDI beyaz çizim, kanalların max'ı alfa, boş piksel alfa=1 | GDI+ `AntiAliasGridFit` → PARGB bitmap (gerçek alfa); yalnız arka plan alfa=1 (tıklanabilir) |
+| DPI | süreç DPI-habersiz | yalnız gösterge işlemleri per-monitor-v2 thread bağlamında; tray menüsü/ikonu değişmez |
+| Ayar | `config.ini` | `taskbar.toml` (monitor `right`/`left`/`primary`, `gap_px`, `reserved_px`, `font`, `font_pt`); yoksa C++ varsayılanları |
+
+Gereken: exe manifesti (supportedOS Win10) — katmanlı alt pencere Win8+ uyumluluğu ister; `lowmon-tray/build.rs` gömer.
 
 ## Fazlar (her biri ayrı PR, ölçümle)
 | Faz | Repo | İş | Doğrulama |
 |---|---|---|---|
 | 1 | LM | `lowmon-ai` crate: core mantığı + WinHTTP + OAuth/yenileme + sessionKey + süreç tespiti + CSV; C++ testleri Rust'a | `cargo test`; örnek exe ile canlı `/usage` (C++ widget ile aynı sayılar) |
-| 2 | LM | `lowmon-taskbar` crate + tray entegrasyonu: "AI ▸" menüsü (durum, şimdi yenile, ayar, sessionKey kaydet/sil), `ai.toml` + `config.ini` göçü, tooltip'e kısa satır | tray exe boyutu, private, boşta CPU önce/sonra; C++ widget ile görsel karşılaştırma |
+| 2 | LM | `lowmon-taskbar` crate + tray entegrasyonu: "AI ▸" menüsü (durum, şimdi yenile, ayar), tooltip'e kısa satır. sessionKey kaydet/sil ve `config.ini` göçü Faz 4'e | tray exe boyutu, private, boşta CPU önce/sonra; C++ widget ile görsel karşılaştırma |
 | 3 | LowDeck + LM | proto varyantı + telefon kartı (LowDeck PR), deck push + `lowmon-ui` kartı (LM PR) | telefonda gerçek veri |
-| 4 | LM | `install.ps1`: eski widget süreci + `ClaudeUsageBar` Run kaydı temizliği, `%LOCALAPPDATA%\ClaudeUsageBar` CSV/`session.bin` kopyası → klasör silinir; spek, README | geçiş senaryosu |
+| 4 | LM | sessionKey kaydet/sil, `config.ini` → `ai.toml`/`taskbar.toml` göçü; `install.ps1`: eski widget süreci + `ClaudeUsageBar` Run kaydı temizliği, `%LOCALAPPDATA%\ClaudeUsageBar` CSV/`session.bin` kopyası → klasör silinir; spek, README | geçiş senaryosu |
 | 5 | LM | rapor / token dökümü (`lowmon-ui` sekmesi ya da HTML; o fazda karar) | |
 
 ## Sonuçlar
@@ -52,5 +63,4 @@
 - Spek §1 bütçesine tray satırı Faz 2 ölçümüyle güncellenir; §2 bileşen tablosuna iki crate eklenir (Faz 1/2 PR'larında).
 
 ## Açık (fazında kartla sorulur)
-- Taskbar çizim yöntemi (Faz 2).
 - Proto varyantının alanları (oturum/hafta %, reset, seviye, kaynak, hata).
