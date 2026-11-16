@@ -10,11 +10,11 @@ $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 if (-not $admin) { throw "Yönetici PowerShell gerekli." }
 
 $dst = Join-Path $env:ProgramFiles 'LowMonitor'
-$exes = 'lowmon-svc.exe', 'lowmon-net.exe', 'lowmon-tray.exe', 'lwm-dump.exe'
+$exes = 'lowmon-svc.exe', 'lowmon-net.exe', 'lowmon-tray.exe', 'lowmon-ui.exe', 'lwm-dump.exe'
 foreach ($e in $exes) { if (-not (Test-Path (Join-Path $Src $e))) { throw "$Src\$e yok; önce release build." } }
 
 # Kopyalanacak exe'leri kilitleyen kullanıcı süreçleri
-Get-Process lowmon-tray, lowmon-net -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process lowmon-tray, lowmon-ui, lowmon-net -ErrorAction SilentlyContinue | Stop-Process -Force
 
 # Eski servis: durdur + sil (seal yazılır, veri kalır)
 if (Get-Service LowMonitor -ErrorAction SilentlyContinue) {

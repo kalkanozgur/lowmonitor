@@ -495,16 +495,22 @@ fn parse_legacy(text: &str) -> Option<Config> {
     (!c.bind.is_empty() && !c.token.is_empty()).then_some(c)
 }
 
+/// `deck.toml`'u okur (oluşturmaz): arayüz için, ayarı tray yazar.
+pub fn load(path: &std::path::Path) -> std::io::Result<Config> {
+    let bad = |e: String| std::io::Error::other(format!("{}: {e}", path.display()));
+    let c: Config =
+        toml::from_str(&std::fs::read_to_string(path)?).map_err(|e| bad(e.to_string()))?;
+    if c.bind.is_empty() || c.token.is_empty() {
+        return Err(bad("bind ve token zorunlu".into()));
+    }
+    Ok(c)
+}
+
 /// `deck.toml` varsa okur. Yoksa `legacy`'den (agent.cfg) taşır → telefon ayarı değişmez;
 /// o da yoksa LAN IP'si + rastgele token ile oluşturur.
 pub fn load_or_create(path: &std::path::Path, legacy: &std::path::Path) -> std::io::Result<Config> {
-    let bad = |e: String| std::io::Error::other(format!("{}: {e}", path.display()));
-    if let Ok(text) = std::fs::read_to_string(path) {
-        let c: Config = toml::from_str(&text).map_err(|e| bad(e.to_string()))?;
-        if c.bind.is_empty() || c.token.is_empty() {
-            return Err(bad("bind ve token zorunlu".into()));
-        }
-        return Ok(c);
+    if path.exists() {
+        return load(path);
     }
     let old = std::fs::read_to_string(legacy)
         .ok()

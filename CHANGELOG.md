@@ -5,6 +5,7 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 ### Değişti
 - Tray "Arayüzü aç": `UiExe` kaydı var ama exe yoksa (taşınmış/silinmiş) menü pasif ve etiket nedeni söyler; önceden tıklama sessizce boşa gidiyordu
 ### Eklendi
+- `lowmon-ui`: PC arayüzü (Canlı, Olaylar, Geçmiş, Süreçler) bu repoda; LowDeck masaüstünden taşındı, veri tray'deki deck'ten, ayar `deck.toml`. Tray "Arayüzü aç" yanındaki `lowmon-ui.exe`'yi açar, `install.ps1` onu da kurar (ADR-0031 Faz 3)
 - `lowmon-tray` telefon sunucusunu (`lowmon-deck`) başlatır: "Telefon ▸" menüsü, tooltip'te bağlı telefon, `%APPDATA%\LowMonitor\deck.toml` (ilk açılışta LowDeck `agent.cfg`'den taşınır). Port kullanımdaysa tray çalışmaya devam eder (ADR-0031 Faz 2)
 - `lowmon-deck` crate: LowDeck agent sunucusu kütüphane olarak (hub, dinleyiciler, UDP keşif, Core Audio/SMTC/kilit, pipe köprüsü); `start(cfg) -> Running`. Tray entegrasyonu Faz 2 (ADR-0031)
 - `lowmon-net` (M6c): `/v1/info` (host, çekirdek, toplam RAM, disk modeli, arayüz adı); `lowmon-svc install` firewall kuralı ekler, `uninstall` siler (ADR-0025)
