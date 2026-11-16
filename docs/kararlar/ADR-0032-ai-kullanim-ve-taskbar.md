@@ -54,6 +54,13 @@ Gereken: exe manifesti (supportedOS Win10) — katmanlı alt pencere Win8+ uyuml
 | `lowmon-ui` | Canlı sekmesinin üstünde AI bandı (veri yoksa gizli); küçültülünce `TOPIC_AI` düşer |
 | Deck | Son durum önbellekte; yeni aboneye ilk çerçeve, sonra yalnız değişiklik. Metrik pipe'ını açtırmaz |
 
+## Faz 4 kararları (kullanıcı, 2026-11-16)
+| Konu | Karar |
+|---|---|
+| `config.ini` | **Taşınmaz**: kullanıcının dosyasındaki her değer varsayılan; eski klasörle birlikte silinir |
+| sessionKey | "AI kullanımı ▸" menüsünde "Panodan sessionKey kaydet" / "sessionKey'i sil". Pano `sk-ant-…` ya da `sessionKey=sk-ant-…` ise DPAPI ile `session.bin`'e yazılır, pano boşaltılır; değilse pano dokunulmaz. Anahtar loga/ekrana çıkmaz |
+| Geçiş (`install.ps1`) | `claude-usage-bar` süreci durur, HKCU Run `ClaudeUsageBar` silinir; `usage-*.csv` hedefle birleşir (ts tekil + sıralı, CRLF), `session.bin` hedefte yoksa kopyalanır, `%LOCALAPPDATA%\ClaudeUsageBar` silinir. Eski exe klasörüne dokunulmaz |
+
 ## Fazlar (her biri ayrı PR, ölçümle)
 | Faz | Repo | İş | Doğrulama |
 |---|---|---|---|

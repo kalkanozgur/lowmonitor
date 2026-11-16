@@ -360,6 +360,8 @@ fn menu(hwnd: HWND) {
             ai::ID_NOW => ai::refresh_now(),
             ai::ID_CFG => open_notepad(hwnd, &lowmon_ai::config_path()),
             ai::ID_RELOAD => ai::start(hwnd),
+            ai::ID_KEY_SAVE => ai::save_key(hwnd),
+            ai::ID_KEY_DEL => ai::delete_key(),
             ID_LOG => open_notepad(hwnd, &lowmon_deck::config_path().with_file_name("deck.log")),
             ID_RELOAD => {
                 deck_reload(true);

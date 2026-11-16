@@ -6,9 +6,14 @@ use lowmon_taskbar::{Bar, EV_LEFT, EV_MOVED, EV_RIGHT, Line};
 use std::{cell::RefCell, ptr};
 use windows_sys::Win32::{
     Foundation::HWND,
+    System::{
+        DataExchange::{CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard},
+        Memory::{GlobalLock, GlobalUnlock},
+    },
     UI::WindowsAndMessaging::{
-        AppendMenuW, CreatePopupMenu, HMENU, KillTimer, MF_GRAYED, MF_SEPARATOR, MF_STRING,
-        PostMessageW, SetTimer, WM_APP,
+        AppendMenuW, CreatePopupMenu, HMENU, KillTimer, MB_ICONERROR, MB_ICONINFORMATION,
+        MB_ICONWARNING, MF_GRAYED, MF_SEPARATOR, MF_STRING, MessageBoxW, PostMessageW, SetTimer,
+        WM_APP,
     },
 };
 
@@ -18,6 +23,8 @@ pub const TIMER: usize = 0xA1;
 pub const ID_NOW: usize = 20;
 pub const ID_CFG: usize = 21;
 pub const ID_RELOAD: usize = 22;
+pub const ID_KEY_SAVE: usize = 23;
+pub const ID_KEY_DEL: usize = 24;
 const TICK_MS: u32 = 30_000;
 
 thread_local! {
@@ -187,6 +194,91 @@ fn short_of(s: &lowmon_ai::api::Snapshot, lang: text::Lang) -> Option<String> {
         .then(|| format!("{}/{}", p(&s.five_hour), p(&s.seven_day)))
 }
 
+fn session_file() -> std::path::PathBuf {
+    lowmon_ai::data_dir().join("session.bin")
+}
+
+/// Panodaki metin (CF_UNICODETEXT); geçerli bir anahtar okunduysa pano temizlenir.
+/// Dönen tampon sır içerebilir: çağıran sıfırlar.
+fn take_clipboard_key(hwnd: HWND) -> Option<String> {
+    const CF_UNICODETEXT: u32 = 13;
+    // SAFETY: pano bu fonksiyonda açılıp kapanır; kilitli bellek NUL sonlu UTF-16.
+    unsafe {
+        if OpenClipboard(hwnd) == 0 {
+            return None;
+        }
+        let mut buf: Vec<u16> = Vec::new();
+        let h = GetClipboardData(CF_UNICODETEXT);
+        if !h.is_null() {
+            let p = GlobalLock(h) as *const u16;
+            if !p.is_null() {
+                let n = (0..).take_while(|&i| *p.add(i) != 0).count();
+                buf.extend_from_slice(std::slice::from_raw_parts(p, n));
+                GlobalUnlock(h);
+            }
+        }
+        let text = String::from_utf16_lossy(&buf);
+        lowmon_ai::win::wipe(&mut buf);
+        let key = lowmon_ai::creds::parse_session_key(&text).map(str::to_owned);
+        let mut text = text.into_bytes();
+        lowmon_ai::win::wipe(&mut text);
+        if key.is_some() {
+            EmptyClipboard(); // sır panoda kalmasın
+        }
+        CloseClipboard();
+        key
+    }
+}
+
+fn message(hwnd: HWND, text: &str, flags: u32) {
+    // SAFETY: NUL sonlu dizgeler; modal kutu.
+    unsafe {
+        MessageBoxW(
+            hwnd,
+            crate::wide(text).as_ptr(),
+            crate::wide("LowMonitor AI").as_ptr(),
+            flags,
+        )
+    };
+}
+
+/// "Panodan sessionKey kaydet" (C++ widget ile aynı akış).
+pub fn save_key(hwnd: HWND) {
+    let Some(key) = take_clipboard_key(hwnd) else {
+        message(
+            hwnd,
+            "Panoda sessionKey yok. claude.ai çerezlerinden sessionKey değerini (sk-ant-…) kopyalayıp tekrar deneyin.",
+            MB_ICONWARNING,
+        );
+        return;
+    };
+    let r = lowmon_ai::fetch::save_session_key(&session_file(), &key);
+    let mut key = key.into_bytes();
+    lowmon_ai::win::wipe(&mut key);
+    match r {
+        Ok(()) => {
+            message(hwnd, "sessionKey kaydedildi (DPAPI).", MB_ICONINFORMATION);
+            refresh_now();
+        }
+        Err(e) => {
+            log(&format!("sessionKey kaydedilemedi: {e}"));
+            message(
+                hwnd,
+                &format!("sessionKey kaydedilemedi: {e}"),
+                MB_ICONERROR,
+            );
+        }
+    }
+}
+
+/// "sessionKey'i sil"
+pub fn delete_key() {
+    if let Err(e) = std::fs::remove_file(session_file()) {
+        log(&format!("sessionKey silinemedi: {e}"));
+    }
+    refresh_now();
+}
+
 fn clip(s: &str, n: usize) -> String {
     if s.chars().count() > n {
         s.chars().take(n - 1).chain(['…']).collect()
@@ -234,6 +326,25 @@ pub fn menu() -> HMENU {
         ] {
             AppendMenuW(sub, MF_STRING, id, crate::wide(t).as_ptr());
         }
+        // sessionKey: OAuth olmazsa claude.ai çerezi (DPAPI, `session.bin`)
+        AppendMenuW(sub, MF_SEPARATOR, 0, ptr::null());
+        AppendMenuW(
+            sub,
+            MF_STRING,
+            ID_KEY_SAVE,
+            crate::wide("Panodan sessionKey kaydet").as_ptr(),
+        );
+        let has = if session_file().exists() {
+            0
+        } else {
+            MF_GRAYED
+        };
+        AppendMenuW(
+            sub,
+            MF_STRING | has,
+            ID_KEY_DEL,
+            crate::wide("sessionKey'i sil").as_ptr(),
+        );
         sub
     }
 }
