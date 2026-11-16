@@ -12,8 +12,8 @@ lowmon-deck = { path = "../lowmon-deck" }
 # AI satırı biçimi (yüzde, geri sayım) taskbar ile aynı olsun (ADR-0032).
 lowmon-ai = { path = "../lowmon-ai" }
 # Telefon protokolü + istemcisi LowDeck'te kalır (ADR-0031 §3); rev lowmon-deck ile aynı.
-lowdeck-proto = { git = "https://github.com/kalkanozgur/lowdeck", rev = "9237fba" }
-lowdeck-client = { git = "https://github.com/kalkanozgur/lowdeck", rev = "9237fba" }
+lowdeck-proto = { git = "https://github.com/kalkanozgur/lowdeck", rev = "ec2ce3d" }
+lowdeck-client = { git = "https://github.com/kalkanozgur/lowdeck", rev = "ec2ce3d" }
 # Yalnız software renderer + winit (LowDeck ölçümü: private ≈ 5 MiB). winit olayları: küçültmede metrik aboneliği düşer.
 # Lisans: Slint Royalty-free 2.0 (README atıf rozeti).
 slint = { workspace = true, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "software-renderer-path", "unstable-winit-030"] }

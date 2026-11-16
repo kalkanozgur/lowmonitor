@@ -11,7 +11,7 @@ lowmon-proto = { path = "../lowmon-proto" }
 serde.workspace = true
 toml.workspace = true
 # Telefon protokolü LowDeck'te kalır (ADR-0031 §3); rev = LowDeck main (MIT OR Apache-2.0, LowDeck #27).
-lowdeck-proto = { git = "https://github.com/kalkanozgur/lowdeck", rev = "9237fba" }
+lowdeck-proto = { git = "https://github.com/kalkanozgur/lowdeck", rev = "ec2ce3d" }
 
 # Core Audio (COM) ve SMTC (WinRT) windows-sys'te yok.
 [target.'cfg(windows)'.dependencies]
