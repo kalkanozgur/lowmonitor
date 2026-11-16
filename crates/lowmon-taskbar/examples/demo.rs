@@ -1,6 +1,7 @@
 //! Elle deneme: `cargo run -p lowmon-taskbar --example demo [saniye] [gap_px]` (varsayılan 30, 8).
-//! Taskbar'a iki satır koyar; sağ tık ya da süre dolunca çıkar. Sol tık rengi değiştirir.
-use lowmon_taskbar::{Bar, Config, EV_LEFT, EV_MOVED, EV_RIGHT, Line};
+//! Taskbar'a iki blok koyar (sağda 2×4 örnek ızgara, solunda iki satır); sağ tık ya da süre dolunca çıkar.
+//! Sol tık soldaki bloğun rengini / metnini değiştirir.
+use lowmon_taskbar::{Bar, Config, EV_LEFT, EV_MOVED, EV_RIGHT, Grid, Line};
 use std::cell::RefCell;
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::{
@@ -40,10 +41,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             let b = b.as_mut().unwrap();
             match wp {
                 EV_MOVED => b.layout(),
-                EV_LEFT => b.show(lines(N.with_borrow_mut(|n| {
-                    *n += 1;
-                    *n
-                }))),
+                EV_LEFT => b.show(
+                    1,
+                    Grid::lines(lines(N.with_borrow_mut(|n| {
+                        *n += 1;
+                        *n
+                    }))),
+                ),
                 EV_RIGHT => unsafe { PostQuitMessage(0) },
                 _ => {}
             }
@@ -88,8 +92,27 @@ fn main() {
         if let Some(g) = std::env::args().nth(2).and_then(|s| s.parse().ok()) {
             cfg.gap_px = g;
         }
-        let mut bar = Bar::new(owner, WM_BAR, cfg);
-        bar.show(lines(0));
+        let mut bar = Bar::new(owner, WM_BAR, cfg, 2);
+        let row = |cells: [&str; 4]| -> Vec<Line> {
+            cells
+                .iter()
+                .map(|t| Line {
+                    text: t.to_string(),
+                    rgb: 0xFFFFFF,
+                })
+                .collect()
+        };
+        bar.show(
+            0,
+            Grid {
+                rows: [
+                    row(["CPU: 15 %", "GPU: 0 %", "MEM: 88 %", "↑: 0.67 KB/s"]),
+                    row(["CPU: 63 °C", "GPU: 44 °C", "HDD: 35 °C", "↓: 22.6 KB/s"]),
+                ],
+                right: false,
+            },
+        );
+        bar.show(1, Grid::lines(lines(0)));
         BAR.set(Some(bar));
         SetTimer(owner, 1, secs * 1000, None);
         let mut msg: MSG = std::mem::zeroed();

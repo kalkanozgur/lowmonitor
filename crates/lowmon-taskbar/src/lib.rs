@@ -1,11 +1,13 @@
-//! lowmon-taskbar (ADR-0032 Faz 2): taskbar'a gömülü iki satırlık renkli metin göstergesi.
+//! lowmon-taskbar (ADR-0032 Faz 2, ADR-0033 Faz 2): taskbar'a gömülü renkli metin blokları.
+//! Blok = 2 satır × N sütun hücre ızgarası (AI 2×1, sistem 2×4); bloklar bildirim alanının solunda
+//! yan yana dizilir (blok 0 en sağda), her biri ayrı alt pencere.
 //! Yöntem (kullanıcı kararı, C++ widget'ın topmost + 1 s yoklamasının yerine):
 //! - Pencere `Shell_TrayWnd`'nin **alt penceresi**: taskbar'la hareket eder, tam ekranda onunla
 //!   gizlenir; z-sırası kavgası ve zamanlayıcı yok.
 //! - Bildirim alanı genişleyince `EVENT_OBJECT_LOCATIONCHANGE` (out-of-context) → sahibe `EV_MOVED`.
 //! - Metin GDI+ ile PARGB bitmap'e (gerçek alfa, gri tonlu AA) → `UpdateLayeredWindow`.
 //!
-//! Sahip pencere olayları `PostMessage(owner, msg, EV_*, 0)` ile alır; `Bar` sahibin thread'inde yaşar.
+//! Sahip pencere olayları `PostMessage(owner, msg, EV_*, blok)` ile alır; `Bar` sahibin thread'inde yaşar.
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -21,11 +23,42 @@ pub const EV_RIGHT: usize = 2;
 /// Taskbar / bildirim alanı yer değiştirdi → `Bar::layout`
 pub const EV_MOVED: usize = 3;
 
+/// Bir hücre: metin + renk.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
     pub text: String,
     /// 0xRRGGBB
     pub rgb: u32,
+}
+
+/// Bir bloğun içeriği: iki satır, satır başına aynı sayıda hücre; sütunlar hizalanır.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Grid {
+    pub rows: [Vec<Line>; 2],
+    /// Hücre metni sütunun sağına yaslanır (AI); değilse sola (sistem ızgarası)
+    pub right: bool,
+}
+
+impl Grid {
+    /// Tek sütun, sağa yaslı (AI bloğu).
+    pub fn lines([a, b]: [Line; 2]) -> Self {
+        Self {
+            rows: [vec![a], vec![b]],
+            right: true,
+        }
+    }
+}
+
+/// Sütun genişlikleri: iki satırın en genişi, önceki genişlikten (`keep`) dar olmaz. Sayılar değiştikçe
+/// blok daralıp genişlemesin (yanındaki blok oynamasın) diye genişlik yalnız büyür.
+pub fn columns(measured: [&[i32]; 2], keep: &[i32]) -> Vec<i32> {
+    let n = measured[0].len().max(measured[1].len());
+    (0..n)
+        .map(|i| {
+            let at = |v: &[i32]| v.get(i).copied().unwrap_or(0);
+            at(measured[0]).max(at(measured[1])).max(at(keep))
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -34,6 +67,52 @@ pub enum Monitor {
     Primary,
     Left,
     Right,
+}
+
+/// `[ai]`: AI kullanım bloğu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Ai {
+    pub enabled: bool,
+}
+
+impl Default for Ai {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// `[sys]`: sistem ızgarası (ADR-0033). Eşik: değer ≥ uyarı → turuncu, ≥ kritik → kırmızı.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Sys {
+    pub enabled: bool,
+    /// CPU °C (ACPI termal bölge, PDH: +~4 MiB); kapalıysa hücre `—`
+    pub cpu_temp: bool,
+    /// CPU / GPU / MEM kullanımı (%)
+    pub warn_pct: i32,
+    pub crit_pct: i32,
+    /// CPU / GPU sıcaklığı (°C)
+    pub temp_warn_c: i32,
+    pub temp_crit_c: i32,
+    /// Disk sıcaklığı (°C)
+    pub disk_warn_c: i32,
+    pub disk_crit_c: i32,
+}
+
+impl Default for Sys {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            cpu_temp: true,
+            warn_pct: 75,
+            crit_pct: 90,
+            temp_warn_c: 80,
+            temp_crit_c: 90,
+            disk_warn_c: 55,
+            disk_crit_c: 65,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -47,6 +126,8 @@ pub struct Config {
     pub reserved_px: i32,
     pub font: String,
     pub font_pt: f32,
+    pub ai: Ai,
+    pub sys: Sys,
 }
 
 impl Default for Config {
@@ -57,6 +138,8 @@ impl Default for Config {
             reserved_px: 110,
             font: "Segoe UI".into(),
             font_pt: 9.0,
+            ai: Ai::default(),
+            sys: Sys::default(),
         }
     }
 }
@@ -133,11 +216,36 @@ mod tests {
     }
 
     #[test]
+    fn column_widths() {
+        // sütun = iki satırın en genişi; önceki genişlikten daralmaz
+        assert_eq!(columns([&[40, 10], &[30, 25]], &[]), [40, 25]);
+        assert_eq!(columns([&[40, 10], &[30, 25]], &[50, 5]), [50, 25]);
+        assert_eq!(columns([&[40], &[30, 25]], &[0, 0, 9]), [40, 25]);
+        assert_eq!(columns([&[], &[]], &[]), Vec::<i32>::new());
+        let g = Grid::lines([
+            Line {
+                text: "a".into(),
+                rgb: 1,
+            },
+            Line {
+                text: "b".into(),
+                rgb: 2,
+            },
+        ]);
+        assert!(g.right && g.rows[0].len() == 1 && g.rows[1][0].text == "b");
+    }
+
+    #[test]
     fn config() {
         assert_eq!(Config::parse("").unwrap(), Config::default());
         let c = Config::parse("monitor = \"primary\"\nfont_pt = 10.5").unwrap();
         assert_eq!((c.monitor, c.font_pt), (Monitor::Primary, 10.5));
         assert!(Config::parse("x = 1").is_err());
+        let c = Config::parse("[sys]\nenabled = false\ntemp_crit_c = 95\n[ai]\nenabled = false")
+            .unwrap();
+        assert!(!c.sys.enabled && !c.ai.enabled);
+        assert_eq!((c.sys.temp_crit_c, c.sys.temp_warn_c), (95, 80));
+        assert!(Config::parse("[sys]\nx = 1").is_err());
         let missing = std::env::temp_dir().join("lowmon-test-yok-taskbar.toml");
         assert_eq!(Config::load(&missing).unwrap(), Config::default());
     }
