@@ -1,0 +1,467 @@
+// LowMonitor PC arayüzü (ADR-0031): Canlı, Olaylar, Geçmiş, Süreçler. Veri tray'deki deck'ten loopback.
+// Animasyon/timer yok; yalnız property değişince yeniden çizim.
+
+import { ListView, LineEdit } from "std-widgets.slint";
+
+global Theme {
+    out property <color> bg: #101010;
+    out property <color> surface: #1c1c1c;
+    out property <color> text: #e6e6e6;
+    out property <color> dim: #8a8a8a;
+    out property <color> accent: #4fc3f7;
+    out property <color> accent2: #ba68c8;
+    out property <color> warn: #ff7043;
+    out property <color> ok: #66bb6a;
+    out property <color> disabled: #3a3a3a;
+}
+
+export struct TopRow { name: string, cpu: string, ws: string }
+export struct EventRow { time: string, kind: int, name: string, value: string }
+export struct ProcRow { pid: int, name: string, cpu: string, ws: string, protected: bool, selected: bool }
+
+component Tab inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked();
+    height: 32px;
+    width: 96px;
+    border-radius: 6px;
+    background: root.active ? Theme.surface : transparent;
+    TouchArea { clicked => { root.clicked(); } }
+    Text {
+        text: root.label;
+        color: root.active ? Theme.accent : Theme.dim;
+        font-size: 14px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// 5 dk çizgisi (LM spek §9.1): path'ler Rust'ta üretilir (viewbox 300 s × 100), yalnız yeni örnekte değişir.
+component Spark inherits Rectangle {
+    in property <string> a;
+    in property <string> b; // "" = tek çizgi
+    in property <color> ca;
+    in property <color> cb;
+    in property <string> scale; // "" = sabit 0..%100 ölçek, etiket yok
+    in property <float> vb: 300; // viewbox genişliği: Canlı 300 s, Geçmiş kova sayısı
+    if root.a != "": Path {
+        width: 100%;
+        height: 100%;
+        commands: root.a;
+        viewbox-width: root.vb;
+        viewbox-height: 100;
+        fit: fill; // varsayılan contain en-boy oranını korur → grafik kartı doldurmaz
+        stroke: root.ca;
+        stroke-width: 1.5px;
+    }
+    if root.b != "": Path {
+        width: 100%;
+        height: 100%;
+        commands: root.b;
+        viewbox-width: root.vb;
+        viewbox-height: 100;
+        fit: fill; // varsayılan contain en-boy oranını korur → grafik kartı doldurmaz
+        stroke: root.cb;
+        stroke-width: 1.5px;
+    }
+    if root.scale != "": Text {
+        // Sol üst: yeni veri sağ kenarda çizilir, etiket çizgiyi örtmesin.
+        x: 0;
+        y: 0;
+        text: root.scale;
+        color: Theme.dim;
+        font-size: 10px;
+    }
+}
+
+// Geçmiş kartı: etiket + büyük grafik (Spark, kova sayısı viewbox).
+component HistCard inherits Rectangle {
+    in property <string> label;
+    in property <string> a;
+    in property <string> b;
+    in property <color> ca: Theme.accent;
+    in property <color> cb: Theme.accent2;
+    in property <string> scale;
+    in property <float> vb;
+    background: Theme.surface;
+    border-radius: 8px;
+    // Eşit 2×2: tercih/min genişlik içerikten bağımsız (0), yer yalnız stretch ile bölünür.
+    // Pencere genişliğine bağlamak binding loop'tu (Slint 1.18 uyarısı, ileride panic).
+    preferred-width: 0px;
+    min-width: 0px;
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    min-height: 110px;
+    VerticalLayout {
+        padding: 10px;
+        spacing: 4px;
+        Text { text: root.label; color: Theme.dim; font-size: 12px; overflow: elide; }
+        Spark {
+            vertical-stretch: 1;
+            min-height: 60px;
+            a: root.a;
+            b: root.b;
+            ca: root.ca;
+            cb: root.cb;
+            scale: root.scale;
+            vb: root.vb;
+        }
+    }
+}
+
+component Stat inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> live;
+    in property <string> path-a;
+    in property <string> path-b;
+    in property <color> color-a: Theme.accent;
+    in property <color> color-b: Theme.accent2;
+    in property <string> scale;
+    background: Theme.surface;
+    border-radius: 8px;
+    min-height: 124px;
+    // Eşit genişlik: değer metni uzunluğu kartı büyütmesin (her saniye kayıyordu); HistCard ile aynı.
+    preferred-width: 0px;
+    min-width: 0px;
+    horizontal-stretch: 1;
+    VerticalLayout {
+        padding: 10px;
+        spacing: 2px;
+        Text { text: root.label; color: Theme.dim; font-size: 12px; }
+        Text {
+            text: root.live ? root.value : "—";
+            color: root.live ? Theme.text : Theme.disabled;
+            font-size: 22px;
+            overflow: elide;
+        }
+        Spark {
+            height: 56px;
+            a: root.path-a;
+            b: root.path-b;
+            ca: root.live ? root.color-a : Theme.disabled;
+            cb: root.live ? root.color-b : Theme.disabled;
+            scale: root.scale;
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    // Tek örnek: ikinci kopya bu başlıkla pencereyi bulup öne getirir.
+    title: "LowMonitor";
+    background: Theme.bg;
+    preferred-width: 760px;
+    preferred-height: 580px;
+    min-width: 520px;
+    min-height: 360px;
+
+    in property <string> status: "Bağlanıyor…";
+    in property <bool> connected: false;
+    in property <int> lm-state: 0; // 0 = veri yok, 1 = canlı, 2 = LowMonitor servisi yok
+    in property <string> lm-cpu;
+    in property <string> lm-ram;
+    in property <string> lm-disk;
+    in property <string> lm-net;
+    in property <[float]> lm-cores; // 0..1
+    // 5 dk grafikleri (SVG path); disk/ağ ölçeği iki çizginin ortak max'ı
+    in property <string> lm-cpu-path;
+    in property <string> lm-ram-path;
+    in property <string> lm-disk-r-path;
+    in property <string> lm-disk-w-path;
+    in property <string> lm-net-rx-path;
+    in property <string> lm-net-tx-path;
+    in property <string> lm-disk-scale;
+    in property <string> lm-net-scale;
+    in property <[TopRow]> lm-top;
+    in property <string> alarms; // "" = aktif alarm yok
+    in property <[EventRow]> events; // yeni → eski
+    in-out property <int> tab: 0; // 0 = Canlı, 1 = Olaylar, 2 = Geçmiş, 3 = Süreçler
+    // Geçmiş (ADR-0005): aralık 0..3 = 1 sa / 6 sa / 24 sa / 7 g; path'ler Rust'ta (viewbox hist-n × 100)
+    in-out property <int> hist-span: 0;
+    in property <string> hist-status;
+    in property <string> hist-range;
+    in property <float> hist-n: 600;
+    in property <string> hist-cpu-avg;
+    in property <string> hist-cpu-max;
+    in property <string> hist-ram;
+    in property <string> hist-disk-r;
+    in property <string> hist-disk-w;
+    in property <string> hist-net-rx;
+    in property <string> hist-net-tx;
+    in property <string> hist-ram-scale;
+    in property <string> hist-disk-scale;
+    in property <string> hist-net-scale;
+    callback query-history(int);
+    // Süreçler (LM spek §9.4): tarama Rust'ta, yalnız bu sekme görünürken 2 s'de bir
+    in property <[ProcRow]> procs;
+    in property <string> proc-status;
+    in property <bool> proc-can-kill;
+    in property <bool> proc-confirm; // iki aşamalı onay: ilk tık "Emin misin?"
+    in-out property <int> proc-sort: 0; // 0 = CPU, 1 = RAM
+    callback proc-select(int); // PID
+    callback proc-filter-changed(string);
+    // Fare liste üzerinde → Rust taramayı atlar, liste kaymaz.
+    in-out property <bool> proc-hover;
+    callback proc-kill();
+    callback proc-sort-changed(int);
+    callback tab-changed(int);
+    changed tab => { root.tab-changed(self.tab); }
+    property <bool> live: root.connected && root.lm-state == 1;
+
+    callback refresh-events();
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            Tab { label: "Canlı"; active: root.tab == 0; clicked => { root.tab = 0; } }
+            Tab { label: "Olaylar"; active: root.tab == 1; clicked => { root.tab = 1; } }
+            Tab { label: "Geçmiş"; active: root.tab == 2; clicked => { root.tab = 2; root.query-history(root.hist-span); } }
+            Tab { label: "Süreçler"; active: root.tab == 3; clicked => { root.tab = 3; } }
+            Rectangle { horizontal-stretch: 1; }
+            Rectangle {
+                width: 10px;
+                height: 10px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 5px;
+                background: root.connected ? Theme.ok : Theme.warn;
+            }
+            Text {
+                text: !root.connected ? root.status : root.lm-state == 2 ? "LowMonitor servisi yok" : root.status;
+                color: root.connected && root.lm-state != 2 ? Theme.dim : Theme.warn;
+                font-size: 13px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        if root.alarms != "": Rectangle {
+            background: #3a1d14;
+            border-radius: 6px;
+            height: 32px;
+            Text {
+                x: 12px;
+                text: "⚠ Aktif alarm: " + root.alarms;
+                color: Theme.warn;
+                font-size: 14px;
+                vertical-alignment: center;
+                height: parent.height;
+                overflow: elide;
+            }
+        }
+
+        // --- Canlı ---
+        if root.tab == 0: VerticalLayout {
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 12px;
+                Stat { label: "CPU  5 dk"; value: root.lm-cpu; live: root.live; path-a: root.lm-cpu-path; }
+                Stat { label: "RAM  5 dk"; value: root.lm-ram; live: root.live; path-a: root.lm-ram-path; }
+                Stat {
+                    label: "DİSK  B/s";
+                    value: root.lm-disk;
+                    live: root.live;
+                    path-a: root.lm-disk-r-path;
+                    path-b: root.lm-disk-w-path;
+                    scale: root.lm-disk-scale;
+                }
+                Stat {
+                    label: "AĞ  B/s";
+                    value: root.lm-net;
+                    live: root.live;
+                    path-a: root.lm-net-rx-path;
+                    path-b: root.lm-net-tx-path;
+                    color-a: Theme.ok;
+                    scale: root.lm-net-scale;
+                }
+            }
+            // Mutlak konum: `for` içeren layout boşken max-width = 0 verir (telefon UI'ı notu).
+            bars := Rectangle {
+                height: 48px;
+                property <length> slot: self.width / max(1, root.lm-cores.length);
+                for c[i] in root.lm-cores: Rectangle {
+                    x: i * bars.slot;
+                    width: bars.slot - 3px;
+                    background: Theme.surface;
+                    Rectangle {
+                        height: parent.height * clamp(c, 0, 1);
+                        y: parent.height - self.height;
+                        background: root.live ? Theme.accent : Theme.disabled;
+                    }
+                }
+            }
+            Text { text: "EN ÇOK CPU"; color: Theme.dim; font-size: 12px; }
+            Rectangle {
+                height: 5 * 22px;
+                VerticalLayout {
+                    width: parent.width;
+                    height: parent.height;
+                    alignment: start;
+                    spacing: 2px;
+                    for t in root.lm-top: HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: t.name; color: root.live ? Theme.text : Theme.disabled; font-size: 15px; overflow: elide; horizontal-stretch: 1; }
+                        Text { text: t.cpu; color: root.live ? Theme.text : Theme.disabled; font-size: 15px; width: 72px; horizontal-alignment: right; }
+                        Text { text: t.ws; color: Theme.dim; font-size: 15px; width: 96px; horizontal-alignment: right; }
+                    }
+                }
+            }
+            Rectangle { vertical-stretch: 1; }
+        }
+
+        // --- Geçmiş: hazır aralıklar, bitiş = şimdi; yenileme yalnız tıklamayla (timer yok) ---
+        if root.tab == 2: VerticalLayout {
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 6px;
+                for l[i] in ["1 sa", "6 sa", "24 sa", "7 g"]: Tab {
+                    label: l;
+                    width: 64px;
+                    active: root.hist-span == i;
+                    clicked => {
+                        root.hist-span = i;
+                        root.query-history(i);
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Text {
+                    text: root.hist-status != "" ? root.hist-status : root.hist-range;
+                    color: Theme.dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                vertical-stretch: 1;
+                // Max önce (soluk), ortalama üstte
+                HistCard { label: "CPU  ort. / en yüksek"; a: root.hist-cpu-max; ca: #2f6f8a; b: root.hist-cpu-avg; cb: Theme.accent; vb: root.hist-n; }
+                HistCard { label: "RAM"; a: root.hist-ram; scale: root.hist-ram-scale; vb: root.hist-n; }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                vertical-stretch: 1;
+                HistCard { label: "DİSK  R / W"; a: root.hist-disk-r; b: root.hist-disk-w; scale: root.hist-disk-scale; vb: root.hist-n; }
+                HistCard { label: "AĞ  ↓ / ↑"; a: root.hist-net-rx; b: root.hist-net-tx; ca: Theme.ok; scale: root.hist-net-scale; vb: root.hist-n; }
+            }
+        }
+
+        // --- Süreçler: tüm süreçler, CPU/RAM sıralı; sonlandırma iki aşamalı onayla (spek §10) ---
+        if root.tab == 3: VerticalLayout {
+            spacing: 6px;
+            LineEdit {
+                placeholder-text: "Ara: ad ya da PID";
+                font-size: 14px;
+                edited(t) => { root.proc-filter-changed(t); }
+            }
+            HorizontalLayout {
+                padding-left: 6px;
+                padding-right: 6px;
+                spacing: 8px;
+                Text { text: "AD"; color: Theme.dim; font-size: 12px; horizontal-stretch: 1; }
+                Text { text: "PID"; color: Theme.dim; font-size: 12px; width: 64px; horizontal-alignment: right; }
+                Text {
+                    text: root.proc-sort == 0 ? "CPU ▾" : "CPU";
+                    color: root.proc-sort == 0 ? Theme.accent : Theme.dim;
+                    font-size: 12px;
+                    width: 72px;
+                    horizontal-alignment: right;
+                    TouchArea { clicked => { root.proc-sort = 0; root.proc-sort-changed(0); } }
+                }
+                Text {
+                    text: root.proc-sort == 1 ? "RAM ▾" : "RAM";
+                    color: root.proc-sort == 1 ? Theme.accent : Theme.dim;
+                    font-size: 12px;
+                    width: 88px;
+                    horizontal-alignment: right;
+                    TouchArea { clicked => { root.proc-sort = 1; root.proc-sort-changed(1); } }
+                }
+            }
+            // Üst TouchArea yalnız hover için (tıklamalar satırlara iner).
+            hover := TouchArea {
+                vertical-stretch: 1;
+                changed has-hover => { root.proc-hover = self.has-hover; }
+            ListView {
+                width: 100%;
+                height: 100%;
+                for p in root.procs: Rectangle {
+                    height: 24px;
+                    border-radius: 4px;
+                    background: p.selected ? Theme.surface : transparent;
+                    TouchArea { clicked => { root.proc-select(p.pid); } }
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        spacing: 8px;
+                        Text {
+                            text: p.name;
+                            color: p.protected ? Theme.dim : Theme.text;
+                            font-size: 14px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                        Text { text: p.pid; color: Theme.dim; font-size: 13px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+                        Text { text: p.cpu; color: Theme.text; font-size: 14px; width: 72px; horizontal-alignment: right; vertical-alignment: center; }
+                        Text { text: p.ws; color: Theme.dim; font-size: 14px; width: 88px; horizontal-alignment: right; vertical-alignment: center; }
+                    }
+                }
+            }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                height: 32px;
+                Text {
+                    text: (root.proc-hover ? "⏸ sabit  ·  " : "") + root.proc-status;
+                    color: root.proc-confirm ? Theme.warn : Theme.dim;
+                    font-size: 13px;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if root.proc-can-kill: Tab {
+                    width: 128px;
+                    label: root.proc-confirm ? "Evet, sonlandır" : "Sonlandır";
+                    active: root.proc-confirm;
+                    clicked => { root.proc-kill(); }
+                }
+            }
+        }
+
+        // --- Olaylar (son 24 saat + canlı) ---
+        if root.tab == 1: VerticalLayout {
+            spacing: 8px;
+            HorizontalLayout {
+                Text { text: "SON 24 SAAT"; color: Theme.dim; font-size: 12px; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
+                Tab { label: "Yenile"; active: true; clicked => { root.refresh-events(); } }
+            }
+            if root.events.length == 0: Text {
+                text: root.connected ? "Olay yok" : "—";
+                color: Theme.dim;
+                font-size: 14px;
+            }
+            ListView {
+                vertical-stretch: 1;
+                for e in root.events: HorizontalLayout {
+                    spacing: 12px;
+                    padding-top: 3px;
+                    padding-bottom: 3px;
+                    Text { text: e.time; color: Theme.dim; font-size: 14px; width: 150px; }
+                    Text {
+                        text: e.kind == 0 ? "ALARM" : e.kind == 1 ? "temizlendi" : "sistem";
+                        color: e.kind == 0 ? Theme.warn : e.kind == 1 ? Theme.ok : Theme.dim;
+                        font-size: 14px;
+                        width: 88px;
+                    }
+                    Text { text: e.name; color: Theme.text; font-size: 14px; horizontal-stretch: 1; overflow: elide; }
+                    Text { text: e.value; color: Theme.dim; font-size: 14px; width: 96px; horizontal-alignment: right; }
+                }
+            }
+        }
+    }
+}

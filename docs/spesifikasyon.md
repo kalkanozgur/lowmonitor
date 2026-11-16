@@ -23,9 +23,9 @@
 | Bileşen | CPU | RAM (WS) | Ne zaman |
 |---|---|---|---|
 | `lowmon-svc` | ~0.4 ms/s → tek çekirdeğin ~%0.04'ü; Görev Yöneticisi'nde %0.00–0.01 | 2–3 MB | Sürekli |
-| `lowmon-tray` | ~50 µs / 2 s → ~%0 | 1.5–2 MB | Sürekli |
+| `lowmon-tray` (deck dahil, ADR-0031) | ~50 µs / 2 s → ~%0 (ölçüm: 78 ms / 5 dk) | ~3.3 MB private | Sürekli |
 | `lowmon-net` | ~20 µs/s (istemci varken) | 1.5–2.5 MB | İsteğe bağlı, sürekli |
-| Arayüz (LowDeck masaüstü, ADR-0029) | %0.3–1 (≤ 1 Hz çizim) | ölçümü LowDeck'te | Sadece açıkken |
+| `lowmon-ui` (ADR-0031) | %0.3–1 (≤ 1 Hz çizim; LowDeck ölçümü Canlı ≈ 1 ms/s) | ~5 MB private (software renderer) | Sadece açıkken |
 
 - **svc CPU:** okuma ~50 µs + kodlama ~10 µs + Top-N ortalaması ~400 µs/s (maliyetin ~%85'i). Şifreleme ~1 µs/dk.
 - **svc RAM:** runtime + exe ~1 MB, `SystemProcessInformation` buffer'ı 0.5–1 MB, diğer < 100 KB.
@@ -44,12 +44,13 @@
 
 | Exe / crate | Rol | Çalışma hesabı | Not |
 |---|---|---|---|
-| `lowmon-proto` (lib) | Metrik tipleri + pipe protokolü; yalnız serde + postcard | — | Dış istemciler (lowdeck-agent) bağımlanır (ADR-0022) |
+| `lowmon-proto` (lib) | Metrik tipleri + pipe protokolü; yalnız serde + postcard | — | Dış istemciler bağımlanır (ADR-0022); `lowmon-deck` yol bağımlılığı |
 | `lowmon-core` (lib) | Kayıt formatı, kripto, config; `lowmon-proto`'yu yeniden dışa verir | — | Tüm exe'ler paylaşır |
 | `lowmon-svc` | Toplayıcı, log yazıcı, alarm motoru, pipe sunucu | LocalService + servis SID'i | Windows servisi |
-| `lowmon-tray` | Tray ikon, tooltip, alarm bildirimi | Kullanıcı | GUI framework yok |
-| Arayüz (LowDeck repo, ADR-0029) | Grafikler, olaylar, geçmiş | Kullanıcı (asInvoker), `lowdeck-agent` üzerinden | Slint |
-| `lowmon-elev` | Yükseltilmiş tek seferlik işlem: yalnız ayar yazma (§9.5); süreç müdahalesi LowDeck masaüstünde (ADR-0030) | Admin (UAC) | İşini yapıp çıkar; henüz yok |
+| `lowmon-deck` (lib) | Telefon/arayüz sunucusu: hub, TCP dinleyici (LAN + loopback), UDP keşif, Core Audio/SMTC/kilit, pipe köprüsü (ADR-0031) | — | `windows` crate (COM/WinRT); `lowdeck-proto` LowDeck'ten git rev |
+| `lowmon-tray` | Tray ikon, tooltip, alarm bildirimi; `lowmon-deck`'i süreç içinde çalıştırır | Kullanıcı | GUI framework yok |
+| `lowmon-ui` | Grafikler, olaylar, geçmiş, süreçler (ADR-0031; eski LowDeck masaüstü) | Kullanıcı (asInvoker), tray'deki deck'e loopback | Slint (Royalty-free 2.0, README atfı) |
+| `lowmon-elev` | Yükseltilmiş tek seferlik işlem: yalnız ayar yazma (§9.5); süreç müdahalesi `lowmon-ui`'da (ADR-0030) | Admin (UAC) | İşini yapıp çıkar; henüz yok |
 | `lowmon-gpu` | NVML üretici | Kullanıcı | **Sonra tasarlanacak** |
 | `lowmon-net` | LAN veri yayıncısı (WebSocket), Mi Note 10 Lite vb. istemciler için | Kullanıcı | Bkz. §16 |
 
@@ -296,30 +297,31 @@ clear    = { below = 85.0, for_s = 30 }
 
 - `windows-sys` + gizli üst düzey pencere + `Shell_NotifyIconW` (ADR-0018).
 - 16×16 ikon: CPU/RAM çift çubuk, `CreateDIBSection` + `CreateIconIndirect`, 2 s'de bir güncelleme.
-- Tooltip: `CPU 12% · RAM 58% · ↓1.2 MB/s`.
-- "Arayüzü aç" → `HKCU\Software\LowMonitor` `UiExe` değerindeki LowDeck masaüstü exe'si (ADR-0029; değeri LowDeck masaüstü ve agent yazar, LowDeck ADR-0004). Değer yoksa ya da exe bulunamazsa pasif; etiket nedeni söyler ("LowDeck kurulu değil" / "exe bulunamadı").
-- Sağ tık menü: arayüzü aç, alarmları sessize al (1 saat), Windows ile başlat, çıkış.
+- Tooltip: `CPU 12% · RAM 58% · ↓1.2 MB/s · 📱 telefon · ⚠ alarmlar` (telefon yalnız bağlıyken).
+- "Arayüzü aç" → tray ile aynı klasördeki `lowmon-ui.exe` (ADR-0031; `UiExe` kaydı kullanılmaz). Exe yoksa pasif, etiket nedeni söyler.
+- Sağ tık menü: arayüzü aç, alarmları sessize al (1 saat), **Telefon ▸** (durum: `bind · port · token` + bağlı telefon ya da kapalı nedeni; ayar dosyasını aç, ayarı yeniden yükle, log'u aç, firewall kuralı ekle), Windows ile başlat, çıkış.
+- Telefon sunucusu (`lowmon-deck`, ADR-0031): ayar `%APPDATA%\LowMonitor\deck.toml` (ilk açılışta LowDeck `agent.cfg`'den taşınır), log `deck.log`. Port kullanımdaysa tray çalışır, telefon pasif (menüde neden). Medya/ses kontrolü yalnız telefondan (ADR-0031 §6).
 - Servis yoksa ikon gri, 10 s'de bir yeniden bağlanma denemesi.
 - Otomatik başlatma: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
 ---
 
-## 9. Arayüz (LowDeck masaüstü)
+## 9. Arayüz (`lowmon-ui`)
 
-> **ADR-0019 → ADR-0029:** UI Slint ile, **LowDeck** reposunda (masaüstü uygulaması). Bu repoda `lowmon-ui` yok. Arayüz veriye yalnız `lowdeck-agent` üzerinden erişir (loopback); pipe'a bağlanan tek LowDeck bileşeni agent'tır. Sözleşme = §6 pipe protokolü.
+> **ADR-0019 → ADR-0029 → ADR-0031:** UI Slint ile, bu repoda `lowmon-ui` (eski LowDeck masaüstü). Veriye yalnız tray'deki `lowmon-deck` üzerinden erişir (loopback, `lowdeck-proto`); port + token `deck.toml`'dan. Pipe'a bağlanan deck'tir. Medya/ses kontrolü yok, yalnız izler (ADR-0031 §6).
 
 **Ekranlar** (sıra = teslim sırası)
 1. **Canlı:** CPU (toplam + çekirdek), RAM/commit, disk, ağ (son 5 dk). — ilk teslimat
 2. **Olaylar:** `CH_EVENT` canlı + `QueryRange` `RangeItem::Event` geçmişi; aktif alarmlar. — ilk teslimat
 3. **Geçmiş:** zaman aralığı → `QueryRange`, otomatik çözünürlük (aralık > 6 saat → 1 dk).
-4. **Süreçler:** LowDeck masaüstü süreçleri kendisi tarar (2 s, yalnız sekme açıkken; Top-N kullanılmaz) + müdahale (§10, ADR-0030).
+4. **Süreçler:** `lowmon-ui` süreçleri kendisi tarar (2 s, yalnız sekme açıkken; Top-N kullanılmaz) + müdahale (§10, ADR-0030).
 5. **Ayarlar:** servis kontrolü, retention, alarm kuralları (`lowmon-elev --op write-config` + `ReloadConfig`).
 
 **Performans kuralları (Slint)**
 - Yeniden çizim yalnız veri değişince, ≤ 1 Hz; sürekli timer/animasyon yok.
 - Simge durumu → abonelik bırakılır; geri gelince yeniden abone.
 - Grafik verisi sabit kapasiteli ring buffer.
-- Yetki: arayüz ve agent yükseltilmemiş; Admin işleri UAC ile: ayar yazma `lowmon-elev`, süreç müdahalesi LowDeck masaüstünün yükseltilmiş kopyası (ADR-0030).
+- Yetki: arayüz ve tray yükseltilmemiş; Admin işleri UAC ile: ayar yazma `lowmon-elev`, süreç müdahalesi `lowmon-ui`'nın yükseltilmiş kopyası (ADR-0030).
 
 ---
 
@@ -335,7 +337,7 @@ clear    = { below = 85.0, for_s = 30 }
 **Akış**
 1. UI, kullanıcı token'ıyla `OpenProcess(gerekli_hak | PROCESS_QUERY_LIMITED_INFORMATION)` dener.
 2. **PID reuse koruması:** `GetProcessTimes` → `CreationTime` snapshot'takiyle eşleşmezse **iptal**.
-3. `ERROR_ACCESS_DENIED` → onay → `ShellExecuteExW(verb="runas", "lowdeck-desktop.exe --kill 1234 133...")` (ADR-0030; LowDeck ADR-0006).
+3. `ERROR_ACCESS_DENIED` → onay → `ShellExecuteExW(verb="runas", "lowmon-ui.exe --kill 1234 133...")` (ADR-0030; LowDeck ADR-0006).
 4. Yükseltilmiş kopya pencere açmadan aynı kontrolleri (CreationTime + yasak liste) tekrar yapar, işlemi uygular, exit code ile sonucu döner, kapanır.
 5. Her müdahale servise bildirilir → `Event` olarak loglanır (kim, ne, hangi süreç). **Ertelendi** (ADR-0030 madde 4).
 

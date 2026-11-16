@@ -24,12 +24,10 @@ pub fn get(value: &str) -> io::Result<Option<String>> {
     get_in(RUN, value)
 }
 
-/// "Arayüzü aç" durumu (ADR-0029): `UiExe`'yi LowDeck masaüstü ve agent yazar (LowDeck ADR-0004).
+/// "Arayüzü aç" durumu (ADR-0031): tray ile aynı klasördeki `lowmon-ui.exe`.
 #[derive(Debug, PartialEq)]
 pub enum Ui {
-    /// Kayıt yok: LowDeck kurulmamış.
-    NotInstalled,
-    /// Kayıt var ama exe yok (silinmiş/taşınmış).
+    /// Exe yok (kurulmamış/silinmiş).
     Missing,
     Ready(String),
 }
@@ -39,23 +37,17 @@ impl Ui {
     pub fn label(&self) -> &'static str {
         match self {
             Ui::Ready(_) => "Arayüzü aç",
-            Ui::NotInstalled => "Arayüzü aç (LowDeck kurulu değil)",
-            Ui::Missing => "Arayüzü aç (LowDeck exe bulunamadı)",
+            Ui::Missing => "Arayüzü aç (lowmon-ui.exe bulunamadı)",
         }
     }
 }
 
-/// Menü her açılışta okunur: exe sonradan taşınırsa da güncel.
+/// Menü her açılışta denetler (yalnız sağ tıkta, periyodik iş yok).
 pub fn ui() -> Ui {
-    let reg = get_in(r"Software\LowMonitor", "UiExe").ok().flatten();
-    classify(reg, |p| std::path::Path::new(p).is_file())
-}
-
-fn classify(reg: Option<String>, exists: impl Fn(&str) -> bool) -> Ui {
-    match reg.filter(|p| !p.is_empty()) {
-        None => Ui::NotInstalled,
-        Some(p) if exists(&p) => Ui::Ready(p),
-        Some(_) => Ui::Missing,
+    let exe = std::env::current_exe().map(|p| p.with_file_name("lowmon-ui.exe"));
+    match exe {
+        Ok(p) if p.is_file() => Ui::Ready(p.display().to_string()),
+        _ => Ui::Missing,
     }
 }
 
@@ -131,19 +123,5 @@ mod tests {
         set(&name, None).unwrap();
         assert_eq!(get(&name).unwrap(), None);
         set(&name, None).unwrap(); // yokken silmek hata değil
-    }
-
-    #[test]
-    fn ui_state() {
-        let yes = |_: &str| true;
-        let no = |_: &str| false;
-        assert_eq!(classify(None, yes), Ui::NotInstalled);
-        assert_eq!(classify(Some(String::new()), yes), Ui::NotInstalled);
-        assert_eq!(classify(Some("C:\\x.exe".into()), no), Ui::Missing);
-        assert_eq!(
-            classify(Some("C:\\x.exe".into()), yes),
-            Ui::Ready("C:\\x.exe".into())
-        );
-        assert_eq!(Ui::Missing.label(), "Arayüzü aç (LowDeck exe bulunamadı)");
     }
 }

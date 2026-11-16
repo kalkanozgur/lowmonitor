@@ -21,6 +21,7 @@ ADR-0029 (B): arayüz LowDeck'te, veri yalnız agent üzerinden. Sonuç: iki tep
 4. **Ayar `%APPDATA%\LowMonitor\deck.toml`** (`net.toml` yanında). İlk açılışta `%APPDATA%\LowDeck\agent.cfg` varsa `bind`, `port`, `token` aynen taşınır → telefon ayarı değişmez. Eski dosya silinmez (geri dönüş).
 5. LowDeck repo'sunda `tools/lowdeck-agent` ve `apps/lowdeck-desktop` kaldırılır, `release.yml` `pc` job'u ve LowDeck ADR-0002/0003/0004 "yerine geçti: LM ADR-0031" notu alır. `mock-server` ve `cli` LowDeck'te kalır (telefon geliştirme).
 6. **Medya ve ses kontrolü yalnız telefondan** (kullanıcı, 2026-11-16): `lowmon-ui` `C2S::Media` / `C2S::Audio` göndermez, medya/ses durumunu göstermez; yalnız izler (metrik, olay, geçmiş, süreçler). Tuş kilidi kapsam dışı. Uygulama UI tarafında; sunucu (`lowmon-deck`) loopback yuvasını engellemez (bugünkü `lowdeck-desktop` da göndermiyor).
+7. **Lisans** (kullanıcı, 2026-11-16): LowDeck tümüyle MIT OR Apache-2.0 (LowDeck #27, `17a83ec`); `lowdeck-proto`/`lowdeck-client` bu rev'den. Slint `lowmon-ui`'da Royalty-free 2.0 ile: README'de "Made with Slint" rozeti (binary'lerin indirildiği sayfa); rozet kaldırılmaz.
 
 ## Fazlar (her biri ayrı PR, ölçümle)
 | Faz | Repo | İş | Doğrulama |

@@ -1,0 +1,33 @@
+[package]
+name = "lowmon-ui"
+description = "LowMonitor PC arayüzü (Slint): Canlı, Olaylar, Geçmiş, Süreçler; veri tray'deki deck'ten loopback (ADR-0031)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# deck.toml yolu + okuma (token, port); tray yazar, arayüz yalnız okur.
+lowmon-deck = { path = "../lowmon-deck" }
+# Telefon protokolü + istemcisi LowDeck'te kalır (ADR-0031 §3); rev lowmon-deck ile aynı.
+lowdeck-proto = { git = "https://github.com/kalkanozgur/lowdeck", rev = "17a83ec" }
+lowdeck-client = { git = "https://github.com/kalkanozgur/lowdeck", rev = "17a83ec" }
+# Yalnız software renderer + winit (LowDeck ölçümü: private ≈ 5 MiB). winit olayları: küçültmede metrik aboneliği düşer.
+# Lisans: Slint Royalty-free 2.0 (README atıf rozeti).
+slint = { workspace = true, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "software-renderer-path", "unstable-winit-030"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Wdk_System_SystemInformation",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Registry",  # SHELLEXECUTEINFOW (runas --kill)
+    "Win32_System_Threading",
+    "Win32_System_Time",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+slint-build.workspace = true
