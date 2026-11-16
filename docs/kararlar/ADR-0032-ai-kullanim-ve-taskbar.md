@@ -45,6 +45,15 @@
 
 Gereken: exe manifesti (supportedOS Win10) — katmanlı alt pencere Win8+ uyumluluğu ister; `lowmon-tray/build.rs` gömer.
 
+## Faz 3 kararları (kullanıcı, 2026-11-16)
+| Konu | Karar |
+|---|---|
+| Proto | `TOPIC_AI = 4` + `S2C::Ai(Option<AiUsage>)` sona eklendi (LowDeck); yalnız abone olana gider → `PROTO_VERSION` 4 kalır |
+| Veri | Ham değer + seviye: `pct` (0,1 %), `resets_at` (Unix s), `level` (tray'in tempo/eşik ayarıyla 0/1/2), `stale`, `source`, `error`. Metin ve geri sayımı istemci kendi saatiyle üretir |
+| Telefon | PC bölümünün üstünde ayrı "AI" bölümü; geri sayım her metrik push'unda yenilenir (ek timer yok) |
+| `lowmon-ui` | Canlı sekmesinin üstünde AI bandı (veri yoksa gizli); küçültülünce `TOPIC_AI` düşer |
+| Deck | Son durum önbellekte; yeni aboneye ilk çerçeve, sonra yalnız değişiklik. Metrik pipe'ını açtırmaz |
+
 ## Fazlar (her biri ayrı PR, ölçümle)
 | Faz | Repo | İş | Doğrulama |
 |---|---|---|---|
@@ -63,4 +72,3 @@ Gereken: exe manifesti (supportedOS Win10) — katmanlı alt pencere Win8+ uyuml
 - Spek §1 bütçesine tray satırı Faz 2 ölçümüyle güncellenir; §2 bileşen tablosuna iki crate eklenir (Faz 1/2 PR'larında).
 
 ## Açık (fazında kartla sorulur)
-- Proto varyantının alanları (oturum/hafta %, reset, seviye, kaynak, hata).

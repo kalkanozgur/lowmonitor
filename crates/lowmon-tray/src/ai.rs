@@ -1,6 +1,7 @@
 //! AI kullanımı (ADR-0032 Faz 2): `lowmon-ai` işçisi + `lowmon-taskbar` göstergesi, UI thread'inde.
 //! İşçi durum değişince `WM_AI` gönderir; kalan süre metni için 30 s'lik zamanlayıcı yeniden çizer.
-use lowmon_ai::{Config, Running, State, text, usage, usage::Level};
+use lowmon_ai::{Config, Running, State, api::Window, text, usage, usage::Level};
+use lowmon_deck::{AI_TEXT_MAX, AiUsage, AiWindow};
 use lowmon_taskbar::{Bar, EV_LEFT, EV_MOVED, EV_RIGHT, Line};
 use std::{cell::RefCell, ptr};
 use windows_sys::Win32::{
@@ -83,12 +84,44 @@ pub fn color(level: Level, light: bool) -> u32 {
     }
 }
 
-/// Son durumla göstergeyi çizer; veri hiç yoksa gizler.
+/// Telefon / `lowmon-ui` için (deck `TOPIC_AI`); veri yoksa None.
+pub fn usage_of(st: &State, cfg: &Config, now: i64) -> Option<AiUsage> {
+    let s = st.snapshot.as_ref()?;
+    // Ham seviye; "eski" ayrı alan (istemci soluk gösterir)
+    let (l1, l2) = usage::levels(s, now, &cfg.colors, false);
+    let win = |w: &Option<Window>, l: Level| {
+        w.map(|w| AiWindow {
+            pct: (w.utilization * 10.0).round().clamp(0.0, u16::MAX as f64) as u16,
+            resets_at: w.resets_at.unwrap_or(0).max(0) as u64,
+            level: match l {
+                Level::Warn => 1,
+                Level::Critical => 2,
+                _ => 0,
+            },
+        })
+    };
+    Some(AiUsage {
+        session: win(&s.five_hour, l1),
+        week: win(&s.seven_day, l2),
+        fetched_at: st.fetched_at.max(0) as u64,
+        stale: st.stale(now, cfg.refresh_sec),
+        source: clip(st.source, AI_TEXT_MAX),
+        error: clip(&st.error, AI_TEXT_MAX),
+    })
+}
+
+/// Son durumla göstergeyi çizer (veri hiç yoksa gizler) ve deck'e yayınlar (değiştiyse gider).
 pub fn render() {
     let now = now();
     AI.with_borrow(|a| {
         let Some((cfg, run)) = a else { return };
         let st = run.state();
+        let u = usage_of(&st, cfg, now);
+        crate::DECK.with_borrow(|d| {
+            if let Some(d) = d {
+                d.hub.set_ai(u);
+            }
+        });
         BAR.with_borrow_mut(|b| {
             let Some(b) = b else { return };
             let Some(s) = &st.snapshot else {
@@ -238,6 +271,43 @@ mod tests {
         };
         assert_eq!(short_of(&s, text::Lang::En).as_deref(), Some("–/68%"));
         assert_eq!(short_of(&Snapshot::default(), text::Lang::Tr), None);
+    }
+
+    #[test]
+    fn usage_for_deck() {
+        use lowmon_ai::api::Snapshot;
+        let cfg = Config::default();
+        let now = 1_000_000;
+        let mut st = State {
+            snapshot: Some(Snapshot {
+                five_hour: Some(Window {
+                    utilization: 33.44,
+                    resets_at: Some(now + 4 * 3600),
+                }),
+                seven_day: Some(Window {
+                    utilization: 95.0,
+                    resets_at: None,
+                }),
+                ..Default::default()
+            }),
+            fetched_at: now - 10,
+            source: "OAuth",
+            active: true,
+            ..Default::default()
+        };
+        let u = usage_of(&st, &cfg, now).unwrap();
+        let s = u.session.unwrap();
+        assert_eq!(
+            (s.pct, s.resets_at, s.level),
+            (334, now as u64 + 4 * 3600, 1)
+        ); // beklenen %20 → tempo önde
+        let w = u.week.unwrap();
+        assert_eq!((w.pct, w.resets_at, w.level), (950, 0, 2));
+        assert!(!u.stale && u.error.is_empty() && u.source == "OAuth");
+        st.active = false;
+        assert!(usage_of(&st, &cfg, now).unwrap().stale);
+        st.snapshot = None;
+        assert_eq!(usage_of(&st, &cfg, now), None);
     }
 
     #[test]

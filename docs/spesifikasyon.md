@@ -307,7 +307,7 @@ clear    = { below = 85.0, for_s = 30 }
 - "Arayüzü aç" → tray ile aynı klasördeki `lowmon-ui.exe` (ADR-0031; `UiExe` kaydı kullanılmaz). Exe yoksa pasif, etiket nedeni söyler.
 - Sağ tık menü: arayüzü aç, alarmları sessize al (1 saat), **Telefon ▸** (durum: `bind · port · token` + bağlı telefon ya da kapalı nedeni; ayar dosyasını aç, ayarı yeniden yükle, log'u aç, firewall kuralı ekle), **AI kullanımı ▸** (durum: kaynak + son sorgu / hata / Claude kapalı; şimdi yenile, `ai.toml`'u aç, ayarı yeniden yükle), Windows ile başlat, çıkış.
 - AI kullanımı (`lowmon-ai` + `lowmon-taskbar`, ADR-0032): taskbar'da bildirim alanının solunda `Oturum %33 · 4s16dk` / `Hafta %68 · 16s26dk`; renk tempo/eşik seviyesi (turuncu uyarı, kırmızı kritik, gri eski). Veri hiç yoksa gizli. Sol tık şimdi yenile, sağ tık tray menüsü. Ayar `ai.toml` + `taskbar.toml` (monitör, boşluk, yazı tipi); log `deck.log` (`ai:` öneki).
-- Telefon sunucusu (`lowmon-deck`, ADR-0031): ayar `%APPDATA%\LowMonitor\deck.toml` (ilk açılışta LowDeck `agent.cfg`'den taşınır), log `deck.log`. Port kullanımdaysa tray çalışır, telefon pasif (menüde neden). Medya/ses kontrolü yalnız telefondan (ADR-0031 §6).
+- Telefon sunucusu (`lowmon-deck`, ADR-0031): ayar `%APPDATA%\LowMonitor\deck.toml` (ilk açılışta LowDeck `agent.cfg`'den taşınır), log `deck.log`. Port kullanımdaysa tray çalışır, telefon pasif (menüde neden). Medya/ses kontrolü yalnız telefondan (ADR-0031 §6). AI kullanımı `TOPIC_AI` ile telefona ve `lowmon-ui`'a gider (son durum önbellekli, değişince push; ADR-0032).
 - Servis yoksa ikon gri, 10 s'de bir yeniden bağlanma denemesi.
 - Otomatik başlatma: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
@@ -318,7 +318,7 @@ clear    = { below = 85.0, for_s = 30 }
 > **ADR-0019 → ADR-0029 → ADR-0031:** UI Slint ile, bu repoda `lowmon-ui` (eski LowDeck masaüstü). Veriye yalnız tray'deki `lowmon-deck` üzerinden erişir (loopback, `lowdeck-proto`); port + token `deck.toml`'dan. Pipe'a bağlanan deck'tir. Medya/ses kontrolü yok, yalnız izler (ADR-0031 §6).
 
 **Ekranlar** (sıra = teslim sırası)
-1. **Canlı:** CPU (toplam + çekirdek), RAM/commit, disk, ağ (son 5 dk). — ilk teslimat
+1. **Canlı:** CPU (toplam + çekirdek), RAM/commit, disk, ağ (son 5 dk). — ilk teslimat. Üstte AI bandı: Claude oturum/hafta %, kalan süre, seviye rengi (ADR-0032; veri yoksa gizli).
 2. **Olaylar:** `CH_EVENT` canlı + `QueryRange` `RangeItem::Event` geçmişi; aktif alarmlar. — ilk teslimat
 3. **Geçmiş:** zaman aralığı → `QueryRange`, otomatik çözünürlük (aralık > 6 saat → 1 dk).
 4. **Süreçler:** `lowmon-ui` süreçleri kendisi tarar (2 s, yalnız sekme açıkken; Top-N kullanılmaz) + müdahale (§10, ADR-0030).
