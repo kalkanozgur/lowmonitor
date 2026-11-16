@@ -33,7 +33,7 @@
 - **Referans:** Görev Yöneticisi ~%1 / 30–50 MB, HWiNFO ~%0.5–1 / 30–60 MB.
 
 **Prensipler**
-- PDH, WMI, .NET, WebView yok. Doğrudan Win32/NT API.
+- PDH, WMI, .NET, WebView yok. Doğrudan Win32/NT API. Tek istisna (ADR-0033): tray'de ACPI termal bölge sayacı PDH ile okunur (CPU °C; başka sürücüsüz yol yok). Servise PDH girmez.
 - Async runtime (tokio) yok; tek toplayıcı thread + olay tabanlı pipe thread.
 - Kimse dinlemiyorsa canlı akış **üretilmez**.
 - En az yetki: servis LocalService, müdahale kullanıcı token'ı / UAC ile.
@@ -53,7 +53,8 @@
 | `lowmon-tray` | Tray ikon, tooltip, alarm bildirimi; `lowmon-deck`'i ve AI işçisini süreç içinde çalıştırır | Kullanıcı | GUI framework yok |
 | `lowmon-ui` | Grafikler, olaylar, geçmiş, süreçler (ADR-0031; eski LowDeck masaüstü) | Kullanıcı (asInvoker), tray'deki deck'e loopback | Slint (Royalty-free 2.0, README atfı) |
 | `lowmon-elev` | Yükseltilmiş tek seferlik işlem: yalnız ayar yazma (§9.5); süreç müdahalesi `lowmon-ui`'da (ADR-0030) | Admin (UAC) | İşini yapıp çıkar; henüz yok |
-| `lowmon-gpu` | NVML üretici | Kullanıcı | **Sonra tasarlanacak** |
+| `lowmon-sensors` (lib) | Servisin ölçmediği sensörler, tray içinde (ADR-0033): GPU % + °C (D3DKMT, ayrık GPU), disk °C (`StorageDeviceTemperatureProperty`), CPU °C (ACPI termal bölge, PDH). Yalnız taskbar sistem bloğu açıkken okunur; geçmişe yazılmaz | — | `windows-sys` (D3DKMT, PDH, Ioctl) |
+| `lowmon-gpu` | GPU / sıcaklık üreticisi (geçmiş + telefon; `lowmon-sensors`'ı kullanır) | Kullanıcı | **Sonra tasarlanacak** (ADR-0033 Faz 4) |
 | `lowmon-net` | LAN veri yayıncısı (WebSocket), Mi Note 10 Lite vb. istemciler için | Kullanıcı | Bkz. §16 |
 
 ```

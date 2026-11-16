@@ -9,7 +9,7 @@
 
 ## Rust
 - Workspace: `crates/*`, `tools/*`; bağımlılık sürümleri `[workspace.dependencies]`'te.
-- Yasak: tokio/async runtime, PDH, WMI, .NET, WebView (spek §1 Prensipler).
+- Yasak: tokio/async runtime, PDH, WMI, .NET, WebView (spek §1 Prensipler). Tek istisna: `lowmon-sensors`'ta ACPI termal bölge için PDH (ADR-0033).
 - `cargo fmt` + `cargo clippy -D warnings` temiz olmadan push yok (pre-push hook).
 - `unsafe` blokları minimum; her birinin üstünde `// SAFETY:` yorumu.
 - Performans bütçesi (spek §1) aşan değişiklik ölçümle birlikte gelir.
