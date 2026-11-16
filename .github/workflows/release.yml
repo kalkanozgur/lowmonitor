@@ -13,7 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build (toolchain rust-toolchain.toml'dan)
-        run: cargo build --release --workspace --locked
+        run: |
+          cargo build --release --workspace --locked
+          cargo build --profile release-ui -p lowmon-ui --locked
+          Copy-Item target/release-ui/lowmon-ui.exe target/release/ -Force
       - name: GitHub Release
         shell: pwsh
         env:

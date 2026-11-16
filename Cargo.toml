@@ -35,3 +35,9 @@ codegen-units = 1
 panic         = "abort"
 strip         = true
 debug         = false
+
+# lowmon-ui (Slint) boyut profili: ui + tüm bağımlılıkları "s"; diğer exe'ler O3 kalır.
+# Ölçüm docs/olcumler/2026-11-16_lowmon-ui-opt.md: 10,52 → 8,90 MB, CPU farkı gürültü düzeyinde.
+[profile.release-ui]
+inherits  = "release"
+opt-level = "s"
