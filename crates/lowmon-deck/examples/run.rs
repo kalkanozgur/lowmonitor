@@ -9,7 +9,8 @@ fn main() {
         port: a.next().and_then(|s| s.parse().ok()).unwrap_or(47820),
         token: a.next().unwrap_or_else(|| "dev".into()),
     };
-    let _running = lowmon_deck::start(cfg).unwrap_or_else(|e| panic!("{e}"));
+    let mut running = lowmon_deck::start();
+    running.reload(cfg).unwrap_or_else(|e| panic!("{e}"));
     loop {
         std::thread::park();
     }

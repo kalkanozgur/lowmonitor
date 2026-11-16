@@ -196,13 +196,10 @@ impl Hub {
         }
     }
 
-    /// Tray için: önce telefon (LAN), yoksa PC arayüzü.
-    pub fn client_name(&self) -> Option<String> {
-        self.lock()
-            .clients
-            .iter()
-            .flatten()
-            .next()
+    /// Tray için: bağlı telefonun adı (LAN yuvası; PC arayüzü sayılmaz).
+    pub fn phone_name(&self) -> Option<String> {
+        self.lock().clients[SLOT_LAN]
+            .as_ref()
             .map(|c| c.name.clone())
     }
 
@@ -450,65 +447,92 @@ fn session(
 
 // ---------------- Ayar ----------------
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 pub struct Config {
     /// Bu PC'nin LAN IP'si (telefonunki değil).
     pub bind: String,
+    #[serde(default = "default_port")]
     pub port: u16,
     pub token: String,
 }
 
-/// shortcut: LowDeck `agent.cfg` yolu; Faz 2'de `%APPDATA%\LowMonitor\deck.toml` + göç.
-pub fn config_path() -> PathBuf {
-    let base = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| ".".into());
-    base.join("LowDeck").join("agent.cfg")
+fn default_port() -> u16 {
+    DEFAULT_PORT
 }
 
-/// Yoksa LAN IP'si + rastgele token ile oluşturur. Biçim telefondakiyle aynı: `key=value`.
-pub fn load_or_create(path: &std::path::Path) -> std::io::Result<Config> {
-    if let Ok(text) = std::fs::read_to_string(path) {
-        let mut c = Config {
-            bind: String::new(),
-            port: DEFAULT_PORT,
-            token: String::new(),
-        };
-        for (k, v) in text.lines().filter_map(|l| l.split_once('=')) {
-            let v = v.trim().to_string();
-            match k.trim() {
-                "bind" => c.bind = v,
-                "port" => c.port = v.parse().unwrap_or(DEFAULT_PORT),
-                "token" => c.token = v,
-                _ => {}
-            }
+fn appdata() -> PathBuf {
+    std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| ".".into())
+}
+
+/// `%APPDATA%\LowMonitor\deck.toml` (ADR-0031 §4), `net.toml` yanında.
+pub fn config_path() -> PathBuf {
+    appdata().join("LowMonitor").join("deck.toml")
+}
+
+/// LowDeck agent ayarı: yalnız ilk açılışta göç için okunur, silinmez (geri dönüş).
+pub fn legacy_path() -> PathBuf {
+    appdata().join("LowDeck").join("agent.cfg")
+}
+
+/// `agent.cfg` biçimi `key=value`; bind ve token yoksa `None`.
+fn parse_legacy(text: &str) -> Option<Config> {
+    let mut c = Config {
+        bind: String::new(),
+        port: DEFAULT_PORT,
+        token: String::new(),
+    };
+    for (k, v) in text.lines().filter_map(|l| l.split_once('=')) {
+        let v = v.trim().to_string();
+        match k.trim() {
+            "bind" => c.bind = v,
+            "port" => c.port = v.parse().unwrap_or(DEFAULT_PORT),
+            "token" => c.token = v,
+            _ => {}
         }
+    }
+    (!c.bind.is_empty() && !c.token.is_empty()).then_some(c)
+}
+
+/// `deck.toml` varsa okur. Yoksa `legacy`'den (agent.cfg) taşır → telefon ayarı değişmez;
+/// o da yoksa LAN IP'si + rastgele token ile oluşturur.
+pub fn load_or_create(path: &std::path::Path, legacy: &std::path::Path) -> std::io::Result<Config> {
+    let bad = |e: String| std::io::Error::other(format!("{}: {e}", path.display()));
+    if let Ok(text) = std::fs::read_to_string(path) {
+        let c: Config = toml::from_str(&text).map_err(|e| bad(e.to_string()))?;
         if c.bind.is_empty() || c.token.is_empty() {
-            return Err(std::io::Error::other(format!(
-                "{}: bind ve token zorunlu",
-                path.display()
-            )));
+            return Err(bad("bind ve token zorunlu".into()));
         }
         return Ok(c);
     }
-    let c = Config {
+    let old = std::fs::read_to_string(legacy)
+        .ok()
+        .and_then(|t| parse_legacy(&t));
+    let migrated = old.is_some();
+    let c = old.unwrap_or_else(|| Config {
         bind: lan_ip(),
         port: DEFAULT_PORT,
         token: random_token(),
-    };
+    });
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d)?;
     }
+    // {:?}: tırnak/ters bölü kaçışı TOML temel dizgesiyle uyumlu (IP ve hex token için yeterli).
     std::fs::write(
         path,
         format!(
             "# bind: BU PC'nin LAN IP'si (telefonunki değil). Telefon ⚙ bu adres + port + token.\n\
-             # Değişiklikten sonra tray → Ayarı yeniden yükle.\n\
-             bind={}\nport={}\ntoken={}\n",
+             # Değişiklikten sonra tray → Telefon → Ayarı yeniden yükle.\n\
+             bind = {:?}\nport = {}\ntoken = {:?}\n",
             c.bind, c.port, c.token
         ),
     )?;
-    log!("ayar oluşturuldu: {}", path.display());
+    if migrated {
+        log!("ayar taşındı: {} → {}", legacy.display(), path.display());
+    } else {
+        log!("ayar oluşturuldu: {}", path.display());
+    }
     Ok(c)
 }
 
@@ -543,10 +567,10 @@ pub struct Running {
     listeners: Option<Listeners>,
 }
 
-/// Hub, Windows arka ucu (Core Audio/SMTC/kilit), LowMonitor köprüsü ve dinleyicileri başlatır.
-/// Hata: kullanıcıya gösterilecek metin (`bind_error`).
+/// Hub, Windows arka ucu (Core Audio/SMTC/kilit) ve LowMonitor köprüsünü başlatır; dinleme yok.
+/// Dinleyiciler `reload(cfg)` ile açılır: başlangıç hatası (port kullanımda) arka ucu yeniden kurmaz.
 #[cfg(windows)]
-pub fn start(cfg: Config) -> Result<Running, String> {
+pub fn start() -> Running {
     log!(
         "lowmon-deck {} başladı (proto v{PROTO_VERSION})",
         env!("CARGO_PKG_VERSION")
@@ -554,16 +578,11 @@ pub fn start(cfg: Config) -> Result<Running, String> {
     let hub = Arc::new(Hub::default());
     let backend: Arc<dyn Backend> = Arc::new(win::start(hub.clone()));
     lowmon::start(hub.clone());
-    start_with(cfg, hub, backend)
-}
-
-fn start_with(cfg: Config, hub: Arc<Hub>, backend: Arc<dyn Backend>) -> Result<Running, String> {
-    let l = listen(cfg.clone(), &hub, &backend).map_err(|e| bind_error(&cfg, &e))?;
-    Ok(Running {
+    Running {
         hub,
         backend,
-        listeners: Some(l),
-    })
+        listeners: None,
+    }
 }
 
 impl Running {
@@ -572,7 +591,7 @@ impl Running {
         self.listeners.as_ref().map(|l| &l.cfg)
     }
 
-    /// "Ayarı yeniden yükle": eskiyi durdur, istemcileri düşür, yeniyi aç; olmazsa eskiye dön.
+    /// Dinlemeyi (yeniden) aç. "Ayarı yeniden yükle": eskiyi durdur, istemcileri düşür, yeniyi aç; olmazsa eskiye dön.
     pub fn reload(&mut self, new: Config) -> Result<(), String> {
         let old = self.listeners.take().map(|r| {
             let cfg = r.cfg.clone();
@@ -742,7 +761,8 @@ fn discovery_loop(sock: &UdpSocket, beacon: &Beacon, stop: &std::sync::atomic::A
 /// `cmd.exe /c` parametresi; önce aynı adlı kural silinir → tekrar çalıştırmak güvenli (port değişince de).
 pub fn firewall_args(port: u16, exe: &str) -> String {
     const RULE: &str = "netsh advfirewall firewall";
-    const NAME: &str = "name=\"LowDeck agent\"";
+    // Ayrı ad: kurulu lowdeck-agent kuralını silmesin; eskisi Faz 4 kurulumunda temizlenir.
+    const NAME: &str = "name=\"LowMonitor deck\"";
     let add = |proto: &str, port: u16| {
         format!(
             "{RULE} add rule {NAME} dir=in action=allow protocol={proto} localport={port} profile=private \
@@ -1073,10 +1093,12 @@ mod tests {
             47810,
             r"C:\Users\a b\AppData\Local\LowDeck\lowdeck-agent.exe",
         );
-        assert!(a.starts_with("/c netsh advfirewall firewall delete rule name=\"LowDeck agent\""));
-        assert!(a.contains(" & netsh advfirewall firewall add rule name=\"LowDeck agent\" dir=in action=allow protocol=TCP "));
+        assert!(
+            a.starts_with("/c netsh advfirewall firewall delete rule name=\"LowMonitor deck\"")
+        );
+        assert!(a.contains(" & netsh advfirewall firewall add rule name=\"LowMonitor deck\" dir=in action=allow protocol=TCP "));
         assert!(a.contains("localport=47810 profile=private remoteip=localsubnet"));
-        assert!(a.contains(" & netsh advfirewall firewall add rule name=\"LowDeck agent\" dir=in action=allow protocol=UDP localport=47811 "));
+        assert!(a.contains(" & netsh advfirewall firewall add rule name=\"LowMonitor deck\" dir=in action=allow protocol=UDP localport=47811 "));
         assert_eq!(a.matches("program=").count(), 2);
         assert!(a.ends_with(r#"program="C:\Users\a b\AppData\Local\LowDeck\lowdeck-agent.exe""#));
     }
@@ -1252,7 +1274,12 @@ mod tests {
             port: 0,
             token: "t".into(),
         };
-        let mut r = start_with(cfg, Arc::new(Hub::default()), Arc::new(Null)).unwrap();
+        let mut r = Running {
+            hub: Arc::new(Hub::default()),
+            backend: Arc::new(Null),
+            listeners: None,
+        };
+        r.reload(cfg).unwrap();
         let old = r.config().unwrap().clone();
         let bad = Config {
             port: busy.local_addr().unwrap().port(),
@@ -1261,6 +1288,63 @@ mod tests {
         assert!(r.reload(bad).unwrap_err().contains("Eski ayarla devam"));
         assert_eq!(r.config(), Some(&old));
         r.stop();
+    }
+
+    /// deck.toml yoksa agent.cfg'den taşınır (eski dosya kalır), sonra deck.toml okunur; ikisi de yoksa yeni.
+    #[test]
+    fn config_migrates_from_agent_cfg() {
+        let dir = std::env::temp_dir().join(format!("lowmon-deck-cfg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (deck, legacy) = (
+            dir.join("LowMonitor").join("deck.toml"),
+            dir.join("agent.cfg"),
+        );
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &legacy,
+            "# yorum
+bind=192.168.1.20
+port=47812
+token=abc
+",
+        )
+        .unwrap();
+        let want = Config {
+            bind: "192.168.1.20".into(),
+            port: 47812,
+            token: "abc".into(),
+        };
+        assert_eq!(load_or_create(&deck, &legacy).unwrap(), want);
+        assert!(legacy.exists(), "eski dosya silinmez");
+        std::fs::write(
+            &legacy,
+            "bind=x
+token=y
+",
+        )
+        .unwrap(); // artık okunmaz
+        assert_eq!(load_or_create(&deck, &legacy).unwrap(), want);
+        std::fs::write(
+            &deck,
+            "bind = \"10.0.0.2\"
+token = \"t\"
+",
+        )
+        .unwrap();
+        assert_eq!(load_or_create(&deck, &legacy).unwrap().port, DEFAULT_PORT);
+        std::fs::write(
+            &deck,
+            "bind = \"\"
+token = \"t\"
+",
+        )
+        .unwrap();
+        assert!(load_or_create(&deck, &legacy).is_err());
+        let (fresh, none) = (dir.join("new.toml"), dir.join("yok.cfg"));
+        let c = load_or_create(&fresh, &none).unwrap();
+        assert_eq!((c.port, c.token.len()), (DEFAULT_PORT, 16));
+        assert_eq!(load_or_create(&fresh, &none).unwrap(), c);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[cfg(windows)]
