@@ -1,6 +1,6 @@
 # ADR-0029: PC arayüzü LowDeck'te (agent köprüsü)
 - Tarih: 2026-11-15
-- Durum: Kabul — ADR-0019'un açık maddesini ("bu repoda mı, ayrı repoda mı") kapatır; spek §2, §3, §8, §9, §13'ü değiştirir
+- Durum: Kabul; **ADR-0031 ile değişiyor** (agent → lowmon-tray, arayüz → lowmon-ui; taslak 2026-11-16) — ADR-0019'un açık maddesini ("bu repoda mı, ayrı repoda mı") kapatır; spek §2, §3, §8, §9, §13'ü değiştirir
 
 ## Bağlam
 ADR-0019: UI Slint ile yazılacak, repo yeri açık. Bu repoda henüz `lowmon-ui` crate'i yok.
