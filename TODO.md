@@ -12,7 +12,8 @@
 - [x] Tray kurulumu: `scripts/install.ps1` Program Files'a kopyalıyor + `--autostart on` (M6d)
 
 - [x] PC tarafı birleşmesi (ADR-0031, 2026-11-16): `lowmon-deck` (#31), tray içinde deck + "Telefon ▸" + `deck.toml` göçü (#33), `lowmon-ui` 4 sekme (#34), `install.ps1` deck firewall + eski LowDeck temizliği (#35), LowDeck'ten agent/masaüstü silindi (LowDeck #28). "Arayüzü aç" gerçek menüden doğrulandı ✅; pipe istemci kuralları → [#1](https://github.com/kalkanozgur/lowmonitor/issues/1) (artık deck için)
-- [ ] Telefonla gerçek bağlantı (LAN, kurulu tray'deki deck): keşif (UDP 47811) + bağlanma + ses/medya + gecikme < 50 ms
+- [x] Telefonla gerçek bağlantı (2026-11-16, Samsung M21 `toco`, LowDeck APK `c7ef7f6`): keşif (UDP 47811) ✅, LAN bağlantısı (token göçü, ret yok) ✅, ses +/− ✅, play/pause ✅ (kullanıcı), PC paneli ✅
+- [ ] Telefon → PC komut gecikmesi < 50 ms ölçülmedi (deck komutları loglamıyor; PC → telefon ping ort. 83 ms, telefon Wi-Fi güç tasarrufu şüphesi)
 - [ ] `lowmon-ui` Süreçler: UAC ile sonlandırma (`--kill`, başka kullanıcı/SYSTEM süreci) canlı doğrulanmadı (2026-11-16 atlandı; öneri: SYSTEM zamanlanmış görevde `ping -t`)
 - [ ] `lowdeck-proto` rev'i: LowDeck'te proto değişirse `lowmon-deck`/`lowmon-ui` git rev'i güncellenir; `lowmon-proto` `PROTO` artarsa deck `servis: BadHello` loglar
 - [x] Kurulu `lowmon-ui` `release-ui` profilinde (8 903 680 B; `install.ps1`, 2026-11-16 17:04)
