@@ -15,7 +15,7 @@
 - [ ] Telefonla gerçek bağlantı (LAN, kurulu tray'deki deck): keşif (UDP 47811) + bağlanma + ses/medya + gecikme < 50 ms
 - [ ] `lowmon-ui` Süreçler: UAC ile sonlandırma (`--kill`, başka kullanıcı/SYSTEM süreci) canlı doğrulanmadı (2026-11-16 atlandı; öneri: SYSTEM zamanlanmış görevde `ping -t`)
 - [ ] `lowdeck-proto` rev'i: LowDeck'te proto değişirse `lowmon-deck`/`lowmon-ui` git rev'i güncellenir; `lowmon-proto` `PROTO` artarsa deck `servis: BadHello` loglar
-- [ ] Kurulu `lowmon-ui` `release-ui` profiline geçmedi (bir sonraki `install.ps1` ile)
+- [x] Kurulu `lowmon-ui` `release-ui` profilinde (8 903 680 B; `install.ps1`, 2026-11-16 17:04)
 
 ## Kısayollar (`shortcut:` borcu)
 - Firewall kuralı portu sabit 47800; `tokens.bin` atomik değil; istemcisiz `/v1/info` ağ thread'ini ≤ 1 örnek bloklar
