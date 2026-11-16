@@ -3,6 +3,7 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
 ### Değişti
+- `lowmon-ui` `release-ui` profiliyle (`opt-level = "s"`) derlenir: exe 10,5 → 8,9 MB; `install.ps1` `-UiSrc targetelease-ui`
 - Tray "Arayüzü aç": `UiExe` kaydı var ama exe yoksa (taşınmış/silinmiş) menü pasif ve etiket nedeni söyler; önceden tıklama sessizce boşa gidiyordu
 ### Eklendi
 - `install.ps1`: "LowMonitor deck" firewall kuralı (TCP deck portu + UDP 47811) ve eski LowDeck PC izlerinin temizliği (agent/desktop süreçleri, `LowDeckAgent` autostart, `UiExe`, "LowDeck agent" kuralı) (ADR-0031 Faz 4)

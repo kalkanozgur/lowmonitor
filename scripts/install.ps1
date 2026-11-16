@@ -1,8 +1,9 @@
 # LowMonitor kurulum / güncelleme (spek §11). Yönetici PowerShell'de, repo kökünden:
 #   cargo build --release --workspace
-#   pwsh -File scripts\install.ps1 [-Src target\release]
+#   cargo build --profile release-ui -p lowmon-ui      # ui "s" profiliyle (Cargo.toml)
+#   pwsh -File scripts\install.ps1 [-Src target\release] [-UiSrc target\release-ui]
 # Veri (%ProgramData%\LowMonitor: key.bin, logs, config) korunur; uninstall --purge çağrılmaz.
-param([string]$Src = "target\release")
+param([string]$Src = "target\release", [string]$UiSrc = "target\release-ui")
 $ErrorActionPreference = 'Stop'
 
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
@@ -10,8 +11,10 @@ $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 if (-not $admin) { throw "Yönetici PowerShell gerekli." }
 
 $dst = Join-Path $env:ProgramFiles 'LowMonitor'
-$exes = 'lowmon-svc.exe', 'lowmon-net.exe', 'lowmon-tray.exe', 'lowmon-ui.exe', 'lwm-dump.exe'
+$exes = 'lowmon-svc.exe', 'lowmon-net.exe', 'lowmon-tray.exe', 'lwm-dump.exe'
 foreach ($e in $exes) { if (-not (Test-Path (Join-Path $Src $e))) { throw "$Src\$e yok; önce release build." } }
+$ui = Join-Path $UiSrc 'lowmon-ui.exe'
+if (-not (Test-Path $ui)) { throw "$ui yok; önce cargo build --profile release-ui -p lowmon-ui." }
 
 # Kopyalanacak exe'leri kilitleyen kullanıcı süreçleri + eski LowDeck PC bileşenleri (ADR-0031: deck tray'de)
 Get-Process lowmon-tray, lowmon-ui, lowmon-net, lowdeck-agent, lowdeck-desktop -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -31,6 +34,7 @@ if (Get-Service LowMonitor -ErrorAction SilentlyContinue) {
 
 New-Item -ItemType Directory -Force $dst | Out-Null
 foreach ($e in $exes) { Copy-Item (Join-Path $Src $e) $dst -Force }
+Copy-Item $ui $dst -Force
 
 $svc = Join-Path $dst 'lowmon-svc.exe'
 & $svc install; if ($LASTEXITCODE -ne 0) { throw "install başarısız ($LASTEXITCODE)" }

@@ -11,28 +11,34 @@
 - [ ] Ctrl+C ile `run` modunda temiz kapanış testi
 - [x] Tray kurulumu: `scripts/install.ps1` Program Files'a kopyalıyor + `--autostart on` (M6d)
 
-- [x] PC arayüzü LowDeck'te (ADR-0029): agent köprüsü + Canlı/Olaylar (LowDeck ADR-0003, PR #12/#13); tray "Arayüzü aç" → `UiExe` ✅ (2026-11-15). Kalan: Geçmiş sekmesi; pipe istemci kuralları → [#1](https://github.com/kalkanozgur/lowmonitor/issues/1) (artık agent için)
+- [x] PC tarafı birleşmesi (ADR-0031, 2026-11-16): `lowmon-deck` (#31), tray içinde deck + "Telefon ▸" + `deck.toml` göçü (#33), `lowmon-ui` 4 sekme (#34), `install.ps1` deck firewall + eski LowDeck temizliği (#35), LowDeck'ten agent/masaüstü silindi (LowDeck #28). "Arayüzü aç" gerçek menüden doğrulandı ✅; pipe istemci kuralları → [#1](https://github.com/kalkanozgur/lowmonitor/issues/1) (artık deck için)
+- [ ] Telefonla gerçek bağlantı (LAN, kurulu tray'deki deck): keşif (UDP 47811) + bağlanma + ses/medya + gecikme < 50 ms
+- [ ] `lowmon-ui` Süreçler: UAC ile sonlandırma (`--kill`, başka kullanıcı/SYSTEM süreci) canlı doğrulanmadı (2026-11-16 atlandı; öneri: SYSTEM zamanlanmış görevde `ping -t`)
+- [ ] `lowdeck-proto` rev'i: LowDeck'te proto değişirse `lowmon-deck`/`lowmon-ui` git rev'i güncellenir; `lowmon-proto` `PROTO` artarsa deck `servis: BadHello` loglar
+- [ ] Kurulu `lowmon-ui` `release-ui` profiline geçmedi (bir sonraki `install.ps1` ile)
 
 ## Kısayollar (`shortcut:` borcu)
 - Firewall kuralı portu sabit 47800; `tokens.bin` atomik değil; istemcisiz `/v1/info` ağ thread'ini ≤ 1 örnek bloklar
 - state.bin atomik yazılmıyor; anahtar bellekten silinmiyor (zeroize yok)
 - ~~Export yazıcının bellekteki son ≤ 60 s'sini içermiyor~~ → M4 flush (döngü ≤ 1 s içinde, 3 s zaman aşımı); QueryRange hâlâ son ≤ 60 s'siz (her kullanıcı tetikleyebileceği için flush yok)
 - Tray ikonu sabit 16 px (DPI); menüden autostart kayıt hatası sessiz
+- `install.ps1`: farklı admin hesabıyla yükseltilirse HKCU/`%APPDATA%` (autostart, UiExe temizliği, deck.toml portu) o hesabınki
 - VPN/vEthernet sayılmıyor; ≤ 64 çekirdek; testler %TEMP%'te `lowmon-test-*` bırakıyor
 
 ## Sonra
 - [~] M1: CPU/RAM/Disk/Ağ/Top-N toplayıcı — 24 saatte CPU < %0.05, Private WS / Private Bytes < 3 MB — kod tamam, 24 saat soak bekliyor
 - [~] M2: şifreli + zincirli log, seal, retention, `lwm-dump` — kod tamam; servis kurulum testi soak sonrası
 - [x] M3: pipe protokolü + tray (canlı Sample, tray, HKCU Run, Admin kontrolü, Export)
-- [~] M4: `QueryRange` ✅, Export öncesi flush ✅, `Control` Pause/Resume/ReloadConfig ✅ (2026-11-15). ReloadConfig'te çalışırken `interval_ms` + `lwm-dump` etiketi ✅. Kalan: `lowmon-elev` (kill/priority/affinity + `--op write-config`), uçtan uca Admin testi (soak sonrası). UI LowDeck'te (ADR-0029)
+- [~] M4: `QueryRange` ✅, Export öncesi flush ✅, `Control` Pause/Resume/ReloadConfig ✅ (2026-11-15). ReloadConfig'te çalışırken `interval_ms` + `lwm-dump` etiketi ✅. Kalan: `lowmon-elev` (`--op write-config`; süreç müdahalesi `lowmon-ui`'da, ADR-0030), uçtan uca Admin testi (soak sonrası). UI `lowmon-ui` (ADR-0031)
 - [~] M5: alarmlar + bildirim — tasarım ✅ [ADR-0028](docs/kararlar/ADR-0028-alarm-ve-event.md) (2026-11-15); kod: config ayrıştırma + durum makinesi + tablo testleri ✅ (adım 1); REC_EVENT (SCHEMA 2) ✅ (adım 2); döngü + sistem olayları ✅ (adım 3); pipe CH_EVENT/Alarms ✅ (adım 4a); tray balonu ✅ (adım 4b); lowmon-net `alarms` ✅ (adım 4c); Event yolu balonu canlı görüldü ✅; kalan: bağlanış balonu canlı gözlemi, nihai kabul soak'u, lowmon-net `alarms`
 - [~] M6: M6a–c kod tamam; M6d kurulum (`install.ps1`, firewall) + **telefon kabul testi ✅ 2026-11-15** (Samsung M21, LAN). Kalan: `lowmon-net` HKCU Run/otomatik başlatma (şimdilik elle, konsol), uzun süreli ölçüm; `bind` sabit IP → DHCP rezervasyonu
-- [x] LowDeck entegrasyonu (yol a, ADR-0022): `lowdeck-agent` pipe Viewer → telefona CPU/RAM/disk/ağ/Top-N; LowDeck'te ayrı oturum — telefonda doğrulandı 2026-11-15
+- [x] LowDeck entegrasyonu (yol a, ADR-0022; ADR-0031 ile deck tray'de): `lowdeck-agent` pipe Viewer → telefona CPU/RAM/disk/ağ/Top-N; LowDeck'te ayrı oturum — telefonda doğrulandı 2026-11-15
 
 ## Fikirler / açık konular (spek §15)
+- [ ] Rafta (2026-11-15, LowDeck'ten): `lowmon-ui` Süreçler'de öncelik / EcoQoS / affinity
 - [ ] `lowmon-gpu` (NVML) tasarımı
 - [ ] MQTT köprüsü: `lowmon-net` modülü mü, ayrı exe mi?
 - [ ] `wss://` gerekli mi?
-- [ ] `opt-level = "s"` vs `3`
+- [~] `opt-level = "s"` vs `3`: `lowmon-ui` → `release-ui` ("s", [ölçüm](docs/olcumler/2026-11-16_lowmon-ui-opt.md)); svc/tray soak sonrası
 - [ ] > 64 çekirdek (processor group)
 - [ ] Kod imzalama

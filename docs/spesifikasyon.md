@@ -124,6 +124,10 @@ codegen-units  = 1
 panic          = "abort"
 strip          = true
 debug          = false
+
+[profile.release-ui]      # lowmon-ui + bağımlılıkları "s" (ölçüm 2026-11-16: 10,52 → 8,90 MB)
+inherits       = "release"
+opt-level      = "s"
 ```
 
 > Sürüm numaraları iskelet kurulurken `cargo add` ile güncel değerlere sabitlenecek.
