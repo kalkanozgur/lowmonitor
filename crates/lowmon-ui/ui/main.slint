@@ -1,4 +1,4 @@
-// LowMonitor PC arayüzü (ADR-0031): Canlı, Olaylar, Geçmiş, Süreçler. Veri tray'deki deck'ten loopback.
+// LowMonitor PC arayüzü (ADR-0031): Canlı, Olaylar, Geçmiş, Süreçler, AI (ADR-0032). Veri tray'deki deck'ten loopback.
 // Animasyon/timer yok; yalnız property değişince yeniden çizim.
 
 import { ListView, LineEdit } from "std-widgets.slint";
@@ -17,6 +17,8 @@ global Theme {
 
 export struct TopRow { name: string, cpu: string, ws: string }
 export struct EventRow { time: string, kind: int, name: string, value: string }
+export struct GroupRow { name: string, pct: string, tokens: string, fill: float }
+export struct SessRow { end: string, project: string, requests: string, tokens: string, top: string }
 export struct ProcRow { pid: int, name: string, cpu: string, ws: string, protected: bool, selected: bool }
 
 component Tab inherits Rectangle {
@@ -183,7 +185,16 @@ export component MainWindow inherits Window {
     in property <int> ai-week-level;
     in property <string> ai-note;
     in property <[EventRow]> events; // yeni → eski
-    in-out property <int> tab: 0; // 0 = Canlı, 1 = Olaylar, 2 = Geçmiş, 3 = Süreçler
+    in-out property <int> tab: 0; // 0 = Canlı, 1 = Olaylar, 2 = Geçmiş, 3 = Süreçler, 4 = AI
+    // AI raporu (ADR-0032 Faz 5): veri Rust'ta (lowmon-ai report), yalnız sekme açılınca / Yenile ile kurulur
+    in-out property <int> ai-view: 2; // 0 = Son oturum, 1 = Bugün, 2 = Bu hafta
+    in property <string> ai-rep-status;
+    in property <string> ai-rep-sub;
+    in property <string> ai-chart-s; // limit çizgileri, viewbox 1000 × 100
+    in property <string> ai-chart-w;
+    in property <[GroupRow]> ai-groups;
+    in property <[SessRow]> ai-sessions;
+    callback ai-report(bool); // true = dosyalardan yeniden kur, false = yalnız görünüm değişti
     // Geçmiş (ADR-0005): aralık 0..3 = 1 sa / 6 sa / 24 sa / 7 g; path'ler Rust'ta (viewbox hist-n × 100)
     in-out property <int> hist-span: 0;
     in property <string> hist-status;
@@ -228,6 +239,7 @@ export component MainWindow inherits Window {
             Tab { label: "Olaylar"; active: root.tab == 1; clicked => { root.tab = 1; } }
             Tab { label: "Geçmiş"; active: root.tab == 2; clicked => { root.tab = 2; root.query-history(root.hist-span); } }
             Tab { label: "Süreçler"; active: root.tab == 3; clicked => { root.tab = 3; } }
+            Tab { label: "AI"; width: 64px; active: root.tab == 4; clicked => { root.tab = 4; } }
             Rectangle { horizontal-stretch: 1; }
             Rectangle {
                 width: 10px;
@@ -458,6 +470,90 @@ export component MainWindow inherits Window {
                     label: root.proc-confirm ? "Evet, sonlandır" : "Sonlandır";
                     active: root.proc-confirm;
                     clicked => { root.proc-kill(); }
+                }
+            }
+        }
+
+        // --- AI: limit çizgisi + token dökümü + oturumlar (yalnız sayılar, araç grubu ve proje klasörü adları) ---
+        if root.tab == 4: VerticalLayout {
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 6px;
+                for l[i] in ["Son oturum", "Bugün", "Bu hafta"]: Tab {
+                    label: l;
+                    active: root.ai-view == i;
+                    clicked => {
+                        root.ai-view = i;
+                        root.ai-report(false);
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Text {
+                    text: root.ai-rep-status != "" ? root.ai-rep-status : root.ai-rep-sub;
+                    color: Theme.dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Tab { label: "Yenile"; width: 72px; active: true; clicked => { root.ai-report(true); } }
+            }
+            HistCard {
+                label: "LİMİT %   oturum (mavi) / hafta (mor)";
+                a: root.ai-chart-w;
+                ca: Theme.accent2;
+                b: root.ai-chart-s;
+                cb: Theme.accent;
+                vb: 1000;
+                vertical-stretch: 0;
+                height: 150px;
+            }
+            Text { text: "TOKEN DÖKÜMÜ  (efektif = girdi + 0,1×önbellek okuma + 2×önbellek yazma + 5×çıktı)"; color: Theme.dim; font-size: 12px; overflow: elide; }
+            ListView {
+                vertical-stretch: 1;
+                for g in root.ai-groups: HorizontalLayout {
+                    spacing: 10px;
+                    padding-top: 2px;
+                    padding-bottom: 2px;
+                    Text { text: g.name; color: Theme.text; font-size: 14px; width: 170px; overflow: elide; vertical-alignment: center; }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 18px;
+                        Rectangle {
+                            y: 4px;
+                            height: 10px;
+                            border-radius: 3px;
+                            background: Theme.surface;
+                            Rectangle {
+                                x: 0;
+                                width: parent.width * clamp(g.fill, 0, 1);
+                                border-radius: 3px;
+                                background: Theme.accent;
+                            }
+                        }
+                    }
+                    Text { text: g.pct; color: Theme.text; font-size: 14px; width: 56px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: g.tokens; color: Theme.dim; font-size: 14px; width: 72px; horizontal-alignment: right; vertical-alignment: center; }
+                }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Text { text: "BİTİŞ"; color: Theme.dim; font-size: 12px; width: 88px; }
+                Text { text: "PROJE"; color: Theme.dim; font-size: 12px; horizontal-stretch: 1; }
+                Text { text: "İSTEK"; color: Theme.dim; font-size: 12px; width: 48px; horizontal-alignment: right; }
+                Text { text: "EFEKTİF"; color: Theme.dim; font-size: 12px; width: 64px; horizontal-alignment: right; }
+                Text { text: "EN BÜYÜK GRUP"; color: Theme.dim; font-size: 12px; width: 190px; }
+            }
+            ListView {
+                vertical-stretch: 1;
+                for s in root.ai-sessions: HorizontalLayout {
+                    spacing: 12px;
+                    padding-top: 2px;
+                    padding-bottom: 2px;
+                    Text { text: s.end; color: Theme.dim; font-size: 14px; width: 88px; }
+                    Text { text: s.project; color: Theme.text; font-size: 14px; horizontal-stretch: 1; overflow: elide; }
+                    Text { text: s.requests; color: Theme.text; font-size: 14px; width: 48px; horizontal-alignment: right; }
+                    Text { text: s.tokens; color: Theme.text; font-size: 14px; width: 64px; horizontal-alignment: right; }
+                    Text { text: s.top; color: Theme.dim; font-size: 14px; width: 190px; overflow: elide; }
                 }
             }
         }

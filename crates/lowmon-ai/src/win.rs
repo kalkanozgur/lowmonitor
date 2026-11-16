@@ -21,6 +21,26 @@ use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 
+/// Belgeler klasörü (yönlendirilmiş olabilir: `E:\Documents`).
+pub fn documents_dir() -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::{FOLDERID_Documents, SHGetKnownFolderPath};
+    let mut p: *mut u16 = ptr::null_mut();
+    // SAFETY: p çıktı işaretçisi; başarıda NUL sonlu dizgeyi gösterir, her durumda CoTaskMemFree ile bırakılır.
+    unsafe {
+        let hr = SHGetKnownFolderPath(&FOLDERID_Documents, 0, ptr::null_mut(), &mut p);
+        let out = (hr >= 0 && !p.is_null()).then(|| {
+            let len = (0..).take_while(|&i| *p.add(i) != 0).count();
+            PathBuf::from(std::ffi::OsString::from_wide(std::slice::from_raw_parts(
+                p, len,
+            )))
+        });
+        CoTaskMemFree(p.cast());
+        out
+    }
+}
+
 pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }

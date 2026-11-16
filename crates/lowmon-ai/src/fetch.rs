@@ -3,7 +3,7 @@ use crate::api::{self, Snapshot};
 use crate::creds;
 use crate::text::{Msg, t};
 use crate::win::{self, Http};
-use crate::{Auth, Config};
+use crate::{Auth, Config, claude_dir};
 use std::path::PathBuf;
 
 /// Claude Code'un genel OAuth istemcisi; yenilediğimiz token ona verildi.
@@ -22,16 +22,6 @@ pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64)
-}
-
-/// `CLAUDE_CONFIG_DIR` ya da `%USERPROFILE%\.claude`.
-pub fn claude_dir() -> PathBuf {
-    std::env::var_os("CLAUDE_CONFIG_DIR")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default()).join(".claude")
-        })
 }
 
 pub struct Fetcher {

@@ -1,15 +1,33 @@
 //! Windows: tek örnek, yerel saat farkı, süreç taraması + sonlandırma.
 
 use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
-use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::System::Threading::{CreateEventW, CreateMutexW, SetEvent};
 use windows::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, SW_RESTORE, SetForegroundWindow, ShowWindow,
 };
 use windows::core::{PCWSTR, w};
 
+/// Otomatik sıfırlanan isimli olay: `--ai` ile açılan ikinci kopya, çalışan kopyayı AI sekmesine geçirir.
+const SHOW_AI: PCWSTR = w!(r"Local\LowMonitorUi.ShowAi");
+
+/// `SHOW_AI` her tetiklendiğinde `f` (arka iş parçacığında) çağrılır.
+pub fn on_show_ai(f: impl Fn() + Send + 'static) {
+    // SAFETY: isimli olay süreç ömrü boyunca açık kalır; dizge sabit.
+    let Ok(ev) = (unsafe { CreateEventW(None, false, false, SHOW_AI) }) else {
+        return;
+    };
+    let ev = ev.0 as usize; // HANDLE Send değil
+    std::thread::spawn(move || {
+        // SAFETY: ev yukarıda açılan, hiç kapatılmayan olay handle'ı.
+        while unsafe { WaitForSingleObject(HANDLE(ev as _), INFINITE) }.0 == 0 {
+            f();
+        }
+    });
+}
+
 /// İkinci kopya mevcut pencereyi öne getirip çıkar (tray "Arayüzü aç" tekrar tıklanınca).
-pub fn single_instance() -> bool {
+pub fn single_instance(ai: bool) -> bool {
     // SAFETY: isimli mutex süreç ömrü boyunca açık kalır (handle bilerek kapatılmaz); dizgeler sabit.
     unsafe {
         let _ = CreateMutexW(None, false, w!(r"Local\LowMonitorUi"));
@@ -19,6 +37,9 @@ pub fn single_instance() -> bool {
         if let Ok(h) = FindWindowW(None, w!("LowMonitor")) {
             let _ = ShowWindow(h, SW_RESTORE);
             let _ = SetForegroundWindow(h);
+        }
+        if ai && let Ok(ev) = CreateEventW(None, false, false, SHOW_AI) {
+            let _ = SetEvent(ev);
         }
     }
     false

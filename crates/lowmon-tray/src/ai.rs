@@ -25,6 +25,7 @@ pub const ID_CFG: usize = 21;
 pub const ID_RELOAD: usize = 22;
 pub const ID_KEY_SAVE: usize = 23;
 pub const ID_KEY_DEL: usize = 24;
+pub const ID_REPORT: usize = 25;
 const TICK_MS: u32 = 30_000;
 
 thread_local! {
@@ -152,16 +153,27 @@ pub fn render() {
     });
 }
 
-/// Taskbar olayı; sağ tıkta `true` (çağıran tray menüsünü açar).
-pub fn on_bar(ev: usize) -> bool {
+/// Gösterge tıklamasında çağıranın yapacağı iş.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Click {
+    None,
+    /// sağ tık → tray menüsü
+    Menu,
+    /// sol tık → `lowmon-ui` AI sekmesi (rapor)
+    Report,
+}
+
+/// Taskbar olayı.
+pub fn on_bar(ev: usize) -> Click {
     match ev {
-        EV_MOVED => BAR
-            .with_borrow_mut(|b| b.as_mut().map(Bar::layout))
-            .unwrap_or(()),
-        EV_LEFT => refresh_now(),
-        _ => {}
+        EV_MOVED => {
+            BAR.with_borrow_mut(|b| b.as_mut().map(Bar::layout));
+            Click::None
+        }
+        EV_LEFT => Click::Report,
+        EV_RIGHT => Click::Menu,
+        _ => Click::None,
     }
-    ev == EV_RIGHT
 }
 
 /// Explorer yeniden başladı.
@@ -320,6 +332,7 @@ pub fn menu() -> HMENU {
         AppendMenuW(sub, MF_STRING | MF_GRAYED, 0, crate::wide(&line).as_ptr());
         AppendMenuW(sub, MF_SEPARATOR, 0, ptr::null());
         for (id, t) in [
+            (ID_REPORT, "Rapor (token dökümü)"),
             (ID_NOW, "Şimdi yenile"),
             (ID_CFG, "Ayar dosyasını aç"),
             (ID_RELOAD, "Ayarı yeniden yükle"),
