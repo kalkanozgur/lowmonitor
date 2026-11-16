@@ -7,6 +7,7 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 - `lowmon-ui` `release-ui` profiliyle (`opt-level = "s"`) derlenir: exe 10,5 → 8,9 MB; `install.ps1` `-UiSrc target\release-ui`
 - Tray "Arayüzü aç": `UiExe` kaydı var ama exe yoksa (taşınmış/silinmiş) menü pasif ve etiket nedeni söyler; önceden tıklama sessizce boşa gidiyordu
 ### Eklendi
+- `lowmon-sensors` crate: GPU % + °C (D3DKMT, üretici DLL'i yok), disk °C, CPU °C (ACPI termal bölge); taskbar sistem ızgarası için, tray entegrasyonu Faz 2 (ADR-0033 Faz 1)
 - `lowmon-ui` "AI" sekmesi: Claude limit çizgisi, token dökümü (araç grubu başına), oturum tablosu; Son oturum / Bugün / Bu hafta. Taskbar göstergesine sol tık ve "AI kullanımı ▸ Rapor" bu sekmeyi açar (`lowmon-ui --ai`). `ai.toml`: `report_sessions`, `summary_dir` (ADR-0032 Faz 5)
 - Tray "AI kullanımı ▸": "Panodan sessionKey kaydet" (DPAPI, pano boşaltılır) / "sessionKey'i sil". `install.ps1` eski C++ ai-usage-bar'ı kapatır (süreç, `ClaudeUsageBar` autostart), limit CSV'lerini ve `session.bin`'i `%LOCALAPPDATA%\LowMonitor\ai`'ye taşır, eski klasörü siler (ADR-0032 Faz 4)
 - AI kullanımı telefonda (LowDeck "AI" bölümü) ve `lowmon-ui` Canlı sekmesinde (bant): deck `TOPIC_AI` yayını, son durum önbellekli; `lowdeck-proto` rev `ec2ce3d` (ADR-0032 Faz 3)

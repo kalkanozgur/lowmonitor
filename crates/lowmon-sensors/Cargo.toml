@@ -1,0 +1,18 @@
+[package]
+name = "lowmon-sensors"
+description = "Servisin ölçmediği sensörler: GPU (D3DKMT), disk sıcaklığı, ACPI termal bölge (ADR-0033); tray içinde"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Wdk_Graphics_Direct3D",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_Performance",
+] }
