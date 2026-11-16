@@ -175,6 +175,13 @@ export component MainWindow inherits Window {
     in property <string> lm-net-scale;
     in property <[TopRow]> lm-top;
     in property <string> alarms; // "" = aktif alarm yok
+    // AI (Claude) kullanımı (ADR-0032): tray'deki deck değişince push eder
+    in property <int> ai-state: 0; // 0 = bekleniyor, 1 = veri var, 2 = tray'de veri yok
+    in property <string> ai-session;
+    in property <string> ai-week;
+    in property <int> ai-session-level; // 0 normal, 1 uyarı, 2 kritik, 3 eski
+    in property <int> ai-week-level;
+    in property <string> ai-note;
     in property <[EventRow]> events; // yeni → eski
     in-out property <int> tab: 0; // 0 = Canlı, 1 = Olaylar, 2 = Geçmiş, 3 = Süreçler
     // Geçmiş (ADR-0005): aralık 0..3 = 1 sa / 6 sa / 24 sa / 7 g; path'ler Rust'ta (viewbox hist-n × 100)
@@ -256,6 +263,29 @@ export component MainWindow inherits Window {
         // --- Canlı ---
         if root.tab == 0: VerticalLayout {
             spacing: 12px;
+            // AI bandı: yalnız veri varken; renkler taskbar ile aynı (uyarı turuncu, kritik kırmızı, eski gri)
+            if root.connected && root.ai-state == 1: Rectangle {
+                background: Theme.surface;
+                border-radius: 6px;
+                height: 32px;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 24px;
+                    Text { text: "AI"; color: Theme.dim; font-size: 13px; vertical-alignment: center; }
+                    for row in [
+                        { text: root.ai-session, level: root.ai-session-level },
+                        { text: root.ai-week, level: root.ai-week-level },
+                    ]: Text {
+                        text: row.text;
+                        color: row.level == 3 ? Theme.dim : row.level == 2 ? #e5484d : row.level == 1 ? #f0a030 : Theme.text;
+                        font-size: 14px;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Text { text: root.ai-note; color: Theme.dim; font-size: 13px; vertical-alignment: center; overflow: elide; }
+                }
+            }
             HorizontalLayout {
                 spacing: 12px;
                 Stat { label: "CPU  5 dk"; value: root.lm-cpu; live: root.live; path-a: root.lm-cpu-path; }

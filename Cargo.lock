@@ -2494,7 +2494,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 [[package]]
 name = "lowdeck-client"
 version = "0.1.0"
-source = "git+https://github.com/kalkanozgur/lowdeck?rev=17a83ec#17a83ec198c0cc79bfb40fac901c3b79b1cc6f8f"
+source = "git+https://github.com/kalkanozgur/lowdeck?rev=9237fba#9237fba7bf7e572d3a41b7592939926818b50279"
 dependencies = [
  "lowdeck-proto",
 ]
@@ -2502,7 +2502,7 @@ dependencies = [
 [[package]]
 name = "lowdeck-proto"
 version = "0.1.0"
-source = "git+https://github.com/kalkanozgur/lowdeck?rev=17a83ec#17a83ec198c0cc79bfb40fac901c3b79b1cc6f8f"
+source = "git+https://github.com/kalkanozgur/lowdeck?rev=9237fba#9237fba7bf7e572d3a41b7592939926818b50279"
 dependencies = [
  "postcard",
  "serde",
@@ -2605,6 +2605,7 @@ version = "0.1.0"
 dependencies = [
  "lowdeck-client",
  "lowdeck-proto",
+ "lowmon-ai",
  "lowmon-deck",
  "slint",
  "slint-build",

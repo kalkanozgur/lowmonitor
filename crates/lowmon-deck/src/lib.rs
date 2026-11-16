@@ -22,6 +22,8 @@ use std::time::Duration;
 
 #[macro_use]
 pub mod log;
+/// Tray AI yayını için (ADR-0032).
+pub use lowdeck_proto::{AI_TEXT_MAX, AiUsage, AiWindow};
 mod lowmon;
 #[cfg(windows)]
 mod win;
@@ -93,6 +95,7 @@ struct Client {
     w: BufWriter<TcpStream>,
     metrics: bool,
     events: bool,
+    ai: bool,
 }
 
 /// Yuva = dinleyici (ADR-0003): LAN (telefon) ve loopback (PC arayüzü) birbirini düşürmez.
@@ -107,6 +110,8 @@ struct HubInner {
     clients: [Option<Client>; 2],
     /// LowMonitor aktif alarm listesi (pipe `Alarms` + olaylar); yeni olay abonesine ilk çerçeve.
     alarms: Vec<String>,
+    /// Son AI kullanımı (tray `lowmon-ai`, ADR-0032); yeni `TOPIC_AI` abonesine ilk çerçeve.
+    ai: Option<AiUsage>,
 }
 
 impl HubInner {
@@ -153,11 +158,16 @@ impl Hub {
     fn subscribe(&self, id: u64, t: Topics) {
         let mut g = self.lock();
         let alarms = S2C::Alarms(g.alarms.clone());
+        let ai = S2C::Ai(g.ai.clone());
         if let Some(c) = g.by_id(id) {
             let new_events = t & TOPIC_EVENTS != 0 && !c.events;
+            let new_ai = t & TOPIC_AI != 0 && !c.ai;
             c.metrics = t & TOPIC_METRICS != 0;
             c.events = t & TOPIC_EVENTS != 0;
-            if new_events && write_frame(&mut c.w, &alarms).is_err() {
+            c.ai = t & TOPIC_AI != 0;
+            if (new_events && write_frame(&mut c.w, &alarms).is_err())
+                || (new_ai && write_frame(&mut c.w, &ai).is_err())
+            {
                 let _ = c.w.get_ref().shutdown(Shutdown::Both);
             }
         }
@@ -191,6 +201,19 @@ impl Hub {
             _ => {}
         }
         if !g.send_to(&S2C::Event(e), |c| c.events) {
+            drop(g);
+            self.changed();
+        }
+    }
+
+    /// Tray `lowmon-ai`: değiştiyse önbellek + AI abonelerine.
+    pub fn set_ai(&self, a: Option<AiUsage>) {
+        let mut g = self.lock();
+        if g.ai == a {
+            return;
+        }
+        g.ai = a.clone();
+        if !g.send_to(&S2C::Ai(a), |c| c.ai) {
             drop(g);
             self.changed();
         }
@@ -264,6 +287,7 @@ impl Hub {
             w,
             metrics: false,
             events: false,
+            ai: false,
         });
         drop(g);
         self.changed();
@@ -1063,6 +1087,36 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(hub.lock().alarms, ["ram"]);
+    }
+
+    /// AI aboneliği: önce önbellekteki son durum, sonra yalnız değişiklikler.
+    #[test]
+    fn ai_subscription() {
+        let hub = Arc::new(Hub::default());
+        let (mut w, mut rd) = client(serve(&hub, SLOT_LOCAL, Arc::new(Null)));
+        let mut buf = [0u8; MAX_FRAME];
+        write_frame(&mut w, &C2S::Subscribe(TOPIC_AI)).unwrap();
+        assert_eq!(
+            read_frame::<_, S2C>(&mut rd, &mut buf).unwrap(),
+            S2C::Ai(None)
+        );
+        let a = AiUsage {
+            source: "OAuth".into(),
+            ..Default::default()
+        };
+        hub.set_ai(Some(a.clone()));
+        hub.set_ai(Some(a.clone())); // aynı → gitmez
+        hub.push_metrics(S2C::Metrics(None)); // metrik abonesi değil → gitmez
+        hub.set_ai(None);
+        assert_eq!(
+            read_frame::<_, S2C>(&mut rd, &mut buf).unwrap(),
+            S2C::Ai(Some(a))
+        );
+        assert_eq!(
+            read_frame::<_, S2C>(&mut rd, &mut buf).unwrap(),
+            S2C::Ai(None)
+        );
+        assert!(!hub.want.get(), "AI aboneliği pipe'ı açtırmaz");
     }
 
     #[test]

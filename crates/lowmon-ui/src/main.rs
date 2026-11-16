@@ -15,7 +15,8 @@ mod win;
 use history::{History, Sample, nice_scale, series_path};
 use lowdeck_client::{Client, Config, Event};
 use lowdeck_proto::{
-    C2S, EventItem, HIST_POINTS_MAX, HistPoint, Metrics, S2C, TOPIC_EVENTS, TOPIC_METRICS, TopItem,
+    AiUsage, AiWindow, C2S, EventItem, HIST_POINTS_MAX, HistPoint, Metrics, S2C, TOPIC_AI,
+    TOPIC_EVENTS, TOPIC_METRICS, TopItem,
 };
 use slint::{Model, ModelRc, VecModel};
 use std::collections::HashMap;
@@ -110,12 +111,12 @@ fn start_client(
     QUERY.with(|q| *q.borrow_mut() = Some(Box::new(query)));
 }
 
-/// Küçültülünce metrik düşer (deck abone kalmazsa pipe'ı kapatır); olaylar sürer: alarm bandı + liste güncel.
+/// Küçültülünce metrik + AI düşer (deck abone kalmazsa pipe'ı kapatır); olaylar sürer: alarm bandı + liste güncel.
 fn topics(minimized: bool) -> lowdeck_proto::Topics {
     if minimized {
         TOPIC_EVENTS
     } else {
-        TOPIC_METRICS | TOPIC_EVENTS
+        TOPIC_METRICS | TOPIC_EVENTS | TOPIC_AI
     }
 }
 
@@ -444,6 +445,8 @@ struct HistRx {
 
 thread_local! {
     static CLIENT: std::cell::RefCell<Option<Rc<Client>>> = const { std::cell::RefCell::new(None) };
+    /// Son AI durumu: geri sayım her metrik örneğinde yenilenir (ek timer yok).
+    static LAST_AI: std::cell::RefCell<Option<AiUsage>> = const { std::cell::RefCell::new(None) };
     static MINIMIZED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static PROCS: std::cell::RefCell<ProcUi> = std::cell::RefCell::new(ProcUi::default());
     static HQ: std::cell::RefCell<HistRx> = std::cell::RefCell::new(HistRx::default());
@@ -479,6 +482,7 @@ fn apply(ui: &MainWindow, ev: Event, offset: i64) {
             ui.set_connected(false);
             ui.set_status(format!("Tray'e bağlı değil: {reason}").into());
             ui.set_lm_state(0);
+            ui.set_ai_state(0);
             ui.set_alarms("".into());
             clear_graphs(ui);
             HQ.with(|h| h.borrow_mut().pending = 0); // yanıtlar kayboldu
@@ -490,7 +494,14 @@ fn apply(ui: &MainWindow, ev: Event, offset: i64) {
             set_vec(ui.get_lm_cores(), Vec::new(), |v| ui.set_lm_cores(v));
             set_vec(ui.get_lm_top(), Vec::new(), |v| ui.set_lm_top(v));
         }
-        Event::Msg(S2C::Metrics(Some(m))) => show_metrics(ui, &m),
+        Event::Msg(S2C::Metrics(Some(m))) => {
+            show_metrics(ui, &m);
+            LAST_AI.with_borrow(|a| show_ai(ui, a.as_ref(), unix_now()));
+        }
+        Event::Msg(S2C::Ai(a)) => {
+            show_ai(ui, a.as_ref(), unix_now());
+            LAST_AI.set(a);
+        }
         Event::Msg(S2C::Top(t)) => set_vec(
             ui.get_lm_top(),
             smooth_top(&t).iter().map(top_row).collect(),
@@ -663,6 +674,57 @@ fn draw_history(ui: &MainWindow, offset: i64) {
     });
 }
 
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+}
+
+/// AI bandı (ADR-0032); `None` = tray'de veri yok → band gizli.
+fn show_ai(ui: &MainWindow, a: Option<&AiUsage>, now: i64) {
+    let Some(a) = a else {
+        ui.set_ai_state(2);
+        return;
+    };
+    ui.set_ai_state(1);
+    // 3 = soluk (eski veri), aksi halde tray'in seviyesi
+    let level = |w: &Option<AiWindow>| {
+        if a.stale {
+            3
+        } else {
+            w.map_or(0, |w| w.level.min(2) as i32)
+        }
+    };
+    ui.set_ai_session(ai_line("Oturum", &a.session, now).into());
+    ui.set_ai_week(ai_line("Hafta", &a.week, now).into());
+    ui.set_ai_session_level(level(&a.session));
+    ui.set_ai_week_level(level(&a.week));
+    let note = if !a.error.is_empty() {
+        a.error.clone()
+    } else if a.stale {
+        format!("eski · {} dk önce", (now - a.fetched_at as i64).max(0) / 60)
+    } else {
+        a.source.clone()
+    };
+    ui.set_ai_note(note.into());
+}
+
+/// "Oturum %33 · 4s16dk" (taskbar ile aynı biçim).
+fn ai_line(label: &str, w: &Option<AiWindow>, now: i64) -> String {
+    use lowmon_ai::text::{Lang, pct, remaining};
+    match w {
+        None => format!("{label} —"),
+        Some(w) => {
+            let left = if w.resets_at == 0 {
+                "—".into()
+            } else {
+                remaining(Lang::Tr, w.resets_at as i64 - now)
+            };
+            format!("{label} {} · {left}", pct(Lang::Tr, w.pct as f64 / 10.0))
+        }
+    }
+}
+
 fn show_metrics(ui: &MainWindow, m: &Metrics) {
     ui.set_lm_state(1);
     HQ.with(|h| h.borrow_mut().ram_total_mb = m.ram_total_mb);
@@ -813,6 +875,23 @@ fn fmt_time(ts_ms: u64, offset_s: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ai_line_format() {
+        let w = Some(AiWindow {
+            pct: 334,
+            resets_at: 1_000 + 4 * 3600 + 16 * 60,
+            level: 1,
+        });
+        assert_eq!(ai_line("Oturum", &w, 1_000), "Oturum %33 · 4s16dk");
+        assert_eq!(ai_line("Hafta", &None, 0), "Hafta —");
+        let w = Some(AiWindow {
+            pct: 1000,
+            resets_at: 0,
+            level: 2,
+        });
+        assert_eq!(ai_line("Hafta", &w, 0), "Hafta %100 · —");
+    }
 
     #[test]
     fn time_format() {
