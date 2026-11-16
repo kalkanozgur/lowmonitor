@@ -111,8 +111,31 @@ pub fn apply_refresh(old: &OAuth, r: &Refresh, now_ms: i64) -> OAuth {
     }
 }
 
+/// Panodan gelen claude.ai `sessionKey` çerezi: boşluk kırpılır, `sessionKey=` öneki atılır;
+/// `sk-ant-` ile başlamıyorsa None (C++ widget ile aynı kural).
+pub fn parse_session_key(text: &str) -> Option<&str> {
+    let t = text.trim();
+    let t = t.strip_prefix("sessionKey=").unwrap_or(t).trim();
+    (t.starts_with("sk-ant-") && !t.contains(char::is_whitespace)).then_some(t)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn session_key_from_clipboard() {
+        assert_eq!(
+            parse_session_key(
+                "  sk-ant-sid01-abc
+"
+            ),
+            Some("sk-ant-sid01-abc")
+        );
+        assert_eq!(parse_session_key("sessionKey=sk-ant-x"), Some("sk-ant-x"));
+        assert_eq!(parse_session_key("merhaba"), None);
+        assert_eq!(parse_session_key("sk-ant-a b"), None);
+        assert_eq!(parse_session_key(""), None);
+    }
+
     use super::*;
 
     const FILE: &str = "{\n  \"claudeAiOauth\": {\n    \"accessToken\": \"sk-ant-oat01-OLD\",\n    \"refreshToken\": \"sk-ant-ort01-OLD\",\n    \"expiresAt\": 1767000000000,\n    \"scopes\": [\"user:inference\", \"user:profile\"],\n    \"subscriptionType\": \"max\"\n  },\n  \"other\": {\"accessToken\": \"must-not-change\"}\n}\n";

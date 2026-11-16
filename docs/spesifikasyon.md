@@ -380,6 +380,7 @@ clear    = { below = 85.0, for_s = 30 }
 Tam kurulum/güncelleme `scripts\install.ps1` (yönetici, repo kökünden, release build sonrası):
 1. Exe'leri kilitleyen süreçler durur: `lowmon-tray/ui/net` + eski `lowdeck-agent/desktop`.
 2. Eski LowDeck PC izleri silinir (ADR-0031): HKCU Run `LowDeckAgent`, `HKCU\Software\LowMonitor` `UiExe`, firewall `LowDeck agent`. `agent.cfg` kalır (deck.toml göçü).
+   Eski C++ ai-usage-bar (ADR-0032 Faz 4): `claude-usage-bar` süreci durur, HKCU Run `ClaudeUsageBar` silinir; `%LOCALAPPDATA%\ClaudeUsageBar\usage-*.csv` → `%LOCALAPPDATA%\LowMonitor\ai\` (ts'e göre birleşir), `session.bin` hedefte yoksa kopyalanır, eski klasör silinir (`config.ini` taşınmaz).
 3. Servis kaldır → exe'ler `%ProgramFiles%\LowMonitor` → servis kur + başlat.
 4. Firewall `LowMonitor deck`: TCP `deck.toml` portu (yoksa 47810) + UDP 47811, private, localsubnet, program = kurulu tray.
 5. Tray autostart açılır, explorer üzerinden yükseltilmemiş başlatılır.

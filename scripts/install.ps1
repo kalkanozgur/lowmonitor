@@ -24,6 +24,29 @@ Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' LowDec
 Remove-ItemProperty 'HKCU:\Software\LowMonitor' UiExe -ErrorAction SilentlyContinue
 netsh advfirewall firewall delete rule name="LowDeck agent" | Out-Null
 
+# Eski C++ ai-usage-bar (ADR-0032 Faz 4): süreç + autostart kapanır, limit CSV'leri ve session.bin
+# %LOCALAPPDATA%\LowMonitor\ai'ye taşınır, eski klasör silinir. config.ini taşınmaz (varsayılanlar aynı).
+Get-Process claude-usage-bar -ErrorAction SilentlyContinue | Stop-Process -Force
+Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' ClaudeUsageBar -ErrorAction SilentlyContinue
+$oldAi = Join-Path $env:LOCALAPPDATA 'ClaudeUsageBar'
+if (Test-Path $oldAi) {
+    $newAi = Join-Path $env:LOCALAPPDATA 'LowMonitor\ai'
+    New-Item -ItemType Directory -Force $newAi | Out-Null
+    foreach ($f in Get-ChildItem $oldAi -Filter 'usage-*.csv') {
+        $to = Join-Path $newAi $f.Name
+        $rows = @(Get-Content $f.FullName | Select-Object -Skip 1)
+        if (Test-Path $to) { $rows += @(Get-Content $to | Select-Object -Skip 1) }
+        # Aynı ts iki dosyada da olabilir: ts'e göre tekilleştir + sırala
+        $rows = $rows | Where-Object { $_ -match '^\d+,' } | Group-Object { $_.Split(',')[0] } |
+            ForEach-Object { $_.Group[0] } | Sort-Object { [long]$_.Split(',')[0] }
+        $text = (@('ts,session_pct,session_reset,week_pct,week_reset') + $rows) -join "`r`n"
+        [IO.File]::WriteAllText($to, "$text`r`n")
+    }
+    $sb = Join-Path $oldAi 'session.bin'
+    if ((Test-Path $sb) -and -not (Test-Path (Join-Path $newAi 'session.bin'))) { Copy-Item $sb $newAi }
+    Remove-Item $oldAi -Recurse -Force
+}
+
 # Eski servis: durdur + sil (seal yazılır, veri kalır)
 if (Get-Service LowMonitor -ErrorAction SilentlyContinue) {
     & (Join-Path $dst 'lowmon-svc.exe') uninstall
