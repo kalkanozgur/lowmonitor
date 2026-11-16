@@ -1,6 +1,6 @@
 # ADR-0033: Taskbar'da sistem ızgarası: `lowmon-sensors` + çok bloklu `lowmon-taskbar`
 - Tarih: 2026-11-17
-- Durum: Taslak (kullanıcı kararları alındı; "Açık" maddeleri kartla sorulur; uygulama fazlar halinde, her faz ayrı PR).
+- Durum: Taslak (kullanıcı kararları alındı; uygulama fazlar halinde, her faz ayrı PR).
 
 ## Bağlam
 Kullanıcı taskbar'da, AI göstergesinin (ADR-0032) yanında 2 satır × 4 sütun bir sistem ızgarası istiyor:
@@ -22,7 +22,9 @@ Donanım (bu PC, 2026-11-17): Ryzen 7 5800H, RTX 3060 Laptop + AMD tümleşik GP
 ## Karar (kullanıcı, 2026-11-17)
 1. **Yerleşim:** sistem ızgarası ve AI bloğu **yan yana**. Sonraki adım: sistem ızgarası takılıysa **diğer monitöre** → her blok kendi monitör ayarını taşır.
 2. **CPU °C: ACPI termal bölge.** Spek §1 "PDH/WMI yok" (ADR-003) kuralına **dar istisna**: yalnız bu tek sayaç, yalnız tray'de (servis değil).
-3. **Dil:** taskbar etiketleri İngilizce (`ai.toml language = "en"` yapıldı). Tray menüsü + `lowmon-ui` en/tr ayrı iş (ayrı PR, bu ADR dışında).
+3. **Kapsam: önce taskbar.** GPU / sıcaklık Faz 1–3'te yalnız taskbar'da; geçmiş, telefon ve `lowmon-ui` sonra ayrı faz (Faz 4, o zaman ayrıca kararlaştırılır).
+4. **Tık:** sistem bloğuna sol tık `lowmon-ui`'ı Canlı sekmesiyle açar / öne getirir; sağ tık tray menüsü.
+5. **Dil:** taskbar etiketleri İngilizce (`ai.toml language = "en"` yapıldı). Tray menüsü + `lowmon-ui` en/tr ayrı iş (ayrı PR, bu ADR dışında).
 
 ## Tasarım
 
@@ -72,7 +74,3 @@ Eşikler `taskbar.toml` `[sys]` altında değiştirilebilir. Renkler AI bloğuyl
 - (−) CPU °C ACPI bölgesidir; HWiNFO'nun çip sıcaklığından farklı olabilir.
 - (−) Faz 1–2'de GPU / sıcaklık geçmişi yok.
 - Spek: §1 Prensipler (PDH istisnası), §1 bütçe (tray satırı), §2 bileşen tablosu (`lowmon-sensors`; `lowmon-gpu` satırı buna bağlanır), §8 tray (sistem bloğu, `taskbar.toml`) ilgili faz PR'ında güncellenir.
-
-## Açık (kartla sorulur)
-1. GPU / sıcaklık **geçmişe, telefona, `lowmon-ui`'a** da gitsin mi (Faz 4), yoksa yalnız taskbar mı?
-2. Sistem bloğu tık davranışı: sol tık `lowmon-ui` Canlı sekmesi (öneri), sağ tık tray menüsü.
