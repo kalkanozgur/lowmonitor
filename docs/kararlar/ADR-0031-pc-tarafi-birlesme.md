@@ -20,6 +20,7 @@ ADR-0029 (B): arayüz LowDeck'te, veri yalnız agent üzerinden. Sonuç: iki tep
 3. **`lowdeck-proto` LowDeck repo'sunda kalır** (telefon sahibi); LM onu git `rev` ile kullanır. Pipe köprüsü artık aynı repodaki `lowmon-proto`'yu yol bağımlılığıyla kullanır → rev senkronu tek yöne iner.
 4. **Ayar `%APPDATA%\LowMonitor\deck.toml`** (`net.toml` yanında). İlk açılışta `%APPDATA%\LowDeck\agent.cfg` varsa `bind`, `port`, `token` aynen taşınır → telefon ayarı değişmez. Eski dosya silinmez (geri dönüş).
 5. LowDeck repo'sunda `tools/lowdeck-agent` ve `apps/lowdeck-desktop` kaldırılır, `release.yml` `pc` job'u ve LowDeck ADR-0002/0003/0004 "yerine geçti: LM ADR-0031" notu alır. `mock-server` ve `cli` LowDeck'te kalır (telefon geliştirme).
+6. **Medya ve ses kontrolü yalnız telefondan** (kullanıcı, 2026-11-16): `lowmon-ui` `C2S::Media` / `C2S::Audio` göndermez, medya/ses durumunu göstermez; yalnız izler (metrik, olay, geçmiş, süreçler). Tuş kilidi kapsam dışı. Uygulama UI tarafında; sunucu (`lowmon-deck`) loopback yuvasını engellemez (bugünkü `lowdeck-desktop` da göndermiyor).
 
 ## Fazlar (her biri ayrı PR, ölçümle)
 | Faz | Repo | İş | Doğrulama |
