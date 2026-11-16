@@ -370,6 +370,13 @@ clear    = { below = 85.0, for_s = 30 }
 7. Varsayılan `config.toml` yaz (yoksa).
 8. Failure actions: 3 kez yeniden başlat (5 s / 30 s / 5 dk).
 
+Tam kurulum/güncelleme `scripts\install.ps1` (yönetici, repo kökünden, release build sonrası):
+1. Exe'leri kilitleyen süreçler durur: `lowmon-tray/ui/net` + eski `lowdeck-agent/desktop`.
+2. Eski LowDeck PC izleri silinir (ADR-0031): HKCU Run `LowDeckAgent`, `HKCU\Software\LowMonitor` `UiExe`, firewall `LowDeck agent`. `agent.cfg` kalır (deck.toml göçü).
+3. Servis kaldır → exe'ler `%ProgramFiles%\LowMonitor` → servis kur + başlat.
+4. Firewall `LowMonitor deck`: TCP `deck.toml` portu (yoksa 47810) + UDP 47811, private, localsubnet, program = kurulu tray.
+5. Tray autostart açılır, explorer üzerinden yükseltilmemiş başlatılır.
+
 ---
 
 ## 12. Test stratejisi
