@@ -48,6 +48,7 @@
 | `lowmon-core` (lib) | Kayıt formatı, kripto, config; `lowmon-proto`'yu yeniden dışa verir | — | Tüm exe'ler paylaşır |
 | `lowmon-svc` | Toplayıcı, log yazıcı, alarm motoru, pipe sunucu | LocalService + servis SID'i | Windows servisi |
 | `lowmon-deck` (lib) | Telefon/arayüz sunucusu: hub, TCP dinleyici (LAN + loopback), UDP keşif, Core Audio/SMTC/kilit, pipe köprüsü (ADR-0031) | — | `windows` crate (COM/WinRT); `lowdeck-proto` LowDeck'ten git rev |
+| `lowmon-ai` (lib) | Claude abonelik kullanımı (5 sa oturum + hafta): Claude Code OAuth (+ yenileme) / sessionKey, WinHTTP, tempo seviyesi, limit CSV'si; sorgu yalnız Claude Desktop/CLI/VS Code açıkken (ADR-0032) | — | `windows-sys` (WinHTTP, DPAPI, ToolHelp); JSON span tabanlı (kimlik dosyası bayt-korumalı yamalanır) |
 | `lowmon-tray` | Tray ikon, tooltip, alarm bildirimi; `lowmon-deck`'i süreç içinde çalıştırır | Kullanıcı | GUI framework yok |
 | `lowmon-ui` | Grafikler, olaylar, geçmiş, süreçler (ADR-0031; eski LowDeck masaüstü) | Kullanıcı (asInvoker), tray'deki deck'e loopback | Slint (Royalty-free 2.0, README atfı) |
 | `lowmon-elev` | Yükseltilmiş tek seferlik işlem: yalnız ayar yazma (§9.5); süreç müdahalesi `lowmon-ui`'da (ADR-0030) | Admin (UAC) | İşini yapıp çıkar; henüz yok |

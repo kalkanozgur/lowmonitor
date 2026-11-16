@@ -1,0 +1,23 @@
+[package]
+name = "lowmon-ai"
+description = "Claude abonelik kullanımı (5 sa oturum + hafta): kimlik, WinHTTP, tempo, CSV (ADR-0032; ai-usage-bar portu)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+lowmon-core = { path = "../lowmon-core" }
+serde.workspace = true
+toml.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Networking_WinHttp",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+] }
