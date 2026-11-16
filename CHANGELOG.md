@@ -3,17 +3,17 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
 ### Değişti
-- `lowmon-ui` `release-ui` profiliyle (`opt-level = "s"`) derlenir: exe 10,5 → 8,9 MB; `install.ps1` `-UiSrc targetelease-ui`
+- `lowmon-ui` `release-ui` profiliyle (`opt-level = "s"`) derlenir: exe 10,5 → 8,9 MB; `install.ps1` `-UiSrc target\release-ui`
 - Tray "Arayüzü aç": `UiExe` kaydı var ama exe yoksa (taşınmış/silinmiş) menü pasif ve etiket nedeni söyler; önceden tıklama sessizce boşa gidiyordu
 ### Eklendi
+- `lowmon-ai` crate: Claude abonelik kullanımı (oturum + hafta %, reset, tempo seviyesi), Claude Code OAuth / sessionKey, CSV geçmişi; ai-usage-bar'ın Rust portu, tray entegrasyonu Faz 2 (ADR-0032 Faz 1)
 - `install.ps1`: "LowMonitor deck" firewall kuralı (TCP deck portu + UDP 47811) ve eski LowDeck PC izlerinin temizliği (agent/desktop süreçleri, `LowDeckAgent` autostart, `UiExe`, "LowDeck agent" kuralı) (ADR-0031 Faz 4)
 - `lowmon-ui`: PC arayüzü (Canlı, Olaylar, Geçmiş, Süreçler) bu repoda; LowDeck masaüstünden taşındı, veri tray'deki deck'ten, ayar `deck.toml`. Tray "Arayüzü aç" yanındaki `lowmon-ui.exe`'yi açar, `install.ps1` onu da kurar (ADR-0031 Faz 3)
 - `lowmon-tray` telefon sunucusunu (`lowmon-deck`) başlatır: "Telefon ▸" menüsü, tooltip'te bağlı telefon, `%APPDATA%\LowMonitor\deck.toml` (ilk açılışta LowDeck `agent.cfg`'den taşınır). Port kullanımdaysa tray çalışmaya devam eder (ADR-0031 Faz 2)
 - `lowmon-deck` crate: LowDeck agent sunucusu kütüphane olarak (hub, dinleyiciler, UDP keşif, Core Audio/SMTC/kilit, pipe köprüsü); `start(cfg) -> Running`. Tray entegrasyonu Faz 2 (ADR-0031)
 - `lowmon-net` (M6c): `/v1/info` (host, çekirdek, toplam RAM, disk modeli, arayüz adı); `lowmon-svc install` firewall kuralı ekler, `uninstall` siler (ADR-0025)
 - `lowmon-net` (M6b): `lowmon-net pair` / `POST /v1/pair` eşleştirme, token (SHA-256 + DPAPI), Bearer / `?token=`, IP başına 1 s kısıt + 10 hata → 10 dk ban, Origin listesi, `unpair --all`, LAN IP'ye bind (ADR-0024)
-- `lowmon-net` (M6a): `ws://127.0.0.1:47800/v1/live` 1 Hz JSON yayını, `rate_ms` 1000/2000/5000, ping/pong, en fazla 4 istemci; ayar `%APPDATA%\LowMonitor
-et.toml` (ADR-0023)
+- `lowmon-net` (M6a): `ws://127.0.0.1:47800/v1/live` 1 Hz JSON yayını, `rate_ms` 1000/2000/5000, ping/pong, en fazla 4 istemci; ayar `%APPDATA%\LowMonitor\net.toml` (ADR-0023)
 - Lisans: MIT OR Apache-2.0
 - `lowmon-proto` crate'i: metrik tipleri + pipe protokolü, yalnız serde + postcard (ADR-0022)
 - Proje iskeleti, spesifikasyon, ADR-0001..0014, pre-push hook, tag tabanlı release workflow

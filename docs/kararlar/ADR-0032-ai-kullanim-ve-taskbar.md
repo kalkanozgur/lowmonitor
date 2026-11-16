@@ -25,13 +25,22 @@
 4. **Rapor ve token dökümü** (`usage_breakdown`, `report_html`, `report_builder`) **sonraki faz**; ilk fazlarda taşınmaz.
 5. Eski `ai-usage-bar` geçişte durdurulur: autostart kaydı silinir, ayar ve `session.bin` okunup taşınır (aynı kullanıcı → DPAPI çözülür), dosyalar silinmez (geri dönüş).
 
+## Faz 1 kararları (kullanıcı, 2026-11-16)
+| Konu | Karar |
+|---|---|
+| Sorgu ne zaman | Claude Desktop, Claude Code CLI ya da VS Code (`Code.exe`) çalışırken; hepsi kapalıyken istek yok, veri "eski" |
+| Veri yeri | `%LOCALAPPDATA%\LowMonitor\ai\` (CSV, `session.bin` — aynı DPAPI entropisi, eski blob aynen çözülür); ayar `%APPDATA%\LowMonitor\ai.toml`. Eski `%LOCALAPPDATA%\ClaudeUsageBar\` geçişten sonra **silinir** (Faz 4; widget durdurulduktan sonra) |
+| Dil | Seçilebilir `language = "tr" \| "en"` (varsayılan tr) |
+| JSON | `json_lite` portu (span tabanlı): kimlik dosyasında 3 alan bayt-korumalı değişir; serde_json bunu vermez |
+| Taskbar çizimi | C++'taki yöntemler (kullanıcı beğenmedi) Faz 2'de yeniden tasarlanır; o fazda kartla sorulur |
+
 ## Fazlar (her biri ayrı PR, ölçümle)
 | Faz | Repo | İş | Doğrulama |
 |---|---|---|---|
 | 1 | LM | `lowmon-ai` crate: core mantığı + WinHTTP + OAuth/yenileme + sessionKey + süreç tespiti + CSV; C++ testleri Rust'a | `cargo test`; örnek exe ile canlı `/usage` (C++ widget ile aynı sayılar) |
 | 2 | LM | `lowmon-taskbar` crate + tray entegrasyonu: "AI ▸" menüsü (durum, şimdi yenile, ayar, sessionKey kaydet/sil), `ai.toml` + `config.ini` göçü, tooltip'e kısa satır | tray exe boyutu, private, boşta CPU önce/sonra; C++ widget ile görsel karşılaştırma |
 | 3 | LowDeck + LM | proto varyantı + telefon kartı (LowDeck PR), deck push + `lowmon-ui` kartı (LM PR) | telefonda gerçek veri |
-| 4 | LM | `install.ps1`: eski widget süreci + `ClaudeUsageBar` Run kaydı temizliği; spek, README | geçiş senaryosu |
+| 4 | LM | `install.ps1`: eski widget süreci + `ClaudeUsageBar` Run kaydı temizliği, `%LOCALAPPDATA%\ClaudeUsageBar` CSV/`session.bin` kopyası → klasör silinir; spek, README | geçiş senaryosu |
 | 5 | LM | rapor / token dökümü (`lowmon-ui` sekmesi ya da HTML; o fazda karar) | |
 
 ## Sonuçlar
@@ -43,7 +52,5 @@
 - Spek §1 bütçesine tray satırı Faz 2 ölçümüyle güncellenir; §2 bileşen tablosuna iki crate eklenir (Faz 1/2 PR'larında).
 
 ## Açık (fazında kartla sorulur)
-- JSON: `serde_json` mı, `json_lite` portu mu (boyut farkı Faz 1'de ölçülür).
-- Görünürlük: C++'taki `visibility` (yalnız Claude açıkken) aynen mi, yoksa her zaman mı.
-- Arayüz dili: en/tr seçimi korunacak mı.
+- Taskbar çizim yöntemi (Faz 2).
 - Proto varyantının alanları (oturum/hafta %, reset, seviye, kaynak, hata).
