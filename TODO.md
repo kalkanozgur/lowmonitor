@@ -20,6 +20,7 @@
 
 - [ ] ADR-0032 AI kullanımı: ~~Faz 1 `lowmon-ai`~~ ✅ → ~~2 `lowmon-taskbar` + tray~~ ✅ → ~~3 telefon/ui~~ ✅ (gerçek telefon APK'sı bekliyor) → ~~4 kurulum/geçiş + sessionKey menüsü~~ ✅ (kurulu build yenilenince geçiş canlı çalışır) → ~~5 rapor (`lowmon-ui` AI sekmesi)~~ ✅. Kalan: kurulumu yenile (UAC; eski widget o zaman kapanır), gerçek telefon APK'sı
 - [ ] Tray 2026-11-17 00:10 yeniden başlatmadan sonra çalışmıyordu (Run kaydı `LowMonitorTray` yerinde; neden bilinmiyor, elle açıldı). Bir sonraki açılışta izle
+- [ ] Rafta (2026-11-17, kullanıcı): `lowmon-ui` veriyi doğrudan servisten (`lowmon-svc` pipe) alsın; şu an yalnız tray'deki deck üzerinden (ADR-0031), tray kapalıyken boş. Seçenekler: hibrit (metrik/olay/geçmiş pipe, AI bandı deck) ya da tamamen doğrudan; yeni ADR gerekir
   - Faz 2 canlı doğrulanmadı: explorer yeniden başlatma, bildirim alanı genişleyince yeniden konum, açık tema, gösterge tıkları gerçek fareyle
 
 ## Kısayollar (`shortcut:` borcu)
