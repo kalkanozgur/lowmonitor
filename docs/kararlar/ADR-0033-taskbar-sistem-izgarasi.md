@@ -41,7 +41,7 @@ Denenip bırakılan (2026-11-17): termal bölge aygıtı (`GUID_DEVICE_THERMAL_Z
 
 ### Nerede ölçülür: tray (Faz 1–2)
 - `lowmon-sensors` tray'de, **yalnız sistem bloğu açıkken**, 2 s'de bir (pipe `Sample` ritmiyle) okunur. Servise dokunulmaz: svc bütçesi (< 3 MB, < 500 KB exe), segment biçimi ve `lowmon-proto` değişmez.
-- Sonuç: GPU ve sıcaklıklar **yalnız taskbar'da**; geçmişe yazılmaz, telefona ve `lowmon-ui`'a gitmez. Bunlar ayrı faz (Açık 1); o zaman spek §2'deki üretici kanalı (`ProducerPush`) kullanılır, `lowmon-sensors` aynen taşınır.
+- Sonuç: GPU ve sıcaklıklar **yalnız taskbar'da**; geçmişe yazılmaz, telefona ve `lowmon-ui`'a gitmez. Bunlar ayrı faz (Faz 4, Karar 3); o zaman spek §2'deki üretici kanalı (`ProducerPush`) kullanılır, `lowmon-sensors` aynen taşınır.
 
 ### `lowmon-taskbar`: çok blok
 - Bugün: tek pencere, `show([Line; 2])`. Yeni: **blok** = satır × sütun hücre ızgarası (`Cell { text, rgb }`), sütunlar hizalı (her sütun kendi en geniş hücresi kadar).
@@ -65,7 +65,7 @@ Eşikler `taskbar.toml` `[sys]` altında değiştirilebilir. Renkler AI bloğuyl
 | 1 | `lowmon-sensors` crate + `examples/dump` (değerleri yazar) | Görev Yöneticisi / `nvidia-smi` ile karşılaştırma; **ölçüm**: süreç private + CPU, PDH ve NVML yükü ayrı ayrı |
 | 2 | `lowmon-taskbar` çok blok + tray `sys` modülü + `taskbar.toml` | canlı taskbar, AI ile yan yana; tray private / CPU önce-sonra |
 | 3 | Sistem bloğu diğer monitörde (takılıysa; takılı değilse birincil) | iki monitörle canlı |
-| 4 (ayrı karar) | Geçmiş + telefon + `lowmon-ui`: üretici kanalı | Açık 1 |
+| 4 (ayrı karar) | Geçmiş + telefon + `lowmon-ui`: üretici kanalı | o fazda |
 
 ## Sonuçlar
 - (+) İstenen görüntü; servis, proto, segment biçimi değişmez. Bloklar genel: sonraki göstergeler aynı yapıyı kullanır.
