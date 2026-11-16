@@ -1,5 +1,6 @@
 //! lowmon-tray (spek §8): tray ikonu (CPU/RAM çift çubuk) + tooltip, pipe'tan 2 s'de bir Sample.
 //! Alarm (ADR-0028): `CH_EVENT` abonesi; AlarmRaise → balon (1 saat sessize alınabilir).
+//! Telefon sunucusu (ADR-0031): `lowmon-deck` aynı süreçte; menüde "Telefon ▸", tooltip'te bağlı telefon.
 //! Spekten farkı: windows-rs yerine windows-sys (diğer crate'lerle aynı, ADR-0018).
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
@@ -10,7 +11,7 @@ use lowmon_core::{
     proto::{self, CH_EVENT, CH_SAMPLE, ClientMsg, PIPE_NAME, PROTO, Role, ServerMsg},
 };
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     fs::File,
     io,
     os::windows::io::FromRawHandle,
@@ -45,10 +46,11 @@ use windows_sys::Win32::{
         WindowsAndMessaging::{
             AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
             DestroyIcon, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
-            HICON, ICONINFO, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostMessageW,
-            PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SW_SHOWNORMAL,
-            SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
-            TranslateMessage, WM_APP, WM_DESTROY, WM_NULL, WM_RBUTTONUP, WNDCLASSW,
+            HICON, HMENU, ICONINFO, MB_ICONERROR, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR,
+            MF_STRING, MSG, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
+            RegisterWindowMessageW, SW_HIDE, SW_SHOWNORMAL, SetForegroundWindow, TPM_NONOTIFY,
+            TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_DESTROY,
+            WM_NULL, WM_RBUTTONUP, WNDCLASSW,
         },
     },
 };
@@ -59,6 +61,10 @@ const ID_UI: usize = 1;
 const ID_MUTE: usize = 2;
 const ID_EXIT: usize = 3;
 const ID_AUTO: usize = 4;
+const ID_CFG: usize = 5;
+const ID_RELOAD: usize = 6;
+const ID_LOG: usize = 7;
+const ID_FIREWALL: usize = 8;
 const RATE_MS: u32 = 2_000;
 const RETRY: Duration = Duration::from_secs(10);
 const MUTE_MS: u64 = 3_600_000;
@@ -86,6 +92,10 @@ thread_local! {
     static ICON: Cell<HICON> = const { Cell::new(ptr::null_mut()) };
     static TOTAL_KB: Cell<u64> = const { Cell::new(0) };
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
+    /// Telefon sunucusu; yalnız UI thread'inde (menü, tooltip).
+    static DECK: RefCell<Option<lowmon_deck::Running>> = const { RefCell::new(None) };
+    /// Son dinleme hatası (port kullanımda vb.); menüde gösterilir.
+    static DECK_ERR: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -108,8 +118,8 @@ fn rate(bps: u64) -> String {
     }
 }
 
-fn tooltip(live: Option<Live>, total_kb: u64, alarms: &[String]) -> String {
-    let base = match live {
+fn tooltip(live: Option<Live>, total_kb: u64, alarms: &[String], phone: Option<&str>) -> String {
+    let mut s: String = match live {
         None => "LowMonitor: servise bağlı değil".into(),
         Some(l) => format!(
             "CPU {:.0}% · RAM {:.0}% · ↓{}",
@@ -118,11 +128,13 @@ fn tooltip(live: Option<Live>, total_kb: u64, alarms: &[String]) -> String {
             rate(l.rx_bps)
         ),
     };
-    if alarms.is_empty() || live.is_none() {
-        base
-    } else {
-        format!("{base} · ⚠ {}", alarms.join(", "))
+    if let Some(p) = phone {
+        s += &format!(" · 📱 {p}");
     }
+    if !alarms.is_empty() && live.is_some() {
+        s += &format!(" · ⚠ {}", alarms.join(", "));
+    }
+    s
 }
 
 /// Olayı aktif listeye uygular; balon gösterilecekse metnini döner (sessizlik çağıranda).
@@ -234,7 +246,8 @@ fn notify(hwnd: HWND, msg: u32) {
         nid.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
         nid.uCallbackMessage = WM_TRAY;
         nid.hIcon = icon;
-        let tip: Vec<u16> = tooltip(live, total, &lock(&ALARMS))
+        let phone = DECK.with_borrow(|d| d.as_ref().and_then(|d| d.hub.phone_name()));
+        let tip: Vec<u16> = tooltip(live, total, &lock(&ALARMS), phone.as_deref())
             .encode_utf16()
             .collect();
         let n = tip.len().min(nid.szTip.len() - 1);
@@ -276,6 +289,12 @@ fn menu(hwnd: HWND) {
             ID_MUTE,
             wide("Alarmları sessize al (1 saat)").as_ptr(),
         );
+        AppendMenuW(
+            m,
+            MF_STRING | MF_POPUP,
+            phone_menu() as usize,
+            wide("Telefon").as_ptr(),
+        );
         let checked = if autostart::enabled() { MF_CHECKED } else { 0 };
         AppendMenuW(
             m,
@@ -299,7 +318,7 @@ fn menu(hwnd: HWND) {
             ptr::null(),
         );
         PostMessageW(hwnd, WM_NULL, 0, 0);
-        DestroyMenu(m);
+        DestroyMenu(m); // alt menüyü de yok eder
         match cmd as usize {
             ID_EXIT => {
                 DestroyWindow(hwnd);
@@ -327,6 +346,31 @@ fn menu(hwnd: HWND) {
                 };
                 MUTE_UNTIL.store(until, Ordering::Relaxed);
             }
+            ID_CFG => open_notepad(hwnd, &lowmon_deck::config_path()),
+            ID_LOG => open_notepad(hwnd, &lowmon_deck::config_path().with_file_name("deck.log")),
+            ID_RELOAD => {
+                deck_reload(true);
+                notify(hwnd, NIM_MODIFY);
+            }
+            // UAC tek kez: cmd.exe yükseltilir, tray yükseltilmemiş kalır. Sonuç dönmez (runas asenkron).
+            ID_FIREWALL => {
+                let port =
+                    DECK.with_borrow(|d| d.as_ref().and_then(|d| d.config()).map(|c| c.port));
+                let exe = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.to_str().map(String::from));
+                if let (Some(port), Some(exe)) = (port, exe) {
+                    let args = wide(&lowmon_deck::firewall_args(port, &exe));
+                    ShellExecuteW(
+                        hwnd,
+                        wide("runas").as_ptr(),
+                        wide("cmd.exe").as_ptr(),
+                        args.as_ptr(),
+                        ptr::null(),
+                        SW_HIDE,
+                    );
+                }
+            }
             ID_AUTO => {
                 // shortcut: kayıt hatası sessiz; menü bir sonraki açılışta gerçek durumu gösterir
                 let cmd = (!autostart::enabled()).then(autostart::this_exe);
@@ -339,6 +383,92 @@ fn menu(hwnd: HWND) {
             _ => {}
         }
     }
+}
+
+/// "Telefon ▸": durum satırları (pasif) + ayar/log/yeniden yükle/firewall.
+/// Dönen menü üst menüye eklenir, onunla birlikte yok edilir.
+fn phone_menu() -> HMENU {
+    let (lines, listening) = DECK.with_borrow(|d| {
+        let d = d.as_ref();
+        match d.and_then(|d| d.config()) {
+            Some(c) => {
+                let who = d.and_then(|d| d.hub.phone_name());
+                let who = who.map_or("Bekliyor".into(), |n| format!("Bağlı: {n}"));
+                (
+                    vec![format!("⚙  {}  ·  {}  ·  {}", c.bind, c.port, c.token), who],
+                    true,
+                )
+            }
+            None => {
+                let e = DECK_ERR.with_borrow(|e| e.clone()).unwrap_or_default();
+                (
+                    vec![format!("Kapalı: {}", e.lines().next().unwrap_or(""))],
+                    false,
+                )
+            }
+        }
+    });
+    // SAFETY: dizgeler çağrı boyunca yaşar; menü tutamacı çağırana devredilir.
+    unsafe {
+        let sub = CreatePopupMenu();
+        for l in &lines {
+            AppendMenuW(sub, MF_STRING | MF_GRAYED, 0, wide(l).as_ptr());
+        }
+        AppendMenuW(sub, MF_SEPARATOR, 0, ptr::null());
+        for (id, text) in [
+            (ID_CFG, "Ayar dosyasını aç"),
+            (ID_RELOAD, "Ayarı yeniden yükle"),
+            (ID_LOG, "Log'u aç"),
+        ] {
+            AppendMenuW(sub, MF_STRING, id, wide(text).as_ptr());
+        }
+        let fw = if listening { 0 } else { MF_GRAYED };
+        AppendMenuW(
+            sub,
+            MF_STRING | fw,
+            ID_FIREWALL,
+            wide("Firewall kuralı ekle (yönetici)…").as_ptr(),
+        );
+        sub
+    }
+}
+
+fn open_notepad(hwnd: HWND, path: &std::path::Path) {
+    // SAFETY: NUL sonlu dizgeler çağrı boyunca yaşar.
+    unsafe {
+        ShellExecuteW(
+            hwnd,
+            wide("open").as_ptr(),
+            wide("notepad.exe").as_ptr(),
+            wide(&path.display().to_string()).as_ptr(),
+            ptr::null(),
+            SW_SHOWNORMAL,
+        );
+    }
+}
+
+/// `deck.toml`'u (yoksa `agent.cfg` göçü) okuyup dinlemeyi (yeniden) açar. Hata menüde görünür;
+/// `show` (kullanıcı tıkladı) ise ayrıca kutu. Açılışta kutu yok: port kurulu agent'ta olabilir (ADR-0031).
+fn deck_reload(show: bool) {
+    let r = lowmon_deck::load_or_create(&lowmon_deck::config_path(), &lowmon_deck::legacy_path())
+        .map_err(|e| e.to_string())
+        .and_then(|c| DECK.with_borrow_mut(|d| d.as_mut().map_or(Ok(()), |d| d.reload(c))));
+    let err = r.err();
+    if let Some(e) = &err {
+        lowmon_deck::log::write(&format!("telefon dinlenemedi: {e}"));
+        if show {
+            // SAFETY: NUL sonlu dizgeler; sahipsiz modal kutu.
+            unsafe {
+                MessageBoxW(
+                    ptr::null_mut(),
+                    wide(e).as_ptr(),
+                    wide("LowMonitor telefon").as_ptr(),
+                    MB_ICONERROR,
+                )
+            };
+        }
+    }
+    DECK_ERR.replace(err);
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -387,6 +517,10 @@ fn connect() -> io::Result<File> {
 
 fn post(live: Option<Live>) {
     *LATEST.lock().unwrap_or_else(|e| e.into_inner()) = live;
+    post_redraw();
+}
+
+fn post_redraw() {
     // SAFETY: pencere yok olduysa PostMessage yalnızca başarısız döner.
     unsafe { PostMessageW(HWND_.load(Ordering::Relaxed) as HWND, WM_DATA, 0, 0) };
 }
@@ -517,6 +651,12 @@ fn main() {
             return;
         }
         HWND_.store(hwnd as usize, Ordering::Relaxed);
+        lowmon_deck::log::init(lowmon_deck::config_path().with_file_name("deck.log"));
+        let deck = lowmon_deck::start();
+        // Telefon bağlandı/koptu → tooltip (UI thread'inde WM_DATA ile)
+        let _ = deck.hub.on_client.set(Box::new(post_redraw));
+        DECK.set(Some(deck));
+        deck_reload(false);
         notify(hwnd, NIM_ADD);
         let _ = thread::Builder::new()
             .name("pipe".into())
@@ -542,18 +682,26 @@ mod tests {
             rx_bps: 3 << 19,
         };
         assert_eq!(
-            tooltip(Some(l), 16 << 20, &[]),
+            tooltip(Some(l), 16 << 20, &[], None),
             "CPU 12% · RAM 50% · ↓1.5 MB/s"
         );
         assert_eq!(
-            tooltip(Some(l), 16 << 20, &["cpu_high".into(), "wan_rx".into()]),
-            "CPU 12% · RAM 50% · ↓1.5 MB/s · ⚠ cpu_high, wan_rx"
+            tooltip(
+                Some(l),
+                16 << 20,
+                &["cpu_high".into(), "wan_rx".into()],
+                Some("toco")
+            ),
+            "CPU 12% · RAM 50% · ↓1.5 MB/s · 📱 toco · ⚠ cpu_high, wan_rx"
         );
         assert_eq!(
-            tooltip(Some(Live { rx_bps: 2048, ..l }), 0, &[]),
+            tooltip(Some(Live { rx_bps: 2048, ..l }), 0, &[], None),
             "CPU 12% · RAM 0% · ↓2 KB/s"
         );
-        assert!(tooltip(None, 1, &["x".into()]).contains("bağlı değil"));
+        assert_eq!(
+            tooltip(None, 1, &["x".into()], Some("toco")),
+            "LowMonitor: servise bağlı değil · 📱 toco"
+        );
     }
 
     #[test]
