@@ -565,6 +565,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             ai::taskbar_created();
         }
         WM_TIMER if wp == ai::TIMER => ai::render(),
+        // Claude Code hook olayı (`lowmon-hook`, ADR-0034); 1 = işlendi
+        windows_sys::Win32::UI::WindowsAndMessaging::WM_COPYDATA => {
+            return ai::on_hook(lp) as LRESULT;
+        }
         ai::WM_BAR => match ai::on_bar(wp, lp as usize) {
             ai::Click::Menu => menu(hwnd),
             ai::Click::Report => open_ui(hwnd, "--ai"),

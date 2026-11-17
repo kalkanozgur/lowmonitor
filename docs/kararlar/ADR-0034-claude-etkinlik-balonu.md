@@ -55,6 +55,15 @@ Claude Code çalışırken ne yaptığı ("düşünüyor", "Bash çalışıyor",
 | 4 | Hook kur / kaldır menüsü + `install.ps1` + spek §8 | gerçek Claude Code oturumunda izin istemi, araç, `Stop` gözlenir | `crates/lowmon-tray/src/`, `scripts/install.ps1`, `docs/spesifikasyon.md` |
 | Sonra (ayrı karar) | Telefon (LowDeck: sona yeni `S2C` çerçevesi; `AiUsage`'a alan eklenmez, düzeni bozar), IoT webhook, klavye / kasa RGB | | |
 
+## Parça 2 kararları ve notları (2026-11-17)
+| Konu | Karar / uygulama |
+|---|---|
+| Olaylar (kullanıcı) | **Hepsi kurulur** (`PreToolUse` + `PostToolUse` dahil). Ölçüm: olay başına ~13 ms duvar, ~8 ms CPU (süreç başlatma); araç çağrısı başına ~16 ms CPU. Yoğun oturumda (30 araç / dk) ortalama ~8 ms/s |
+| Hook exe'si | Alanları kendisi çıkarır (`"anahtar":"değer"` taraması, stdin'in ilk 8 KB'ı), tray'e yalnız üç alanlık küçük JSON gider: araç girdisi / çıktısı süreçten çıkmaz, `WM_COPYDATA` küçük kalır. stdin'in kalanı okunup atılır (yazan taraf kapalı boruya yazmasın) |
+| İleti | `COPYDATASTRUCT.dwData = 0x4C4D4831` ("LMH1"), en çok 2048 bayt; tray başka `WM_COPYDATA`'yı yok sayar |
+| Tray | Olay → `Activity::apply`; süresi dolanlar mevcut 30 s'lik AI turunda düşer (kayıt yoksa iş yok). Parça 2'de durum değişimi `deck.log`'a yazılır (`ai: etkinlik: …`); Parça 3'te yerini balon alır |
+| Pencere alt sistemi | `lowmon-hook` konsol açmaz; stdin borusu yine okunur |
+
 ## Sonuçlar
 - (+) Claude kapalıyken maliyet sıfır; açıkken yalnız olay başına kısa ömürlü küçük süreç + bir pencere mesajı.
 - (+) Sır riski yok: yalnız olay türü ve araç adı işlenir.

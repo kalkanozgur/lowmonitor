@@ -32,8 +32,15 @@ const TICK_MS: u32 = 30_000;
 /// AI bloğu: sistem ızgarasının (`sys::BLOCK` = 0) solunda.
 const BLOCK: usize = 1;
 
+/// `lowmon-hook`'un `COPYDATASTRUCT.dwData` değeri ("LMH1"); `tools/lowmon-hook` ile aynı olmalı.
+const HOOK_MAGIC: usize = 0x4C4D_4831;
+/// Hook iletisi üst sınırı (üç kısa alan); büyüğü yok sayılır.
+const HOOK_MAX: u32 = 2048;
+
 thread_local! {
     static AI: RefCell<Option<(Config, Running)>> = const { RefCell::new(None) };
+    /// Claude Code etkinliği (ADR-0034); yalnız hook olayı geldikçe değişir.
+    static ACTIVITY: RefCell<lowmon_ai::activity::Activity> = RefCell::new(Default::default());
     /// Taskbar göstergesi (iki blok); `sys` de buradan çizer.
     pub static BAR: RefCell<Option<Bar>> = const { RefCell::new(None) };
     /// `[ai] enabled`
@@ -131,9 +138,56 @@ pub fn usage_of(st: &State, cfg: &Config, now: i64) -> Option<AiUsage> {
     })
 }
 
+/// `WM_COPYDATA` (`lowmon-hook`): olayı etkinlik durumuna işler. `lp` = `COPYDATASTRUCT*`.
+/// İleti bizim değilse `false`.
+pub fn on_hook(lp: isize) -> bool {
+    use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
+    // SAFETY: WM_COPYDATA'da lp, gönderen SendMessage'dan dönene dek geçerli bir COPYDATASTRUCT'tır;
+    // veri hemen kopyalanır (parse_hook sahipli dizgiler üretir).
+    let ev = unsafe {
+        let Some(cds) = (lp as *const COPYDATASTRUCT).as_ref() else {
+            return false;
+        };
+        if cds.dwData != HOOK_MAGIC || cds.lpData.is_null() || cds.cbData > HOOK_MAX {
+            return false;
+        }
+        let data = std::slice::from_raw_parts(cds.lpData.cast::<u8>(), cds.cbData as usize);
+        lowmon_ai::activity::parse_hook(data)
+    };
+    if let Some(ev) = ev {
+        activity_changed(|a| a.apply(&ev, now()));
+    }
+    true
+}
+
+/// Etkinlik durumunu değiştirir; gösterilecek durum değiştiyse bildirir.
+// shortcut: Parça 2'de yalnız log (doğrulama için); Parça 3'te balon çizimi buraya bağlanır, log kalkar.
+fn activity_changed(f: impl FnOnce(&mut lowmon_ai::activity::Activity)) {
+    ACTIVITY.with_borrow_mut(|a| {
+        let before = a.current().map(|(k, l)| (k, l.clone()));
+        f(a);
+        let after = a.current().map(|(k, l)| (k, l.clone()));
+        if before != after {
+            match &after {
+                Some((k, l)) => log(&format!(
+                    "etkinlik: {k:?} · {}",
+                    lowmon_ai::activity::text(l, text::lang())
+                )),
+                None => log("etkinlik: yok"),
+            }
+        }
+    });
+}
+
 /// Son durumla göstergeyi çizer (veri hiç yoksa gizler) ve deck'e yayınlar (değiştiyse gider).
+/// 30 s'lik turda da çağrılır: süresi dolan etkinlik kayıtları burada düşer (kayıt yoksa iş yok).
 pub fn render() {
     let now = now();
+    if ACTIVITY.with_borrow(|a| !a.is_empty()) {
+        activity_changed(|a| {
+            a.prune(now);
+        });
+    }
     AI.with_borrow(|a| {
         let Some((cfg, run)) = a else { return };
         let st = run.state();
