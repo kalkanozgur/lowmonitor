@@ -2,6 +2,7 @@
 //! ai-usage-bar (C++) portu. Sorgu yalnız Claude Desktop, Claude Code CLI ya da VS Code
 //! çalışırken yapılır; hepsi kapalıyken ağ isteği yok, son değer "eski" işaretli kalır.
 //! Rapor / token dökümü (`breakdown`, `report`) `lowmon-ui` AI sekmesinde gösterilir (Faz 5).
+pub mod activity;
 pub mod api;
 pub mod breakdown;
 pub mod creds;
