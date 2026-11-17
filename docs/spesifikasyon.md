@@ -53,7 +53,6 @@
 | `lowmon-tray` | Tray ikon, tooltip, alarm bildirimi; `lowmon-deck`'i ve AI işçisini süreç içinde çalıştırır | Kullanıcı | GUI framework yok |
 | `lowmon-hook` | Claude Code hook komutu: stdin'deki olaydan üç alan (`hook_event_name`, `session_id`, `tool_name`) → tray'e `WM_COPYDATA`, çıkar (ADR-0034) | Kullanıcı (Claude Code başlatır) | Yalnız `kernel32` + `user32`; her zaman sessiz, çıkış 0 |
 | `lowmon-ui` | Grafikler, olaylar, geçmiş, süreçler (ADR-0031; eski LowDeck masaüstü) | Kullanıcı (asInvoker), tray'deki deck'e loopback | Slint (Royalty-free 2.0, README atfı) |
-| `lowmon-elev` | Yükseltilmiş tek seferlik işlem: yalnız ayar yazma (§9.5); süreç müdahalesi `lowmon-ui`'da (ADR-0030) | Admin (UAC) | İşini yapıp çıkar; henüz yok |
 | `lowmon-sensors` (lib) | Servisin ölçmediği sensörler, tray içinde (ADR-0033): GPU % + °C (D3DKMT, ayrık GPU), disk °C (`StorageDeviceTemperatureProperty`), CPU °C (ACPI termal bölge, PDH). Yalnız taskbar sistem bloğu açıkken okunur; geçmişe yazılmaz | — | `windows-sys` (D3DKMT, PDH, Ioctl) |
 | `lowmon-gpu` | GPU / sıcaklık üreticisi (geçmiş + telefon; `lowmon-sensors`'ı kullanır) | Kullanıcı | **Sonra tasarlanacak** (ADR-0033 Faz 4) |
 | `lowmon-net` | LAN veri yayıncısı (WebSocket), Mi Note 10 Lite vb. istemciler için | Kullanıcı | Bkz. §16 |
@@ -71,7 +70,7 @@
        │ ShellExecuteExW("runas")
        ▼
 ┌──────────────┐
-│ lowmon-elev  │  write-config (§9.5); süreç müdahalesi LowDeck'te (ADR-0030)
+│ lowmon-ui    │  yükseltilmiş kopya: --kill, --service-settings (ADR-0030)
 └──────────────┘
 ```
 
@@ -92,7 +91,6 @@ LowMonitor/
 │  │  └─ src/{main.rs, service.rs, install.rs, collect/{cpu,mem,disk,net,proc}.rs,
 │  │          writer.rs, retention.rs, alarm.rs, pipe.rs}
 │  ├─ lowmon-tray/
-│  └─ lowmon-elev/          # planlı: yalnız write-config (ADR-0030)
 ├─ docs/
 │  ├─ adr/                   # mimari karar kayıtları
 │  └─ log-format.md
@@ -328,14 +326,14 @@ clear    = { below = 85.0, for_s = 30 }
 3. **Geçmiş:** zaman aralığı → `QueryRange`, otomatik çözünürlük (aralık > 6 saat → 1 dk).
 4. **Süreçler:** `lowmon-ui` süreçleri kendisi tarar (2 s, yalnız sekme açıkken; Top-N kullanılmaz) + müdahale (§10, ADR-0030).
 5. **AI:** Claude kullanım raporu (ADR-0032 Faz 5): limit çizgisi (oturum + hafta %), token dökümü (araç grubu başına efektif maliyet), oturum tablosu; Son oturum / Bugün / Bu hafta. Veri `lowmon-ai` ile dosyalardan (`~/.claude/projects` dökümleri, limit CSV'si, bulut özetleri), yalnız sekme açılınca / Yenile ile, arka iş parçacığında; yalnız sayılar, araç ve proje klasörü adları (mesaj metni okunup saklanmaz). `lowmon-ui --ai` bu sekmeyle açar.
-6. **Ayarlar:** ilk parti (yapıldı): kullanıcı dosyaları `ai.toml` (dil, sorgu aralığı, kimlik, rapor oturumu, CSV), `taskbar.toml` (monitör, yazı boyutu, AI / sistem bloğu, monitörleri, balon, CPU °C, eşikler), `deck.toml` (bind, port). Yalnız değişen anahtar yazılır (`toml_edit`, yorum + sıra korunur); sonuç dosyanın ayrıştırıcısından geçmezse yazılmaz; kaydedince tray'e `WM_APP + 6` (bit 0 ai + taskbar, bit 1 deck) → yeniden yükleme. Sonraki parti: servis kontrolü, retention, alarm kuralları (`lowmon-elev --op write-config` + `ReloadConfig`; `ProgramData\LowMonitor` kullanıcıya kapalı).
+6. **Ayarlar:** ilk parti (yapıldı): kullanıcı dosyaları `ai.toml` (dil, sorgu aralığı, kimlik, rapor oturumu, CSV), `taskbar.toml` (monitör, yazı boyutu, AI / sistem bloğu, monitörleri, balon, CPU °C, eşikler), `deck.toml` (bind, port). Yalnız değişen anahtar yazılır (`toml_edit`, yorum + sıra korunur); sonuç dosyanın ayrıştırıcısından geçmezse yazılmaz; kaydedince tray'e `WM_APP + 6` (bit 0 ai + taskbar, bit 1 deck) → yeniden yükleme. Servis ayarları (`ProgramData\LowMonitor\config.toml`, kullanıcıya kapalı): "Servis ayarlarını düzenle" → UAC → `lowmon-ui.exe --service-settings`; yükseltilmiş kopya `[sampling]` (`interval_ms`, `topn_every`, `topn_count`) ve `[retention]` (`raw_days`, `total_days`) alanlarını aynı kurallarla (`toml_edit`, `Config::parse` doğrulaması) yerinde yazar (kökte BA dosya oluşturamaz, korumalı DACL korunur), ardından `Control::ReloadConfig` gönderir (ADR-0030 eki). Sonraki parti: alarm kuralları.
 
 **Performans kuralları (Slint)**
 - Yeniden çizim yalnız veri değişince, ≤ 1 Hz; sürekli timer/animasyon yok.
 - Simge durumu → abonelik bırakılır; geri gelince yeniden abone.
 - Grafik verisi sabit kapasiteli ring buffer.
 - Grafik hover'ı (Canlı + Geçmiş): dikey çizgi + kutucuk (saat / kova aralığı + o andaki seriler). Metin Rust'ta en yakın örnekten (`Hover.text`); yeniden çizim yalnız fare hareketinde ve yeni veride.
-- Yetki: arayüz ve tray yükseltilmemiş; Admin işleri UAC ile: ayar yazma `lowmon-elev`, süreç müdahalesi `lowmon-ui`'nın yükseltilmiş kopyası (ADR-0030).
+- Yetki: arayüz ve tray yükseltilmemiş; Admin işleri UAC ile: servis ayarı yazma ve süreç müdahalesi `lowmon-ui`'nın yükseltilmiş kopyası (ADR-0030).
 
 ---
 

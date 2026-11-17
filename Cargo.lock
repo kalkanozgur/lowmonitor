@@ -2622,6 +2622,7 @@ dependencies = [
  "lowdeck-client",
  "lowdeck-proto",
  "lowmon-ai",
+ "lowmon-core",
  "lowmon-deck",
  "lowmon-taskbar",
  "slint",

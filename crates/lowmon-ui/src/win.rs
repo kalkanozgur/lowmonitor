@@ -95,7 +95,7 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::System::WindowsProgramming::SYSTEM_PROCESS_INFORMATION as Spi;
 use windows::Win32::UI::Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
-use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+use windows::Win32::UI::WindowsAndMessaging::{SHOW_WINDOW_CMD, SW_HIDE, SW_SHOWNORMAL};
 
 /// `Reserved1` içindeki belgelenmemiş ama sabit alanlar (ntddk; LM `topn.rs` ile aynı).
 const OFF_PRIVATE_WS: usize = 0;
@@ -238,9 +238,20 @@ pub fn kill(pid: u32, ctime: i64) -> i32 {
     }
 }
 
-/// Yükseltilmiş kopya: `lowdeck-desktop.exe --kill <pid> <ctime>` (UAC). Aynı kontroller orada tekrar yapılır.
+/// Yükseltilmiş kopya: `lowmon-ui.exe --kill <pid> <ctime>` (UAC). Aynı kontroller orada tekrar yapılır.
 /// Bloklar (UAC + çıkış beklenir): çağıran ayrı thread'de çalıştırır.
 pub fn kill_elevated(pid: u32, ctime: i64) -> i32 {
+    runas(&format!("--kill {pid} {ctime}"), SW_HIDE, true)
+}
+
+/// Yükseltilmiş kopya: `lowmon-ui.exe --service-settings` (UAC, ADR-0030 eki); çıkışı beklenmez.
+/// UAC istemi sürerken bloklar: çağıran ayrı thread'de çalıştırır.
+pub fn service_settings_elevated() -> i32 {
+    runas("--service-settings", SW_SHOWNORMAL, false)
+}
+
+/// `ShellExecuteExW(runas)` ile bu exe; `wait` ise çıkış kodu, değilse başlatma sonucu.
+fn runas(args: &str, show: SHOW_WINDOW_CMD, wait: bool) -> i32 {
     let Some(exe) = std::env::current_exe()
         .ok()
         .and_then(|p| p.to_str().map(String::from))
@@ -248,17 +259,14 @@ pub fn kill_elevated(pid: u32, ctime: i64) -> i32 {
         return exit::FAILED;
     };
     let file: Vec<u16> = exe.encode_utf16().chain([0]).collect();
-    let args: Vec<u16> = format!("--kill {pid} {ctime}")
-        .encode_utf16()
-        .chain([0])
-        .collect();
+    let args: Vec<u16> = args.encode_utf16().chain([0]).collect();
     let mut info = SHELLEXECUTEINFOW {
         cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
         fMask: SEE_MASK_NOCLOSEPROCESS,
         lpVerb: w!("runas"),
         lpFile: PCWSTR(file.as_ptr()),
         lpParameters: PCWSTR(args.as_ptr()),
-        nShow: SW_HIDE.0,
+        nShow: show.0,
         ..Default::default()
     };
     // SAFETY: info tam dolduruldu, dizgeler çağrı boyunca yaşar.
@@ -270,6 +278,9 @@ pub fn kill_elevated(pid: u32, ctime: i64) -> i32 {
         };
     }
     let h = Owned(info.hProcess);
+    if !wait {
+        return exit::OK;
+    }
     let mut code = exit::FAILED as u32;
     // SAFETY: h, SEE_MASK_NOCLOSEPROCESS ile dönen süreç handle'ı.
     unsafe {
@@ -277,4 +288,28 @@ pub fn kill_elevated(pid: u32, ctime: i64) -> i32 {
         let _ = GetExitCodeProcess(h.0, &mut code);
     }
     code as i32
+}
+
+/// Servise `Control::ReloadConfig` (yalnız yükseltilmiş kopyada geçer: Admin token, spek §6.1).
+/// Yanıt toplayıcı döngüsünün bir tick'i kadar sürebilir: çağıran ayrı thread'de çalıştırır.
+pub fn reload_service() -> Result<(), String> {
+    use lowmon_core::proto::{self, ClientMsg, Control, PIPE_NAME, PROTO, Role, ServerMsg};
+    use std::os::windows::fs::OpenOptionsExt;
+    // GENERIC_READ | FILE_WRITE_DATA: GENERIC_WRITE pipe DACL'ında yok (ADR-0018, tray ile aynı)
+    let mut f = std::fs::OpenOptions::new()
+        .access_mode(0x8000_0000 | 0x0002)
+        .open(PIPE_NAME)
+        .map_err(|e| format!("pipe: {e}"))?;
+    let hello = ClientMsg::Hello {
+        proto: PROTO,
+        role: Role::Viewer,
+    };
+    proto::write(&mut f, &hello).map_err(|e| e.to_string())?;
+    // Başarılı Hello yanıtsız; ilk çerçeve Control'ün sonucu (ya da BadHello)
+    proto::write(&mut f, &ClientMsg::Control(Control::ReloadConfig)).map_err(|e| e.to_string())?;
+    match proto::read::<ServerMsg>(&mut f).map_err(|e| e.to_string())? {
+        ServerMsg::Ack => Ok(()),
+        ServerMsg::Error { code } => Err(format!("{code:?}")),
+        _ => Err("?".into()),
+    }
 }

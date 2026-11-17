@@ -286,6 +286,70 @@ pub fn save(old: &SettingsForm, new: &SettingsForm) -> Result<[bool; 3], String>
     Ok([!ai.is_empty(), !tb.is_empty(), !deck.is_empty()])
 }
 
+// ---------------- Servis: ProgramData\LowMonitor\config.toml (yükseltilmiş kopya, ADR-0030 eki) ----------------
+
+use crate::SvcForm;
+
+/// `%ProgramData%\LowMonitor\config.toml` (`lowmon-svc` ile aynı yol).
+pub fn svc_config_path() -> std::path::PathBuf {
+    let base = std::env::var_os("ProgramData").unwrap_or_else(|| r"C:\ProgramData".into());
+    std::path::PathBuf::from(base)
+        .join("LowMonitor")
+        .join("config.toml")
+}
+
+/// Dosya yoksa varsayılanlar; okunamaz / bozuksa hata (yazmaya izin verilmez).
+pub fn svc_load(path: &std::path::Path) -> Result<SvcForm, String> {
+    let c = match std::fs::read_to_string(path) {
+        Ok(t) => lowmon_core::config::Config::parse(&t)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Default::default(),
+        Err(e) => return Err(e.to_string()),
+    };
+    let s = |v: &dyn ToString| v.to_string().into();
+    Ok(SvcForm {
+        interval: s(&c.sampling.interval_ms),
+        topn_every: s(&c.sampling.topn_every),
+        topn_count: s(&c.sampling.topn_count),
+        raw_days: s(&c.retention.raw_days),
+        total_days: s(&c.retention.total_days),
+    })
+}
+
+/// Değişen alanlar; sınırlar `Config::parse` ile aynı (çapraz kural raw ≤ total yazmadan önce parse'ta).
+pub fn svc_diff(old: &SvcForm, new: &SvcForm) -> Result<Changes, String> {
+    let mut c: Changes = Vec::new();
+    macro_rules! ch {
+        ($field:ident, $path:expr, $lo:expr, $hi:expr) => {
+            let v = int($path[1], &new.$field, $lo, $hi)?;
+            if old.$field != new.$field {
+                c.push(($path, Val::Int(v)));
+            }
+        };
+    }
+    ch!(interval, &["sampling", "interval_ms"], 100, 60_000);
+    ch!(topn_every, &["sampling", "topn_every"], 1, 3600);
+    ch!(topn_count, &["sampling", "topn_count"], 0, 50);
+    ch!(raw_days, &["retention", "raw_days"], 1, 3650);
+    ch!(total_days, &["retention", "total_days"], 1, 3650);
+    Ok(c)
+}
+
+/// Yazıldıysa `true` (servise ReloadConfig gönderilmeli).
+pub fn svc_save(path: &std::path::Path, old: &SvcForm, new: &SvcForm) -> Result<bool, String> {
+    let c = svc_diff(old, new)?;
+    if c.is_empty() {
+        return Ok(false);
+    }
+    let text = std::fs::read_to_string(path).map_err(|e| format!("config.toml: {e}"))?;
+    let out = apply(&text, &c, |s| {
+        lowmon_core::config::Config::parse(s).map(|_| ())
+    })?;
+    // Yerinde yaz (tmp + rename değil): klasörde BA'nın dosya oluşturma hakkı yok ve
+    // config.toml'un korumalı DACL'ı (svc install) korunmalı. Doğrulama yazmadan önce.
+    std::fs::write(path, out).map_err(|e| format!("config.toml: {e}"))?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,5 +475,55 @@ bubble = true
         );
         assert!(set("{ bozuk", &["a"], &Val::Int(1)).is_err());
         assert!(set("x = 1", &["x", "y"], &Val::Int(1)).is_err());
+    }
+
+    #[test]
+    fn svc_roundtrip_keeps_comments_and_validates() {
+        let dir = std::env::temp_dir().join(format!("lowmon-ui-svc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("config.toml");
+        // Dosya yok → varsayılanlar
+        let old = svc_load(&path).unwrap();
+        assert_eq!(
+            (old.interval.as_str(), old.raw_days.as_str()),
+            ("1000", "7")
+        );
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &path,
+            "# elle
+[sampling]
+interval_ms = 1000 # yorum
+",
+        )
+        .unwrap();
+        let old = svc_load(&path).unwrap();
+        let mut new = old.clone();
+        new.interval = "2000".into();
+        assert!(svc_save(&path, &old, &new).unwrap());
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# elle") && text.contains("interval_ms = 2000 # yorum"));
+        assert_eq!(svc_load(&path).unwrap().interval, "2000");
+        // Değişiklik yok → yazılmaz
+        assert!(!svc_save(&path, &new, &new).unwrap());
+        // Alan sınırı
+        let mut bad = new.clone();
+        bad.topn_count = "51".into();
+        assert!(svc_save(&path, &new, &bad).is_err());
+        // Çapraz kural (raw ≤ total) parse'ta; dosya değişmez
+        let mut bad = new.clone();
+        bad.raw_days = "40".into();
+        assert!(svc_save(&path, &new, &bad).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        // Bozuk dosya → okuma hatası
+        std::fs::write(
+            &path,
+            "[sampling]
+interval_ms = 5
+",
+        )
+        .unwrap();
+        assert!(svc_load(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

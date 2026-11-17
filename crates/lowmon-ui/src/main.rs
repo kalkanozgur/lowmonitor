@@ -36,8 +36,10 @@ fn main() -> Result<(), slint::PlatformError> {
         std::process::exit(code);
     }
     let ai = std::env::args().any(|a| a == "--ai");
+    // Yükseltilmiş servis ayarı kopyası tek örnek kuralının dışında (ADR-0030 eki).
+    let admin = std::env::args().any(|a| a == "--service-settings");
     #[cfg(windows)]
-    if !win::single_instance(ai) {
+    if !admin && !win::single_instance(ai) {
         return Ok(());
     }
 
@@ -56,6 +58,11 @@ fn main() -> Result<(), slint::PlatformError> {
         .on_text(move |kind, frac, _rev| hover_text(kind, frac, offset).into());
     procs_init(&ui, offset);
     settings_init(&ui);
+    if admin {
+        ui.set_admin(true);
+        ui.set_tab(5);
+        svc_init(&ui);
+    }
     window_events(&ui);
     aitab::init(&ui, offset);
     #[cfg(windows)]
@@ -508,13 +515,17 @@ thread_local! {
     /// Canlı grafik geçmişi + path buffer'ı (yalnız event loop thread'i).
     /// Ayarlar formunun dosyadan son yüklenen hâli (fark bununla alınır).
     static ST_BASE: std::cell::RefCell<SettingsForm> = std::cell::RefCell::new(SettingsForm::default());
+    static SVC_BASE: std::cell::RefCell<Option<SvcForm>> = const { std::cell::RefCell::new(None) };
     static HIST: std::cell::RefCell<(History, String)> = std::cell::RefCell::new((History::default(), String::new()));
 }
 
 /// (port, token): argümanlar, yoksa `deck.toml` (`bind` LAN adresi; arayüz loopback'e bağlanır).
 fn target() -> Option<(u16, String)> {
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let a: Vec<String> = a.into_iter().filter(|x| x != "--ai").collect();
+    let a: Vec<String> = a
+        .into_iter()
+        .filter(|x| x != "--ai" && x != "--service-settings")
+        .collect();
     if let [port, token] = a.as_slice() {
         return Some((port.parse().ok()?, token.clone()));
     }
@@ -862,7 +873,100 @@ fn settings_load(ui: &MainWindow, note: Option<String>) {
     );
 }
 
+/// Servis config.toml → form. Okunamazsa kayıt kapalı (`SVC_BASE = None`).
+fn svc_load(ui: &MainWindow, note: Option<String>) {
+    match settings::svc_load(&settings::svc_config_path()) {
+        Ok(f) => {
+            SVC_BASE.with(|b| *b.borrow_mut() = Some(f.clone()));
+            ui.set_svc(f);
+            ui.set_svc_error(false);
+            ui.set_svc_status(note.unwrap_or_default().into());
+        }
+        Err(e) => {
+            SVC_BASE.with(|b| *b.borrow_mut() = None);
+            ui.set_svc_error(true);
+            ui.set_svc_status(format!("config.toml: {e}").into());
+        }
+    }
+}
+
+fn svc_init(ui: &MainWindow) {
+    let w = ui.as_weak();
+    ui.on_svc_load(move || {
+        if let Some(ui) = w.upgrade() {
+            svc_load(&ui, None);
+        }
+    });
+    let w = ui.as_weak();
+    ui.on_svc_save(move || {
+        let Some(ui) = w.upgrade() else { return };
+        let Some(old) = SVC_BASE.with(|b| b.borrow().clone()) else {
+            return svc_load(&ui, None);
+        };
+        match settings::svc_save(&settings::svc_config_path(), &old, &ui.get_svc()) {
+            Ok(false) => {
+                ui.set_svc_error(false);
+                ui.set_svc_status(tr("Değişiklik yok", "No changes").into());
+            }
+            Ok(true) => {
+                svc_load(&ui, Some(tr("Kaydedildi; servis yeniden yükleniyor…", "Saved; reloading service…").into()));
+                #[cfg(windows)]
+                {
+                    let w = ui.as_weak();
+                    std::thread::spawn(move || {
+                        let r = win::reload_service();
+                        let _ = w.upgrade_in_event_loop(move |ui| {
+                            ui.set_svc_error(r.is_err());
+                            ui.set_svc_status(match r {
+                                Ok(()) => tr("Kaydedildi, servis yeniden yükledi", "Saved, service reloaded").into(),
+                                Err(e) => format!(
+                                    "{} ({e})",
+                                    tr("Kaydedildi ama servis yeniden yüklemedi; servis yeniden başlayınca okunur", "Saved but service did not reload; read on service restart")
+                                )
+                                .into(),
+                            });
+                        });
+                    });
+                }
+            }
+            Err(e) => {
+                ui.set_svc_error(true);
+                ui.set_svc_status(e.into());
+            }
+        }
+    });
+    svc_load(ui, None);
+}
+
 fn settings_init(ui: &MainWindow) {
+    let w = ui.as_weak();
+    ui.on_service_elevate(move || {
+        #[cfg(windows)]
+        {
+            let w = w.clone();
+            std::thread::spawn(move || {
+                let code = win::service_settings_elevated();
+                if code == procs::exit::OK || code == procs::exit::CANCELLED {
+                    return;
+                }
+                let _ = w.upgrade_in_event_loop(move |ui| {
+                    ui.set_st_error(true);
+                    ui.set_st_status(
+                        format!(
+                            "{} ({code})",
+                            tr(
+                                "Yükseltilmiş kopya açılamadı",
+                                "Could not start elevated copy"
+                            )
+                        )
+                        .into(),
+                    );
+                });
+            });
+        }
+        #[cfg(not(windows))]
+        let _ = &w;
+    });
     let w = ui.as_weak();
     ui.on_settings_load(move || {
         if let Some(ui) = w.upgrade() {
