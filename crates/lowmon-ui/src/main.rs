@@ -1239,8 +1239,14 @@ mod tests {
         assert_eq!(event_desc(&ev(2, "control_reload", 1)), "Settings reloaded");
         assert!(event_desc(&ev(2, "control_reload", 0)).contains("failed"));
         assert_eq!(event_desc(&ev(2, "bilinmeyen", 0)), "");
-        assert_eq!(event_desc(&ev(0, "cpu_high", 9500)), "CPU usage crossed threshold");
-        assert_eq!(event_desc(&ev(1, "mem.used", 0)), "Memory usage back to normal");
+        assert_eq!(
+            event_desc(&ev(0, "cpu_high", 9500)),
+            "CPU usage crossed threshold"
+        );
+        assert_eq!(
+            event_desc(&ev(1, "mem.used", 0)),
+            "Memory usage back to normal"
+        );
     }
 
     #[test]
