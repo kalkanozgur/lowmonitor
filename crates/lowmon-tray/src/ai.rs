@@ -22,6 +22,8 @@ use windows_sys::Win32::{
 pub const WM_AI: u32 = WM_APP + 3;
 pub const WM_BAR: u32 = WM_APP + 4;
 pub const TIMER: usize = 0xA1;
+/// "Bitti" balonunu gizleyen tek seferlik zamanlayıcı
+pub const TIMER_BUBBLE: usize = 0xA3;
 pub const ID_NOW: usize = 20;
 pub const ID_CFG: usize = 21;
 pub const ID_RELOAD: usize = 22;
@@ -45,6 +47,10 @@ thread_local! {
     pub static BAR: RefCell<Option<Bar>> = const { RefCell::new(None) };
     /// `[ai] enabled`
     static SHOW: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+    /// `[ai] bubble`
+    static BUBBLE: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+    /// Tray penceresi (balon zamanlayıcısı için)
+    static OWNER: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// ai.toml / taskbar.toml okuma hatası (varsayılanla devam edilir)
     static CFG_ERR: RefCell<Option<String>> = const { RefCell::new(None) };
 }
@@ -83,6 +89,8 @@ pub fn start(hwnd: HWND) {
     let run = lowmon_ai::start(cfg.clone(), on_change, log);
     AI.set(Some((cfg, run)));
     SHOW.set(tb.ai.enabled);
+    BUBBLE.set(tb.ai.bubble);
+    OWNER.set(hwnd as usize);
     let sys = tb.sys;
     let monitors = [sys.monitor, tb.ai.monitor]; // sıra: sys::BLOCK, BLOCK
     BAR.set(Some(Bar::new(hwnd, WM_BAR, tb, &monitors)));
@@ -90,6 +98,7 @@ pub fn start(hwnd: HWND) {
     // SAFETY: kendi penceremiz; aynı kimlik yeniden kurulursa süre güncellenir.
     unsafe { SetTimer(hwnd, TIMER, TICK_MS, None) };
     render();
+    show_activity(); // ayar yeniden yüklendiyse balon yeni göstergeye taşınır
 }
 
 pub fn stop(hwnd: HWND) {
@@ -160,22 +169,64 @@ pub fn on_hook(lp: isize) -> bool {
     true
 }
 
-/// Etkinlik durumunu değiştirir; gösterilecek durum değiştiyse bildirir.
-// shortcut: Parça 2'de yalnız log (doğrulama için); Parça 3'te balon çizimi buraya bağlanır, log kalkar.
+/// Etkinlik durumunu değiştirir; gösterilecek durum değiştiyse balonu günceller.
 fn activity_changed(f: impl FnOnce(&mut lowmon_ai::activity::Activity)) {
-    ACTIVITY.with_borrow_mut(|a| {
+    let done = ACTIVITY.with_borrow_mut(|a| {
         let before = a.current().map(|(k, l)| (k, l.clone()));
         f(a);
         let after = a.current().map(|(k, l)| (k, l.clone()));
-        if before != after {
-            match &after {
-                Some((k, l)) => log(&format!(
-                    "etkinlik: {k:?} · {}",
-                    lowmon_ai::activity::text(l, text::lang())
-                )),
-                None => log("etkinlik: yok"),
-            }
+        (before != after).then_some(matches!(after, Some((lowmon_ai::activity::Kind::Done, _))))
+    });
+    let Some(done) = done else { return };
+    show_activity();
+    if done {
+        // "Bitti" DONE_SEC görünür; 30 s'lik turu beklemeden tek seferlik zamanlayıcıyla düşer.
+        let ms = (lowmon_ai::activity::DONE_SEC * 1000 + 200) as u32;
+        // SAFETY: kendi penceremiz; aynı kimlik yeniden kurulursa süre baştan başlar.
+        unsafe { SetTimer(OWNER.get() as HWND, TIMER_BUBBLE, ms, None) };
+    }
+}
+
+/// Güncel etkinliği AI bloğunun üstündeki balona yazar (etkinlik yoksa / `[ai] bubble = false` → gizler).
+fn show_activity() {
+    use lowmon_ai::activity::{Kind, text as label};
+    let line = ACTIVITY
+        .with_borrow(|a| a.current().map(|(k, l)| (k, label(l, text::lang()))))
+        .filter(|_| BUBBLE.get())
+        .map(|(kind, text)| Line {
+            text,
+            rgb: color(
+                match kind {
+                    Kind::Working => Level::Normal,
+                    Kind::Waiting => Level::Warn,
+                    Kind::Done => Level::Dim,
+                },
+                lowmon_taskbar::light_theme(),
+            ),
+        });
+    BAR.with_borrow_mut(|b| {
+        if let Some(b) = b {
+            b.bubble(BLOCK, line);
         }
+    });
+}
+
+/// Tema değişti: balon rengi / zemini yeniden çizilir.
+pub fn theme_changed() {
+    BAR.with_borrow_mut(|b| {
+        if let Some(b) = b {
+            b.bubble(BLOCK, None);
+        }
+    });
+    show_activity();
+}
+
+/// `TIMER_BUBBLE`: süresi dolan "bitti" kaydını düşürür.
+pub fn bubble_tick(hwnd: HWND) {
+    // SAFETY: kendi zamanlayıcımız.
+    unsafe { KillTimer(hwnd, TIMER_BUBBLE) };
+    activity_changed(|a| {
+        a.prune(now());
     });
 }
 

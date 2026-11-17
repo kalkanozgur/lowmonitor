@@ -64,6 +64,16 @@ Claude Code çalışırken ne yaptığı ("düşünüyor", "Bash çalışıyor",
 | Tray | Olay → `Activity::apply`; süresi dolanlar mevcut 30 s'lik AI turunda düşer (kayıt yoksa iş yok). Parça 2'de durum değişimi `deck.log`'a yazılır (`ai: etkinlik: …`); Parça 3'te yerini balon alır |
 | Pencere alt sistemi | `lowmon-hook` konsol açmaz; stdin borusu yine okunur |
 
+## Parça 3 notları (2026-11-17)
+| Konu | Uygulama |
+|---|---|
+| Balon | `Bar::bubble(blok, Option<Line>)`: üst düzey katmanlı pencere (`TOPMOST`, `NOACTIVATE`, `TRANSPARENT`, `TOOLWINDOW`), ilk gösterimde kurulur. GDI+ yolu: dört köşe yayı + sağ altta kuyruk; zemin ~%70 opak (koyu tema `0x2B2B2B`, açık tema `0xF3F3F3`), 1 px ince kenar |
+| Konum | Bloğun sağ-üst köşesine yaslı, 2 px boşluk; blok her yerleştiğinde izlenir, içerik ve konum aynıysa yeniden çizilmez |
+| Gizlenme | Etkinlik yok, AI bloğu görünmüyor, `[ai] bubble = false` ya da tam ekran / sunum (`SHQueryUserNotificationState`) |
+| Renk | çalışıyor: normal, bekliyor: turuncu, bitti: soluk (`ai::color`) |
+| "Bitti" | `DONE_SEC` + 0,2 s'lik tek seferlik zamanlayıcı (`TIMER_BUBBLE`) kaydı düşürür; sürekli zamanlayıcı yok |
+| Log | Parça 2'deki `ai: etkinlik: …` log satırı kaldırıldı |
+
 ## Sonuçlar
 - (+) Claude kapalıyken maliyet sıfır; açıkken yalnız olay başına kısa ömürlü küçük süreç + bir pencere mesajı.
 - (+) Sır riski yok: yalnız olay türü ve araç adı işlenir.

@@ -80,6 +80,8 @@ pub struct Ai {
     pub enabled: bool,
     /// Bloğun monitörü; yoksa ortak `monitor`
     pub monitor: Option<Monitor>,
+    /// Claude Code etkinlik balonu (ADR-0034)
+    pub bubble: bool,
 }
 
 impl Default for Ai {
@@ -87,6 +89,7 @@ impl Default for Ai {
         Self {
             enabled: true,
             monitor: None,
+            bubble: true,
         }
     }
 }
