@@ -19,6 +19,10 @@ pub struct Sample {
     pub dw: u32,
     pub rx: u32,
     pub tx: u32,
+    /// Son tray sensör okuması (`TOPIC_SENSORS`); `None` = yok / okunamadı.
+    pub cpu_c: Option<i16>,
+    pub gpu_pct: Option<u8>,
+    pub gpu_c: Option<i16>,
 }
 
 pub struct History {
@@ -81,13 +85,17 @@ impl History {
     }
 
     /// SVG path, viewbox `WINDOW_S`×100: x = zaman (sağ kenar = şimdi), y = 100·(1 − v), v ∈ 0..1.
-    /// Boşlukta yeni `M`; boş pencerede `out` boş kalır.
-    pub fn path(&self, now_s: u64, f: impl Fn(&Sample) -> f32, out: &mut String) {
+    /// Boşlukta ya da `f` `None` dönünce yeni `M`; boş pencerede `out` boş kalır.
+    pub fn path(&self, now_s: u64, f: impl Fn(&Sample) -> Option<f32>, out: &mut String) {
         out.clear();
         let mut prev: Option<u64> = None;
         for s in self.recent(now_s) {
+            let Some(v) = f(s) else {
+                prev = None;
+                continue;
+            };
             let x = WINDOW_S - now_s.saturating_sub(s.ts_s).min(WINDOW_S);
-            let y = 100.0 * (1.0 - f(s).clamp(0.0, 1.0));
+            let y = 100.0 * (1.0 - v.clamp(0.0, 1.0));
             let cmd = match prev {
                 Some(p) if s.ts_s.saturating_sub(p) <= GAP_S => 'L',
                 _ => 'M',
@@ -150,8 +158,8 @@ mod tests {
         }
     }
 
-    fn cpu(s: &Sample) -> f32 {
-        s.cpu as f32 / 10_000.0
+    fn cpu(s: &Sample) -> Option<f32> {
+        Some(s.cpu as f32 / 10_000.0)
     }
 
     #[test]

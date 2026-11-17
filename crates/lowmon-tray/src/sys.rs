@@ -1,6 +1,6 @@
 //! Taskbar sistem ızgarası (ADR-0033 Faz 2): 2 satır × 4 sütun.
 //! CPU %, MEM %, ağ ↑↓ pipe `Sample`'ından (`Live`); GPU % / °C, CPU °C, disk °C `lowmon-sensors`'tan.
-//! Sensörler ayrı iş parçacığında, yalnız blok açıkken, 2 s'de bir okunur (PDH açılışı ~0,3 s,
+//! Sensörler ayrı iş parçacığında, blok açıkken ya da deck sensör abonesi varken, 2 s'de bir okunur (PDH açılışı ~0,3 s,
 //! disk sorgusu 5–35 ms bekletir); sonuç `READING`'e yazılır, çizim UI thread'inde.
 use crate::{Live, ai};
 use lowmon_ai::usage::Level;
@@ -8,7 +8,7 @@ use lowmon_sensors::{Reading, Sensors, Sources};
 use lowmon_taskbar::{Grid, Line, Sys};
 use std::cell::Cell;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 use windows_sys::Win32::{
     Foundation::HWND,
@@ -24,33 +24,55 @@ const PERIOD: Duration = Duration::from_secs(2);
 static READING: Mutex<Option<Reading>> = Mutex::new(None);
 /// Çalışan sensör iş parçacığının kuşağı; değişince eski iş parçacığı bir sonraki turda çıkar.
 static GEN: AtomicU32 = AtomicU32::new(0);
+/// Sensör iş parçacığı çalışıyor (tek kopya).
+static RUNNING: AtomicBool = AtomicBool::new(false);
+/// Izgara açık (`[sys] enabled`): iş parçacığı abone olmasa da sürer.
+static GRID: AtomicBool = AtomicBool::new(false);
+/// `[sys] cpu_temp` (PDH +4 MiB); ızgara ayarı yüklenmeden abone gelirse varsayılan açık.
+static CPU_TEMP: AtomicBool = AtomicBool::new(true);
 
 thread_local! {
     static CFG: Cell<Option<Sys>> = const { Cell::new(None) };
     static MEM_TOTAL_KB: Cell<u64> = const { Cell::new(0) };
 }
 
-/// Sensör iş parçacığını (yeniden) başlatır; `[sys] enabled = false` ise yalnız durdurur.
+/// Izgara ayarını uygular ve sensör iş parçacığını yeniden kurar (`[sys] enabled = false` → ızgara yok;
+/// iş parçacığı yalnız deck sensör abonesi varsa sürer, ADR-0033 / LowDeck `TOPIC_SENSORS`).
 pub fn start(hwnd: HWND, cfg: Sys) {
     stop();
-    if !cfg.enabled {
-        return;
+    CPU_TEMP.store(cfg.cpu_temp, Ordering::Relaxed);
+    if cfg.enabled {
+        CFG.set(Some(cfg));
+        GRID.store(true, Ordering::Relaxed);
+        let mut ms = MEMORYSTATUSEX {
+            dwLength: size_of::<MEMORYSTATUSEX>() as u32,
+            // SAFETY: düz veri yapısı; sıfır geçerli başlangıç.
+            ..unsafe { std::mem::zeroed() }
+        };
+        // SAFETY: ms yerel, dwLength dolu.
+        if unsafe { GlobalMemoryStatusEx(&mut ms) } != 0 {
+            MEM_TOTAL_KB.set(ms.ullTotalPhys / 1024);
+        }
     }
-    CFG.set(Some(cfg));
-    let mut ms = MEMORYSTATUSEX {
-        dwLength: size_of::<MEMORYSTATUSEX>() as u32,
-        // SAFETY: düz veri yapısı; sıfır geçerli başlangıç.
-        ..unsafe { std::mem::zeroed() }
-    };
-    // SAFETY: ms yerel, dwLength dolu.
-    if unsafe { GlobalMemoryStatusEx(&mut ms) } != 0 {
-        MEM_TOTAL_KB.set(ms.ullTotalPhys / 1024);
+    sync(hwnd);
+}
+
+/// İş parçacığı gerekli mi: ızgara açık ya da deck'te sensör abonesi var.
+fn wanted() -> bool {
+    GRID.load(Ordering::Relaxed) || crate::DECK_HUB.get().is_some_and(|h| h.wants_sensors())
+}
+
+/// Gerekliyse ve çalışmıyorsa iş parçacığını başlatır (deck abonelik değişince de çağrılır).
+/// Gereksizse iş parçacığı bir sonraki turda kendisi çıkar.
+pub fn sync(hwnd: HWND) {
+    if !wanted() || RUNNING.swap(true, Ordering::AcqRel) {
+        return;
     }
     let generation = GEN.load(Ordering::Relaxed);
     let owner = hwnd as usize;
     let src = Sources {
         gpu: true,
-        cpu_temp: cfg.cpu_temp,
+        cpu_temp: CPU_TEMP.load(Ordering::Relaxed),
         disk_temp: true,
     };
     let spawned = std::thread::Builder::new()
@@ -58,19 +80,45 @@ pub fn start(hwnd: HWND, cfg: Sys) {
         .spawn(move || {
             let mut s = Sensors::open(src);
             while GEN.load(Ordering::Relaxed) == generation {
-                *READING.lock().unwrap_or_else(|e| e.into_inner()) = Some(s.read());
+                if !wanted() {
+                    // Çıkmadan önce bayrağı bırak, sonra yeniden bak: arada abone geldiyse sync bizi görmedi
+                    RUNNING.store(false, Ordering::Release);
+                    if !wanted() || RUNNING.swap(true, Ordering::AcqRel) {
+                        return;
+                    }
+                }
+                let r = s.read();
+                *READING.lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
+                if let Some(h) = crate::DECK_HUB.get() {
+                    h.set_sensors(to_proto(&r));
+                }
                 // SAFETY: pencere yok olduysa PostMessage yalnız başarısız döner.
                 unsafe { PostMessageW(owner as HWND, WM_SYS, 0, 0) };
                 std::thread::sleep(PERIOD);
             }
+            // Kuşak değişti (stop/start): yeni iş parçacığı RUNNING'i zaten aldı ya da alacak
         });
     if let Err(e) = spawned {
+        RUNNING.store(false, Ordering::Release);
         lowmon_deck::log::write(&format!("sys: sensör iş parçacığı açılamadı: {e}"));
+    }
+}
+
+/// `lowmon-sensors` okuması → telefon/UI protokolü (aralık dışı değer kırpılır).
+fn to_proto(r: &Reading) -> lowmon_deck::Sensors {
+    let c = |v: Option<i32>| v.map(|v| v.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
+    lowmon_deck::Sensors {
+        gpu_pct: r.gpu_pct.map(|v| v.min(100) as u8),
+        gpu_c: c(r.gpu_c),
+        cpu_c: c(r.cpu_c),
+        disk_c: c(r.disk_c),
     }
 }
 
 pub fn stop() {
     GEN.fetch_add(1, Ordering::Relaxed);
+    RUNNING.store(false, Ordering::Release);
+    GRID.store(false, Ordering::Relaxed);
     CFG.set(None);
     *READING.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }

@@ -543,6 +543,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     match msg {
         WM_DATA => {
             notify(hwnd, NIM_MODIFY);
+            sys::sync(hwnd); // sensör abonesi geldiyse iş parçacığını aç
             sys::render();
         }
         // Sensör okuması geldi; servis çalışıyorsa çizim zaten WM_DATA ritminde (2 s'de iki çizim olmasın)
@@ -643,6 +644,10 @@ fn post(live: Option<Live>) {
     *LATEST.lock().unwrap_or_else(|e| e.into_inner()) = live;
     post_redraw();
 }
+
+/// Deck hub'ı, UI thread'i dışından (sensör iş parçacığı) erişim için.
+pub static DECK_HUB: std::sync::OnceLock<std::sync::Arc<lowmon_deck::Hub>> =
+    std::sync::OnceLock::new();
 
 fn post_redraw() {
     // SAFETY: pencere yok olduysa PostMessage yalnızca başarısız döner.
@@ -780,6 +785,7 @@ fn main() {
         let deck = lowmon_deck::start();
         // Telefon bağlandı/koptu → tooltip (UI thread'inde WM_DATA ile)
         let _ = deck.hub.on_client.set(Box::new(post_redraw));
+        let _ = DECK_HUB.set(deck.hub.clone());
         DECK.set(Some(deck));
         deck_reload(false);
         notify(hwnd, NIM_ADD);
