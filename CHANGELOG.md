@@ -7,6 +7,7 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 - `lowmon-ui` `release-ui` profiliyle (`opt-level = "s"`) derlenir: exe 10,5 → 8,9 MB; `install.ps1` `-UiSrc target\release-ui`
 - Tray "Arayüzü aç": `UiExe` kaydı var ama exe yoksa (taşınmış/silinmiş) menü pasif ve etiket nedeni söyler; önceden tıklama sessizce boşa gidiyordu
 ### Eklendi
+- İngilizce arayüz: `ai.toml` `language = "en"` artık tray menüsünü, tooltip / bildirim / ileti kutularını ve `lowmon-ui`'ın tüm sekmelerini de İngilizce yapar (önceden yalnız taskbar metni); sayılar dile göre biçimlenir (ADR-0032 Dil kapsamı)
 - Taskbar blokları monitör başına: sistem ızgarası varsayılan olarak ikinci monitörün taskbar'ında (yoksa AI'ın yanında); `taskbar.toml` `[sys] monitor` / `[ai] monitor` (`other` dahil). Monitör takılıp çıkarılınca bloklar yeniden kurulur (ADR-0033 Faz 3)
 - Taskbar sistem ızgarası: `CPU / GPU / MEM / ↑` ve `CPU °C / GPU °C / HDD °C / ↓` (2 × 4), AI bloğunun sağında; eşik renkleri, sol tık `lowmon-ui`. `lowmon-taskbar` çok bloklu hücre ızgarası oldu; `taskbar.toml` `[sys]` / `[ai]` (ADR-0033 Faz 2)
 - `lowmon-sensors` crate: GPU % + °C (D3DKMT, üretici DLL'i yok), disk °C, CPU °C (ACPI termal bölge); taskbar sistem ızgarası için, tray entegrasyonu Faz 2 (ADR-0033 Faz 1)

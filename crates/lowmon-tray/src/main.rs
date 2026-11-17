@@ -9,6 +9,8 @@ mod ai;
 mod autostart;
 mod sys;
 
+use lowmon_ai::text::tr;
+
 use lowmon_core::{
     metrics::{EventKind, Sample},
     proto::{self, CH_EVENT, CH_SAMPLE, ClientMsg, PIPE_NAME, PROTO, Role, ServerMsg},
@@ -126,7 +128,11 @@ fn rate(bps: u64) -> String {
 
 fn tooltip(live: Option<Live>, total_kb: u64, alarms: &[String], phone: Option<&str>) -> String {
     let mut s: String = match live {
-        None => "LowMonitor: servise bağlı değil".into(),
+        None => tr(
+            "LowMonitor: servise bağlı değil",
+            "LowMonitor: not connected to the service",
+        )
+        .into(),
         Some(l) => format!(
             "CPU {:.0}% · RAM {:.0}% · ↓{}",
             l.cpu as f32 / 100.0,
@@ -162,7 +168,13 @@ fn on_event(alarms: &mut Vec<String>, kind: EventKind, name: &str, value: i64) -
 
 /// Bağlanışta aktif liste boş değilse tek balon.
 fn snapshot_text(alarms: &[String]) -> Option<String> {
-    (!alarms.is_empty()).then(|| format!("Aktif alarm: {}", alarms.join(", ")))
+    (!alarms.is_empty()).then(|| {
+        format!(
+            "{}: {}",
+            tr("Aktif alarm", "Active alarm"),
+            alarms.join(", ")
+        )
+    })
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -264,7 +276,10 @@ fn notify(hwnd: HWND, msg: u32) {
             nid.uFlags |= NIF_INFO;
             nid.dwInfoFlags = NIIF_WARNING;
             for (dst, src) in [
-                (&mut nid.szInfoTitle[..], "LowMonitor alarmı"),
+                (
+                    &mut nid.szInfoTitle[..],
+                    tr("LowMonitor alarmı", "LowMonitor alarm"),
+                ),
                 (&mut nid.szInfo[..], &text),
             ] {
                 let w: Vec<u16> = src.encode_utf16().collect();
@@ -313,29 +328,29 @@ fn menu(hwnd: HWND) {
             m,
             MF_STRING | if muted() { MF_CHECKED } else { 0 },
             ID_MUTE,
-            wide("Alarmları sessize al (1 saat)").as_ptr(),
+            wide(tr("Alarmları sessize al (1 saat)", "Mute alarms (1 hour)")).as_ptr(),
         );
         AppendMenuW(
             m,
             MF_STRING | MF_POPUP,
             phone_menu() as usize,
-            wide("Telefon").as_ptr(),
+            wide(tr("Telefon", "Phone")).as_ptr(),
         );
         AppendMenuW(
             m,
             MF_STRING | MF_POPUP,
             ai::menu() as usize,
-            wide("AI kullanımı").as_ptr(),
+            wide(tr("AI kullanımı", "AI usage")).as_ptr(),
         );
         let checked = if autostart::enabled() { MF_CHECKED } else { 0 };
         AppendMenuW(
             m,
             MF_STRING | checked,
             ID_AUTO,
-            wide("Windows ile başlat").as_ptr(),
+            wide(tr("Windows ile başlat", "Start with Windows")).as_ptr(),
         );
         AppendMenuW(m, MF_SEPARATOR, 0, ptr::null());
-        AppendMenuW(m, MF_STRING, ID_EXIT, wide("Çıkış").as_ptr());
+        AppendMenuW(m, MF_STRING, ID_EXIT, wide(tr("Çıkış", "Exit")).as_ptr());
         let mut pt = POINT { x: 0, y: 0 };
         GetCursorPos(&mut pt);
         // Menü dışına tıklayınca kapanması için (KB135788)
@@ -419,7 +434,9 @@ fn phone_menu() -> HMENU {
         match d.and_then(|d| d.config()) {
             Some(c) => {
                 let who = d.and_then(|d| d.hub.phone_name());
-                let who = who.map_or("Bekliyor".into(), |n| format!("Bağlı: {n}"));
+                let who = who.map_or(tr("Bekliyor", "Waiting").into(), |n| {
+                    format!("{}: {n}", tr("Bağlı", "Connected"))
+                });
                 (
                     vec![format!("⚙  {}  ·  {}  ·  {}", c.bind, c.port, c.token), who],
                     true,
@@ -428,7 +445,11 @@ fn phone_menu() -> HMENU {
             None => {
                 let e = DECK_ERR.with_borrow(|e| e.clone()).unwrap_or_default();
                 (
-                    vec![format!("Kapalı: {}", e.lines().next().unwrap_or(""))],
+                    vec![format!(
+                        "{}: {}",
+                        tr("Kapalı", "Off"),
+                        e.lines().next().unwrap_or("")
+                    )],
                     false,
                 )
             }
@@ -442,9 +463,9 @@ fn phone_menu() -> HMENU {
         }
         AppendMenuW(sub, MF_SEPARATOR, 0, ptr::null());
         for (id, text) in [
-            (ID_CFG, "Ayar dosyasını aç"),
-            (ID_RELOAD, "Ayarı yeniden yükle"),
-            (ID_LOG, "Log'u aç"),
+            (ID_CFG, tr("Ayar dosyasını aç", "Open config file")),
+            (ID_RELOAD, tr("Ayarı yeniden yükle", "Reload config")),
+            (ID_LOG, tr("Log'u aç", "Open log")),
         ] {
             AppendMenuW(sub, MF_STRING, id, wide(text).as_ptr());
         }
@@ -453,7 +474,11 @@ fn phone_menu() -> HMENU {
             sub,
             MF_STRING | fw,
             ID_FIREWALL,
-            wide("Firewall kuralı ekle (yönetici)…").as_ptr(),
+            wide(tr(
+                "Firewall kuralı ekle (yönetici)…",
+                "Add firewall rule (admin)…",
+            ))
+            .as_ptr(),
         );
         sub
     }
@@ -488,7 +513,7 @@ fn deck_reload(show: bool) {
                 MessageBoxW(
                     ptr::null_mut(),
                     wide(e).as_ptr(),
-                    wide("LowMonitor telefon").as_ptr(),
+                    wide(tr("LowMonitor telefon", "LowMonitor phone")).as_ptr(),
                     MB_ICONERROR,
                 )
             };

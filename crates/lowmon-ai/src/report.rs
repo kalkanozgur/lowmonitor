@@ -291,8 +291,8 @@ pub fn merge(parts: &[&Session]) -> Session {
     out
 }
 
-/// 812 → "812", 81200 → "81,2 K", 3040000 → "3,04 M" (ondalık virgül).
-pub fn format_tokens(v: f64) -> String {
+/// 812 → "812", 81200 → "81,2 K", 3040000 → "3,04 M"; İngilizcede ondalık nokta ("81.2 K").
+pub fn format_tokens(v: f64, lang: crate::text::Lang) -> String {
     let (n, unit) = if v < 1e3 {
         return format!("{v:.0}");
     } else if v < 1e6 {
@@ -301,7 +301,12 @@ pub fn format_tokens(v: f64) -> String {
         (v / 1e6, "M")
     };
     let prec = if n < 10.0 { 2 } else { 1 };
-    format!("{n:.prec$} {unit}").replace('.', ",")
+    let s = format!("{n:.prec$} {unit}");
+    if lang == crate::text::Lang::Tr {
+        s.replace('.', ",")
+    } else {
+        s
+    }
 }
 
 /// Limit çizgisi → SVG path, viewbox `CHART_W`×100: x zamana oranlı, yok / uzun boşluk çizgiyi koparır.
@@ -399,10 +404,12 @@ mod tests {
         assert_eq!((m.request_count, m.total_effective), (2, 400.0));
         assert_eq!(m.groups[0].name, "y");
         assert!((m.groups[0].share - 0.85).abs() < 1e-9);
-        assert_eq!(format_tokens(812.0), "812");
-        assert_eq!(format_tokens(8120.0), "8,12 K");
-        assert_eq!(format_tokens(81_200.0), "81,2 K");
-        assert_eq!(format_tokens(3_040_000.0), "3,04 M");
+        use crate::text::Lang;
+        assert_eq!(format_tokens(812.0, Lang::Tr), "812");
+        assert_eq!(format_tokens(8120.0, Lang::Tr), "8,12 K");
+        assert_eq!(format_tokens(81_200.0, Lang::Tr), "81,2 K");
+        assert_eq!(format_tokens(3_040_000.0, Lang::Tr), "3,04 M");
+        assert_eq!(format_tokens(81_200.0, Lang::En), "81.2 K");
     }
 
     #[test]

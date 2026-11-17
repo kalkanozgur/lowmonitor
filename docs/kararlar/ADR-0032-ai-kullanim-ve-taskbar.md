@@ -70,6 +70,15 @@ Gereken: exe manifesti (supportedOS Win10) — katmanlı alt pencere Win8+ uyuml
 | Bulut özetleri | `*_usage.json` rapora girer; klasör `ai.toml` `summary_dir`, boşsa Belgeler\Claude-Logs. Proje adına "(bulut)" eklenir |
 | Taşınmayan | Tahmin kartları (%100'e varış, oturum→hafta oranı), grafik eksen etiketleri / imleç, CSV budama (`csv_keep_months`), İngilizce grup adları (arayüz Türkçe) |
 
+## Dil kapsamı (kullanıcı, 2026-11-17)
+| Konu | Karar |
+|---|---|
+| Kapsam | en/tr seçimi **her şeyi** kapsar: taskbar metni, tray menüsü / tooltip / bildirim / ileti kutuları, `lowmon-ui` tüm sekmeler |
+| Ayar | Tek yer: `%APPDATA%\LowMonitor\ai.toml` `language = "en"` / `"tr"` (varsayılan `tr`). Tray açılışta ve "Ayarı yeniden yükle"de, `lowmon-ui` açılışta okur |
+| Yöntem | `lowmon_ai::text::set_lang` + metin yerinde `tr("Türkçe", "English")`; Slint'te `Lang.t("Türkçe", "English")`. Çeviri dosyası / çalışma anı kitaplığı yok |
+| Sayılar | İngilizcede ondalık nokta ve `47.7%`; Türkçede virgül ve `%47,7`. Token dökümü grup adları İngilizcede çevrilir (kimlikler veride Türkçe kalır) |
+| Çevrilmeyen | Log dosyaları (`deck.log`), `lowmon-deck` ve servis hata metinleri (menüde "Off: …" ardından Türkçe gelebilir), telefon uygulaması (LowDeck, ayrı repo) |
+
 ## Fazlar (her biri ayrı PR, ölçümle)
 | Faz | Repo | İş | Doğrulama |
 |---|---|---|---|

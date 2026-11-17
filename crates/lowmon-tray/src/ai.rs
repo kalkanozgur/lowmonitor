@@ -2,7 +2,7 @@
 //! Gösterge iki blokludur (ADR-0033): sistem ızgarası (`sys`, blok 0) ve AI (blok 1). Aynı taskbar'da
 //! sistem sağda, AI solunda; varsayılan ayarda sistem ızgarası ikinci monitör takılıysa oradadır.
 //! İşçi durum değişince `WM_AI` gönderir; kalan süre metni için 30 s'lik zamanlayıcı yeniden çizer.
-use lowmon_ai::{Config, Running, State, api::Window, text, usage, usage::Level};
+use lowmon_ai::{Config, Running, State, api::Window, text, text::tr, usage, usage::Level};
 use lowmon_deck::{AI_TEXT_MAX, AiUsage, AiWindow};
 use lowmon_taskbar::{Bar, EV_LEFT, EV_MOVED, EV_RIGHT, Grid, Line};
 use std::{cell::RefCell, ptr};
@@ -67,6 +67,7 @@ pub fn start(hwnd: HWND) {
         log(e);
     }
     CFG_ERR.set(errs.into_iter().next());
+    text::set_lang(cfg.language); // tray menüsü ve iletiler de bu dilde
     let owner = hwnd as usize;
     // SAFETY: pencere yok olduysa PostMessage yalnız başarısız döner.
     let on_change = Box::new(move |_: &State| unsafe {
@@ -277,7 +278,10 @@ pub fn save_key(hwnd: HWND) {
     let Some(key) = take_clipboard_key(hwnd) else {
         message(
             hwnd,
-            "Panoda sessionKey yok. claude.ai çerezlerinden sessionKey değerini (sk-ant-…) kopyalayıp tekrar deneyin.",
+            tr(
+                "Panoda sessionKey yok. claude.ai çerezlerinden sessionKey değerini (sk-ant-…) kopyalayıp tekrar deneyin.",
+                "No sessionKey on the clipboard. Copy the sessionKey value (sk-ant-…) from the claude.ai cookies and try again.",
+            ),
             MB_ICONWARNING,
         );
         return;
@@ -287,14 +291,24 @@ pub fn save_key(hwnd: HWND) {
     lowmon_ai::win::wipe(&mut key);
     match r {
         Ok(()) => {
-            message(hwnd, "sessionKey kaydedildi (DPAPI).", MB_ICONINFORMATION);
+            message(
+                hwnd,
+                tr(
+                    "sessionKey kaydedildi (DPAPI).",
+                    "sessionKey saved (DPAPI).",
+                ),
+                MB_ICONINFORMATION,
+            );
             refresh_now();
         }
         Err(e) => {
             log(&format!("sessionKey kaydedilemedi: {e}"));
             message(
                 hwnd,
-                &format!("sessionKey kaydedilemedi: {e}"),
+                &format!(
+                    "{}: {e}",
+                    tr("sessionKey kaydedilemedi", "Could not save sessionKey")
+                ),
                 MB_ICONERROR,
             );
         }
@@ -320,23 +334,28 @@ fn clip(s: &str, n: usize) -> String {
 /// Menüdeki durum satırı.
 pub fn status(st: &State, now: i64, cfg_err: Option<&str>) -> String {
     if let Some(e) = cfg_err {
-        return clip(&format!("Ayar hatası: {e}"), 80);
+        return clip(&format!("{}: {e}", tr("Ayar hatası", "Config error")), 80);
     }
     if !st.error.is_empty() {
-        return clip(&format!("Hata: {}", st.error), 80);
+        return clip(&format!("{}: {}", tr("Hata", "Error"), st.error), 80);
     }
-    let closed = if st.active { "" } else { " · Claude kapalı" };
+    let closed = if st.active {
+        ""
+    } else {
+        tr(" · Claude kapalı", " · Claude closed")
+    };
     if st.fetched_at == 0 {
         return if st.active {
-            "Sorgulanıyor…".into()
+            tr("Sorgulanıyor…", "Querying…").into()
         } else {
-            "Claude kapalı · sorgu yok".into()
+            tr("Claude kapalı · sorgu yok", "Claude closed · not querying").into()
         };
     }
     format!(
-        "{} · {} dk önce{closed}",
+        "{} · {} {}{closed}",
         st.source,
-        (now - st.fetched_at).max(0) / 60
+        (now - st.fetched_at).max(0) / 60,
+        tr("dk önce", "min ago")
     )
 }
 
@@ -350,10 +369,13 @@ pub fn menu() -> HMENU {
         AppendMenuW(sub, MF_STRING | MF_GRAYED, 0, crate::wide(&line).as_ptr());
         AppendMenuW(sub, MF_SEPARATOR, 0, ptr::null());
         for (id, t) in [
-            (ID_REPORT, "Rapor (token dökümü)"),
-            (ID_NOW, "Şimdi yenile"),
-            (ID_CFG, "Ayar dosyasını aç"),
-            (ID_RELOAD, "Ayarı yeniden yükle"),
+            (
+                ID_REPORT,
+                tr("Rapor (token dökümü)", "Report (token breakdown)"),
+            ),
+            (ID_NOW, tr("Şimdi yenile", "Refresh now")),
+            (ID_CFG, tr("Ayar dosyasını aç", "Open config file")),
+            (ID_RELOAD, tr("Ayarı yeniden yükle", "Reload config")),
         ] {
             AppendMenuW(sub, MF_STRING, id, crate::wide(t).as_ptr());
         }
@@ -363,7 +385,11 @@ pub fn menu() -> HMENU {
             sub,
             MF_STRING,
             ID_KEY_SAVE,
-            crate::wide("Panodan sessionKey kaydet").as_ptr(),
+            crate::wide(tr(
+                "Panodan sessionKey kaydet",
+                "Save sessionKey from clipboard",
+            ))
+            .as_ptr(),
         );
         let has = if session_file().exists() {
             0
@@ -374,7 +400,7 @@ pub fn menu() -> HMENU {
             sub,
             MF_STRING | has,
             ID_KEY_DEL,
-            crate::wide("sessionKey'i sil").as_ptr(),
+            crate::wide(tr("sessionKey'i sil", "Delete sessionKey")).as_ptr(),
         );
         sub
     }

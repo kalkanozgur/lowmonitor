@@ -22,7 +22,7 @@
 - [ ] Tray 2026-11-17 00:10 yeniden başlatmadan sonra çalışmıyordu (Run kaydı `LowMonitorTray` yerinde; neden bilinmiyor, elle açıldı). Bir sonraki açılışta izle
 - [ ] Rafta (2026-11-17, kullanıcı): `lowmon-ui` veriyi doğrudan servisten (`lowmon-svc` pipe) alsın; şu an yalnız tray'deki deck üzerinden (ADR-0031), tray kapalıyken boş. Seçenekler: hibrit (metrik/olay/geçmiş pipe, AI bandı deck) ya da tamamen doğrudan; yeni ADR gerekir
 - [ ] ADR-0033 taskbar sistem ızgarası: ~~Faz 1 `lowmon-sensors` (D3DKMT GPU, disk °C, ACPI termal bölge + ölçüm)~~ ✅ → ~~2 çok bloklu `lowmon-taskbar` + tray~~ ✅ → ~~3 diğer monitör~~ ✅ (monitör tak / çıkar canlı denenmedi) → 4 geçmiş/telefon (ayrı karar)
-- [ ] Dil: tray menüsü + `lowmon-ui` en/tr seçilebilir (kullanıcı 2026-11-17; taskbar metni `ai.toml` ile İngilizce yapıldı)
+- [x] Dil: tray menüsü + `lowmon-ui` en/tr (`ai.toml` `language`, 2026-11-17). Çevrilmeyen: `lowmon-deck` / servis hata metinleri, loglar, telefon uygulaması
   - Faz 2 canlı doğrulanmadı: explorer yeniden başlatma, bildirim alanı genişleyince yeniden konum, açık tema, gösterge tıkları gerçek fareyle
 
 ## Kısayollar (`shortcut:` borcu)
