@@ -182,8 +182,73 @@ pub fn read(path: &Path, from_min: u32, to_min: u32) -> std::io::Result<Vec<Rec>
     Ok(v)
 }
 
+/// Dakikalık sensör kayıtlarını (ADR-0035) geçmiş kovalarına toplar: ort. = kayıt ortalamalarının ortalaması,
+/// max = max'ların max'ı. Dakikadan kısa kova kendi dakikasını kullanır. `recs` zamana göre sıralı.
+pub fn buckets(recs: &[Rec], from_ms: u64, step_ms: u64, n: usize) -> Vec<Option<Rec>> {
+    let merge = |a: Agg, b: Agg| Agg {
+        avg: a.avg.map_or(b.avg, |x| Some(b.avg.map_or(x, |y| x + y))),
+        max: a.max.map_or(b.max, |x| Some(b.max.map_or(x, |y| x.max(y)))),
+    };
+    (0..n as u64)
+        .map(|i| {
+            let start = ((from_ms + step_ms * i) / 60_000) as u32;
+            let end = (((from_ms + step_ms * (i + 1)).div_ceil(60_000)) as u32).max(start + 1);
+            let lo = recs.partition_point(|r| r.ts_min < start);
+            let hi = recs.partition_point(|r| r.ts_min < end);
+            let v = &recs[lo..hi];
+            if v.is_empty() {
+                return None;
+            }
+            // Ortalama: alan başına dolu kayıt sayısına böl
+            let avg = |f: fn(&Rec) -> Agg| {
+                let n = v.iter().filter(|r| f(r).avg.is_some()).count().max(1) as f32;
+                let a = v.iter().map(f).fold(Agg::default(), merge);
+                Agg {
+                    avg: a.avg.map(|x| x / n),
+                    max: a.max,
+                }
+            };
+            Some(Rec {
+                ts_min: start,
+                cpu: avg(|r| r.cpu),
+                gpu_c: avg(|r| r.gpu_c),
+                disk: avg(|r| r.disk),
+                gpu_pct: avg(|r| r.gpu_pct),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn buckets_merge() {
+        let r = |ts_min, avg, max| Rec {
+            ts_min,
+            cpu: Agg {
+                avg: Some(avg),
+                max: Some(max),
+            },
+            ..Default::default()
+        };
+        let recs = [r(10, 50.0, 60.0), r(11, 70.0, 90.0), r(13, 40.0, 41.0)];
+        // 2 dk kova, 10. dakikadan: [10,12) [12,14) [14,16)
+        let b = buckets(&recs, 600_000, 120_000, 3);
+        assert_eq!(
+            b[0].unwrap().cpu,
+            Agg {
+                avg: Some(60.0),
+                max: Some(90.0)
+            }
+        );
+        assert_eq!(b[0].unwrap().gpu_c, Agg::default());
+        assert_eq!(b[1].unwrap().cpu.max, Some(41.0));
+        assert!(b[2].is_none());
+        // 30 s kova: aynı dakikanın iki kovası aynı kaydı görür
+        let b = buckets(&recs, 600_000, 30_000, 2);
+        assert_eq!(b[0], b[1]);
+    }
+
     use super::*;
 
     fn rd(cpu: i32, gpu_pct: Option<u32>) -> Reading {

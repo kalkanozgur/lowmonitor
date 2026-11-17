@@ -22,11 +22,15 @@ use std::time::Duration;
 
 #[macro_use]
 pub mod log;
+pub mod procs;
+mod report;
 /// Tray AI yayını için (ADR-0032).
 pub use lowdeck_proto::{AI_TEXT_MAX, AiUsage, AiWindow, Sensors};
 mod lowmon;
 #[cfg(windows)]
 mod win;
+#[cfg(windows)]
+pub use win::utc_offset_s;
 
 #[cfg(not(test))]
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -46,6 +50,8 @@ pub struct Hub {
     pub on_client: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
     /// Bağlı telefon metriklere abone mi (lowmon thread bunu bekler).
     pub want: Want,
+    /// En az bir istemci `TOPIC_PROCS` abonesi mi (süreç tarama thread'i bunu bekler, ADR-0009).
+    pub want_procs: Want,
 }
 
 /// Koşul değişkenli bayrak: lowmon thread abonelik yokken burada uyur (sıfır uyanma).
@@ -97,6 +103,10 @@ struct Client {
     events: bool,
     ai: bool,
     sensors: bool,
+    procs: bool,
+    /// Süreç görünümü (`C2S::ProcView`): sıralama + küçük harf süzgeç.
+    sort: procs::SortBy,
+    filter: String,
 }
 
 /// Yuva = dinleyici (ADR-0003): LAN (telefon) ve loopback (PC arayüzü) birbirini düşürmez.
@@ -115,6 +125,34 @@ struct HubInner {
     ai: Option<AiUsage>,
     /// Son tray sensör okuması (ADR-0033); yeni `TOPIC_SENSORS` abonesine ilk çerçeve.
     sensors: Option<Sensors>,
+    /// Son süreç taraması (CPU'ya göre sıralı); görünüm değişince yeniden süzülür.
+    rows: Vec<procs::Row>,
+}
+
+/// İstemcinin görünümüne göre ilk `PROCS_MAX` süreç.
+fn procs_frame(rows: &[procs::Row], sort: procs::SortBy, filter: &str) -> S2C {
+    let mut v: Vec<procs::Row> = rows
+        .iter()
+        .filter(|r| procs::matches(r, filter))
+        .cloned()
+        .collect();
+    let total = v.len().min(u16::MAX as usize) as u16;
+    procs::sort_rows(&mut v, sort);
+    S2C::Procs {
+        total,
+        items: v
+            .into_iter()
+            .take(PROCS_MAX)
+            .map(|r| ProcItem {
+                protected: procs::protected(r.pid, &r.name),
+                pid: r.pid,
+                ctime: r.ctime,
+                name: r.name.chars().take(PROC_NAME_MAX).collect(),
+                cpu: r.cpu,
+                ws_mb: r.ws_mb,
+            })
+            .collect(),
+    }
 }
 
 impl HubInner {
@@ -146,13 +184,12 @@ impl Hub {
 
     /// İstemci ya da aboneliği değişti: tray + lowmon'a bildir. Kilit dışında çağrılır.
     fn changed(&self) {
-        let want = self
-            .lock()
-            .clients
-            .iter()
-            .flatten()
-            .any(|c| c.metrics || c.events);
+        let g = self.lock();
+        let want = g.clients.iter().flatten().any(|c| c.metrics || c.events);
+        let want_procs = g.clients.iter().flatten().any(|c| c.procs);
+        drop(g);
         self.want.set(want);
+        self.want_procs.set(want_procs);
         if let Some(f) = self.on_client.get() {
             f();
         }
@@ -163,7 +200,9 @@ impl Hub {
         let alarms = S2C::Alarms(g.alarms.clone());
         let ai = S2C::Ai(g.ai.clone());
         let sensors = g.sensors.map(S2C::Sensors);
+        let rows = std::mem::take(&mut g.rows);
         if let Some(c) = g.by_id(id) {
+            let new_procs = t & TOPIC_PROCS != 0 && !c.procs && !rows.is_empty();
             let new_events = t & TOPIC_EVENTS != 0 && !c.events;
             let new_ai = t & TOPIC_AI != 0 && !c.ai;
             let new_sensors = t & TOPIC_SENSORS != 0 && !c.sensors;
@@ -171,7 +210,9 @@ impl Hub {
             c.events = t & TOPIC_EVENTS != 0;
             c.ai = t & TOPIC_AI != 0;
             c.sensors = t & TOPIC_SENSORS != 0;
-            if (new_events && write_frame(&mut c.w, &alarms).is_err())
+            c.procs = t & TOPIC_PROCS != 0;
+            if (new_procs && write_frame(&mut c.w, &procs_frame(&rows, c.sort, &c.filter)).is_err())
+                || (new_events && write_frame(&mut c.w, &alarms).is_err())
                 || (new_ai && write_frame(&mut c.w, &ai).is_err())
                 || (new_sensors
                     && sensors
@@ -181,8 +222,64 @@ impl Hub {
                 let _ = c.w.get_ref().shutdown(Shutdown::Both);
             }
         }
+        g.rows = rows;
         drop(g);
         self.changed();
+    }
+
+    /// `C2S::ProcView`: görünümü kaydeder, önbellekten hemen yanıtlar (sonraki tarama beklenmez).
+    fn set_view(&self, id: u64, sort: u8, filter: &str) {
+        let mut g = self.lock();
+        let rows = std::mem::take(&mut g.rows);
+        let mut bad = false;
+        if let Some(c) = g.by_id(id) {
+            c.sort = if sort == 1 {
+                procs::SortBy::Ram
+            } else {
+                procs::SortBy::Cpu
+            };
+            c.filter = filter
+                .chars()
+                .take(PROC_FILTER_MAX)
+                .collect::<String>()
+                .to_lowercase();
+            if c.procs && !rows.is_empty() {
+                bad = write_frame(&mut c.w, &procs_frame(&rows, c.sort, &c.filter)).is_err();
+                if bad {
+                    let _ = c.w.get_ref().shutdown(Shutdown::Both);
+                }
+            }
+        }
+        g.rows = rows;
+        drop(g);
+        if bad {
+            self.changed();
+        }
+    }
+
+    /// Süreç tarama thread'i: önbellek + her abonenin görünümüyle.
+    pub fn push_procs(&self, rows: Vec<procs::Row>) {
+        let mut g = self.lock();
+        let mut ok = true;
+        for slot in &mut g.clients {
+            if let Some(c) = slot.as_mut().filter(|c| c.procs)
+                && write_frame(&mut c.w, &procs_frame(&rows, c.sort, &c.filter)).is_err()
+            {
+                let _ = c.w.get_ref().shutdown(Shutdown::Both);
+                *slot = None;
+                ok = false;
+            }
+        }
+        g.rows = rows;
+        drop(g);
+        if !ok {
+            self.changed();
+        }
+    }
+
+    /// Abone kalmayınca: eski liste yeni aboneye bayat gösterilmesin.
+    pub fn clear_procs(&self) {
+        self.lock().rows.clear();
     }
 
     /// Yalnız abone istemcilere; önbelleğe alınmaz (eski örnek göstermek yanıltıcı).
@@ -314,6 +411,9 @@ impl Hub {
             events: false,
             ai: false,
             sensors: false,
+            procs: false,
+            sort: procs::SortBy::Cpu,
+            filter: String::new(),
         });
         drop(g);
         self.changed();
@@ -373,6 +473,17 @@ pub trait Backend: Send + Sync {
     /// LowMonitor metrik geçmişi, `n` kova (ADR-0005): (step_ms, kovalar); hata/servis yok → boş.
     fn history(&self, _from_ms: u64, _to_ms: u64, _n: u16) -> (u64, Vec<Option<HistPoint>>) {
         (0, Vec::new())
+    }
+    /// Süreç sonlandır (ADR-0009, yetki = token); dönüş `procs::exit::*`.
+    fn kill(&self, _pid: u32, _ctime: i64) -> i32 {
+        procs::exit::FAILED
+    }
+    /// Sıcaklık/GPU geçmişi, `QueryHistory` ile aynı kovalar.
+    fn temp_history(&self, _from_ms: u64, _to_ms: u64, _n: u16) -> (u64, Vec<Option<TempPoint>>) {
+        (0, Vec::new())
+    }
+    fn ai_report(&self, _view: u8) -> AiReport {
+        AiReport::default()
     }
 }
 
@@ -488,6 +599,39 @@ fn session(
                     },
                 ); // bitti
             }
+            C2S::ProcView { sort, filter } => hub.set_view(id, sort, &filter),
+            C2S::Kill { pid, ctime } => {
+                let code = backend.kill(pid, ctime);
+                log!("sonlandır: pid {pid} → {code}");
+                hub.reply(id, &S2C::KillResult { pid, code });
+            }
+            C2S::QueryTempHistory {
+                from_ms,
+                to_ms,
+                points,
+            } => {
+                let (step_ms, v) =
+                    backend.temp_history(from_ms, to_ms, points.clamp(1, HIST_POINTS_MAX));
+                for chunk in v.chunks(HIST_PER_FRAME) {
+                    hub.reply(
+                        id,
+                        &S2C::TempHistory {
+                            from_ms,
+                            step_ms,
+                            points: chunk.to_vec(),
+                        },
+                    );
+                }
+                hub.reply(
+                    id,
+                    &S2C::TempHistory {
+                        from_ms,
+                        step_ms,
+                        points: Vec::new(),
+                    },
+                ); // bitti
+            }
+            C2S::QueryAiReport { view } => hub.reply(id, &S2C::AiReport(backend.ai_report(view))),
             C2S::Hello { .. } => hub.reply(id, &S2C::Error(ErrorCode::Unsupported)),
         }
     })();
@@ -1113,6 +1257,84 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(hub.lock().alarms, ["ram"]);
+    }
+
+    /// Süreçler (ADR-0009): abonelik tarayıcıyı açar, görünüm sunucuda süzülür/sıralanır, Kill yanıtlanır.
+    #[test]
+    fn procs_flow() {
+        struct K;
+        impl Backend for K {
+            fn audio(&self, _: AudioCmd) {}
+            fn media(&self, _: MediaCmd) {}
+            fn kill(&self, pid: u32, _: i64) -> i32 {
+                pid as i32
+            }
+        }
+        let hub = Arc::new(Hub::default());
+        let (mut w, mut rd) = client(serve(&hub, SLOT_LOCAL, Arc::new(K)));
+        let mut buf = [0u8; MAX_FRAME];
+        write_frame(&mut w, &C2S::Subscribe(TOPIC_PROCS)).unwrap();
+        assert!(
+            (0..100).any(|_| hub.want_procs.get() || {
+                std::thread::sleep(Duration::from_millis(10));
+                false
+            }),
+            "süreç aboneliği taramayı açtırmalı"
+        );
+        let row = |pid, name: &str, cpu, ws_mb| procs::Row {
+            pid,
+            ctime: 7,
+            name: name.into(),
+            cpu,
+            ws_mb,
+        };
+        let long = "x".repeat(100);
+        let mut rows = vec![row(4, "System", 0, 1), row(10, "Chrome.exe", 50, 900)];
+        rows.extend((100..200).map(|p| row(p, &long, 100, 1)));
+        hub.push_procs(rows);
+        let S2C::Procs { total, items } = read_frame::<_, S2C>(&mut rd, &mut buf).unwrap() else {
+            panic!("Procs bekleniyordu")
+        };
+        assert_eq!((total, items.len()), (102, PROCS_MAX));
+        assert_eq!(items[0].name.len(), PROC_NAME_MAX);
+        // RAM'e göre + süzgeç: önbellekten hemen
+        write_frame(
+            &mut w,
+            &C2S::ProcView {
+                sort: 1,
+                filter: "CHROME".into(),
+            },
+        )
+        .unwrap();
+        let S2C::Procs { total, items } = read_frame::<_, S2C>(&mut rd, &mut buf).unwrap() else {
+            panic!("Procs bekleniyordu")
+        };
+        assert_eq!((total, items[0].pid, items[0].protected), (1, 10, false));
+        write_frame(
+            &mut w,
+            &C2S::ProcView {
+                sort: 1,
+                filter: "sys".into(),
+            },
+        )
+        .unwrap();
+        let S2C::Procs { items, .. } = read_frame::<_, S2C>(&mut rd, &mut buf).unwrap() else {
+            panic!("Procs bekleniyordu")
+        };
+        assert!(items[0].protected);
+        write_frame(&mut w, &C2S::Kill { pid: 10, ctime: 7 }).unwrap();
+        assert_eq!(
+            read_frame::<_, S2C>(&mut rd, &mut buf).unwrap(),
+            S2C::KillResult { pid: 10, code: 10 }
+        );
+        write_frame(&mut w, &C2S::Subscribe(0)).unwrap();
+        assert!(
+            (0..100).any(|_| !hub.want_procs.get() || {
+                std::thread::sleep(Duration::from_millis(10));
+                false
+            }),
+            "abonelik bitince tarama durmalı"
+        );
     }
 
     /// AI aboneliği: önce önbellekteki son durum, sonra yalnız değişiklikler.

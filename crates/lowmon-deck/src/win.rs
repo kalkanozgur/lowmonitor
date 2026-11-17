@@ -25,6 +25,7 @@ use windows::Win32::Media::Audio::{
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, STGM_READ,
 };
+use windows::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY,
     VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE, VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP, VK_PAUSE,
@@ -80,6 +81,66 @@ impl Backend for WinBackend {
             (0, Vec::new())
         })
     }
+    fn kill(&self, pid: u32, ctime: i64) -> i32 {
+        crate::procs::kill(pid, ctime)
+    }
+    fn temp_history(
+        &self,
+        from_ms: u64,
+        to_ms: u64,
+        n: u16,
+    ) -> (u64, Vec<Option<lowdeck_proto::TempPoint>>) {
+        crate::report::temp_points(from_ms, to_ms, n)
+    }
+    fn ai_report(&self, view: u8) -> lowdeck_proto::AiReport {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
+        crate::report::ai_report(view, now, utc_offset_s())
+    }
+}
+
+/// `GetTimeZoneInformation` dönüşü (winnt.h); windows crate'inde sabit yok.
+const TIME_ZONE_ID_DAYLIGHT: u32 = 2;
+
+/// Yerel = UTC + dönüş (saniye).
+pub fn utc_offset_s() -> i64 {
+    let mut tz = TIME_ZONE_INFORMATION::default();
+    // SAFETY: tz yerel, fonksiyon yalnız ona yazar.
+    let id = unsafe { GetTimeZoneInformation(&mut tz) };
+    let bias = tz.Bias
+        + if id == TIME_ZONE_ID_DAYLIGHT {
+            tz.DaylightBias
+        } else {
+            tz.StandardBias
+        };
+    -(bias as i64) * 60
+}
+
+/// Süreç listesi (ADR-0009): abone yokken bekler (sıfır uyanma), varken 2 s'de bir tarar.
+fn procs_thread(hub: Arc<Hub>) {
+    let ncpu = std::thread::available_parallelism().map_or(1, |n| n.get() as u64);
+    let mut tracker = crate::procs::Tracker::default();
+    let mut buf = Vec::new();
+    let t0 = std::time::Instant::now();
+    loop {
+        hub.want_procs.wait_on();
+        tracker.reset();
+        while hub.want_procs.get() {
+            let ms = t0.elapsed().as_millis() as u64;
+            let rows = tracker.update(
+                ms,
+                ncpu,
+                crate::procs::scan(&mut buf),
+                crate::procs::SortBy::Cpu,
+            );
+            hub.push_procs(rows);
+            hub.want_procs
+                .sleep_while_on(std::time::Duration::from_millis(crate::procs::SCAN_MS));
+        }
+        hub.clear_procs();
+        buf = Vec::new(); // ~512 KiB tarama buffer'ı boşta tutulmaz
+    }
 }
 
 pub fn start(hub: Arc<Hub>) -> WinBackend {
@@ -89,6 +150,13 @@ pub fn start(hub: Arc<Hub>) -> WinBackend {
         let (hub, tx) = (hub.clone(), atx.clone());
         move || audio_thread(hub, tx, arx)
     });
+    {
+        let hub = hub.clone();
+        std::thread::Builder::new()
+            .name("lowdeck-procs".into())
+            .spawn(move || procs_thread(hub))
+            .expect("thread");
+    }
     spawn("lowdeck-media", {
         let tx = mtx.clone();
         move || media_thread(hub, tx, mrx)

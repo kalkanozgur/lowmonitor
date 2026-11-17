@@ -1,7 +1,8 @@
 //! Canlı sekmesi 5 dk geçmişi (LM spek §9): sabit kapasiteli ring buffer + SVG path üretimi.
 //! Init sonrası tahsis yok; path `String`'i çağıran tarafından yeniden kullanılır.
 
-use lowmon_sensors::log::{Agg, Rec};
+/// Taşındı: `lowmon_sensors::log::buckets` (LowDeck ADR-0009, deck de kullanır).
+pub use lowmon_sensors::log::buckets as temp_buckets;
 use std::fmt::Write;
 
 /// Pencere = kapasite: deck 1 Hz push eder → 300 örnek = 5 dk.
@@ -132,43 +133,6 @@ pub fn series_path(vals: impl Iterator<Item = Option<f32>>, out: &mut String) {
     }
 }
 
-/// Dakikalık sensör kayıtlarını (ADR-0035) geçmiş kovalarına toplar: ort. = kayıt ortalamalarının ortalaması,
-/// max = max'ların max'ı. Dakikadan kısa kova kendi dakikasını kullanır. `recs` zamana göre sıralı.
-pub fn temp_buckets(recs: &[Rec], from_ms: u64, step_ms: u64, n: usize) -> Vec<Option<Rec>> {
-    let merge = |a: Agg, b: Agg| Agg {
-        avg: a.avg.map_or(b.avg, |x| Some(b.avg.map_or(x, |y| x + y))),
-        max: a.max.map_or(b.max, |x| Some(b.max.map_or(x, |y| x.max(y)))),
-    };
-    (0..n as u64)
-        .map(|i| {
-            let start = ((from_ms + step_ms * i) / 60_000) as u32;
-            let end = (((from_ms + step_ms * (i + 1)).div_ceil(60_000)) as u32).max(start + 1);
-            let lo = recs.partition_point(|r| r.ts_min < start);
-            let hi = recs.partition_point(|r| r.ts_min < end);
-            let v = &recs[lo..hi];
-            if v.is_empty() {
-                return None;
-            }
-            // Ortalama: alan başına dolu kayıt sayısına böl
-            let avg = |f: fn(&Rec) -> Agg| {
-                let n = v.iter().filter(|r| f(r).avg.is_some()).count().max(1) as f32;
-                let a = v.iter().map(f).fold(Agg::default(), merge);
-                Agg {
-                    avg: a.avg.map(|x| x / n),
-                    max: a.max,
-                }
-            };
-            Some(Rec {
-                ts_min: start,
-                cpu: avg(|r| r.cpu),
-                gpu_c: avg(|r| r.gpu_c),
-                disk: avg(|r| r.disk),
-                gpu_pct: avg(|r| r.gpu_pct),
-            })
-        })
-        .collect()
-}
-
 /// Disk/ağ ölçeği (KB/s): 1024·{1, 2, 5}·10^k, en az 1024 (= "1.0M"; boşta gürültü tepe gibi görünmesin).
 /// 1024 tabanı `rate()` etiketini yuvarlak tutar: 2.0M, 5.0M, 10.0M, 1.0G…
 pub fn nice_scale(max_kbps: u32) -> u32 {
@@ -187,34 +151,6 @@ pub fn nice_scale(max_kbps: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn temp_buckets_merge() {
-        let r = |ts_min, avg, max| Rec {
-            ts_min,
-            cpu: Agg {
-                avg: Some(avg),
-                max: Some(max),
-            },
-            ..Default::default()
-        };
-        let recs = [r(10, 50.0, 60.0), r(11, 70.0, 90.0), r(13, 40.0, 41.0)];
-        // 2 dk kova, 10. dakikadan: [10,12) [12,14) [14,16)
-        let b = temp_buckets(&recs, 600_000, 120_000, 3);
-        assert_eq!(
-            b[0].unwrap().cpu,
-            Agg {
-                avg: Some(60.0),
-                max: Some(90.0)
-            }
-        );
-        assert_eq!(b[0].unwrap().gpu_c, Agg::default());
-        assert_eq!(b[1].unwrap().cpu.max, Some(41.0));
-        assert!(b[2].is_none());
-        // 30 s kova: aynı dakikanın iki kovası aynı kaydı görür
-        let b = temp_buckets(&recs, 600_000, 30_000, 2);
-        assert_eq!(b[0], b[1]);
-    }
 
     fn s(ts_s: u64, cpu: u16) -> Sample {
         Sample {
