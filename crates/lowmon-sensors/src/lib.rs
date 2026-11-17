@@ -7,6 +7,7 @@
 //!   yalnız bu sayaç, yalnız tray. Çip sıcaklığı değil, kaba olabilir.
 //!
 //! Yükseltme gerekmez. Yalnız okunurken maliyet var: çağıran gösterge kapalıyken `read` çağırmaz.
+pub mod log;
 #[cfg(windows)]
 mod win;
 

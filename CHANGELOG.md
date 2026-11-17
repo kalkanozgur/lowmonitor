@@ -3,6 +3,7 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
 ### Eklendi
+- `lowmon-ui` Geçmiş: CPU kartında °C çizgisi, yeni GPU kartı (% + °C), disk başlığında aralığın en yüksek °C'si; hover ort + max gösterir. Tray sensör iş parçacığı dakikalık ort + max'ı `%LOCALAPPDATA%\LowMonitor\sensors.bin`'e yazar (7 g sabit halka, 197 KiB; ADR-0035)
 - `lowmon-ui` Canlı: CPU kartında sıcaklık çizgisi (°C), yeni GPU kartı (% + °C), disk kartı başlığında en sıcak disk °C. Kaynak tray sensörleri; deck yeni `TOPIC_SENSORS` konusuyla yayınlar (telefon da abone olabilir). Tray sensör iş parçacığı taskbar ızgarası kapalıyken de abone varsa çalışır (ADR-0033 Faz 4a, LowDeck #30)
 - `lowmon-ui` Ayarlar sekmesi: `ai.toml`, `taskbar.toml`, `deck.toml` formu; yalnız değişen anahtar yazılır (yorumlar korunur), değerler doğrulanır, kaydedince tray yeniden yükler. Servis ayarları sonraki partide
 - `lowmon-ui` servis ayarları: Ayarlar ▸ "Servis ayarlarını düzenle (yönetici)" → UAC → `lowmon-ui --service-settings`; örnekleme (`interval_ms`, `topn_every`, `topn_count`) ve saklama (`raw_days`, `total_days`) `config.toml`'a yerinde yazılır, servis `ReloadConfig` ile yeniden başlamadan uygular. `lowmon-elev` planı kaldırıldı (ADR-0030 eki)

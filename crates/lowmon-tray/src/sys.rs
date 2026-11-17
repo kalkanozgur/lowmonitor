@@ -4,7 +4,7 @@
 //! disk sorgusu 5–35 ms bekletir); sonuç `READING`'e yazılır, çizim UI thread'inde.
 use crate::{Live, ai};
 use lowmon_ai::usage::Level;
-use lowmon_sensors::{Reading, Sensors, Sources};
+use lowmon_sensors::{Reading, Sensors, Sources, log};
 use lowmon_taskbar::{Grid, Line, Sys};
 use std::cell::Cell;
 use std::sync::Mutex;
@@ -79,6 +79,8 @@ pub fn sync(hwnd: HWND) {
         .name("sensors".into())
         .spawn(move || {
             let mut s = Sensors::open(src);
+            // Sıcaklık geçmişi (ADR-0035): dakika bitince bir kayıt
+            let (mut minute, log_path) = (log::Minute::default(), log::path());
             while GEN.load(Ordering::Relaxed) == generation {
                 if !wanted() {
                     // Çıkmadan önce bayrağı bırak, sonra yeniden bak: arada abone geldiyse sync bizi görmedi
@@ -89,6 +91,14 @@ pub fn sync(hwnd: HWND) {
                 }
                 let r = s.read();
                 *READING.lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
+                let now_s = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                if let Some(rec) = minute.add(now_s, &r)
+                    && let Err(e) = log::write(&log_path, &rec)
+                {
+                    lowmon_deck::log::write(&format!("sys: sensör geçmişi yazılamadı: {e}"));
+                }
                 if let Some(h) = crate::DECK_HUB.get() {
                     h.set_sensors(to_proto(&r));
                 }

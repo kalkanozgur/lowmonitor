@@ -15,7 +15,7 @@ mod settings;
 #[cfg(windows)]
 mod win;
 
-use history::{History, Sample, nice_scale, series_path};
+use history::{History, Sample, nice_scale, series_path, temp_buckets};
 use lowdeck_client::{Client, Config, Event};
 use lowdeck_proto::{
     AiUsage, AiWindow, C2S, EventItem, HIST_POINTS_MAX, HistPoint, Metrics, S2C, Sensors, TOPIC_AI,
@@ -498,6 +498,8 @@ struct HistRx {
     from_ms: u64,
     step_ms: u64,
     pts: Vec<Option<HistPoint>>,
+    /// `pts` kovalarıyla hizalı sıcaklık/GPU (tray'in dakikalık dosyası, ADR-0035).
+    temps: Vec<Option<lowmon_sensors::log::Rec>>,
     /// Son `Metrics`'ten; RAM grafiği ölçeği (yoksa geçmişteki max).
     ram_total_mb: u32,
 }
@@ -740,6 +742,17 @@ fn fmt_event_value(e: &EventItem) -> String {
 /// Tamamlanan geçmiş yanıtından 7 çizgi + ölçek etiketleri.
 fn draw_history(ui: &MainWindow, offset: i64) {
     HQ.with(|h| {
+        let mut h = h.borrow_mut();
+        let to_ms = h.from_ms + h.step_ms * h.pts.len() as u64;
+        let recs = lowmon_sensors::log::read(
+            &lowmon_sensors::log::path(),
+            (h.from_ms / 60_000) as u32,
+            to_ms.div_ceil(60_000) as u32,
+        )
+        .unwrap_or_default();
+        h.temps = temp_buckets(&recs, h.from_ms, h.step_ms, h.pts.len());
+    });
+    HQ.with(|h| {
         let h = h.borrow();
         let pts = &h.pts;
         let mut buf = String::new();
@@ -780,6 +793,31 @@ fn draw_history(ui: &MainWindow, offset: i64) {
         line(
             &|p| p.net_tx_kbps as f32 / net,
             &MainWindow::set_hist_net_tx,
+        );
+        // Sıcaklık 0..100 eksende °C (Canlı ile aynı), GPU % aynı eksende
+        let mut temp = |f: &dyn Fn(&lowmon_sensors::log::Rec) -> Option<f32>,
+                        set: &dyn Fn(&MainWindow, slint::SharedString)| {
+            series_path(
+                h.temps
+                    .iter()
+                    .map(|t| t.as_ref().and_then(f).map(|v| v / 100.0)),
+                &mut buf,
+            );
+            set(ui, buf.as_str().into());
+        };
+        temp(&|t| t.cpu.avg, &MainWindow::set_hist_cpu_c);
+        temp(&|t| t.gpu_pct.avg, &MainWindow::set_hist_gpu);
+        temp(&|t| t.gpu_c.avg, &MainWindow::set_hist_gpu_c);
+        let disk_max = h
+            .temps
+            .iter()
+            .flatten()
+            .filter_map(|t| t.disk.max)
+            .reduce(f32::max);
+        ui.set_hist_disk_c(
+            disk_max
+                .map_or(String::new(), |v| format!("max {v:.0} °C"))
+                .into(),
         );
         ui.set_hist_ram_scale(format!("{:.0} GB", ram / 1024.0).into());
         ui.set_hist_disk_scale(rate(disk as u32).into());
@@ -1146,16 +1184,37 @@ fn hover_text(kind: i32, frac: f32, offset: i64) -> String {
             return String::new();
         };
         let from = h.from_ms + h.step_ms * i as u64;
+        let t = h.temps.get(i).copied().flatten();
+        // "  52 °C (max 61)"
+        let c = |f: fn(&lowmon_sensors::log::Rec) -> lowmon_sensors::log::Agg| {
+            let a = t.as_ref().map(f).unwrap_or_default();
+            match (a.avg, a.max) {
+                (Some(v), Some(m)) => format!("  {v:.0} °C ({} {m:.0})", tr("en yüksek", "max")),
+                _ => String::new(),
+            }
+        };
         let v = match kind {
             10 => format!(
-                "{} {}  {} {}",
+                "{} {}  {} {}{}",
                 tr("ort.", "avg"),
                 pct(p.cpu_avg as f32 / 10_000.0),
                 tr("en yüksek", "max"),
-                pct(p.cpu_max as f32 / 10_000.0)
+                pct(p.cpu_max as f32 / 10_000.0),
+                c(|r| r.cpu)
             ),
             11 => format!("{:.1} GB", p.ram_mb as f32 / 1024.0),
-            12 => format!("R {}  W {}", rate(p.disk_r_kbps), rate(p.disk_w_kbps)),
+            12 => format!(
+                "R {}  W {}{}",
+                rate(p.disk_r_kbps),
+                rate(p.disk_w_kbps),
+                c(|r| r.disk)
+            ),
+            14 => format!(
+                "{}{}",
+                t.and_then(|t| t.gpu_pct.avg)
+                    .map_or("—".into(), |v| format!("{v:.0} %")),
+                c(|r| r.gpu_c)
+            ),
             _ => format!("↓ {}  ↑ {}", rate(p.net_rx_kbps), rate(p.net_tx_kbps)),
         };
         // "11-17 14:32–14:33": tarih 7 g aralığında gerekli; dakikadan kısa kovada saniye de
