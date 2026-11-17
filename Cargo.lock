@@ -2602,6 +2602,7 @@ dependencies = [
  "lowmon-ai",
  "lowmon-core",
  "lowmon-deck",
+ "lowmon-sensors",
  "lowmon-taskbar",
  "windows-sys 0.61.2",
 ]

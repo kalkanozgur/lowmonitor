@@ -46,7 +46,7 @@ Denenip bırakılan (2026-11-17): termal bölge aygıtı (`GUID_DEVICE_THERMAL_Z
 ### `lowmon-taskbar`: çok blok
 - Bugün: tek pencere, `show([Line; 2])`. Yeni: **blok** = satır × sütun hücre ızgarası (`Cell { text, rgb }`), sütunlar hizalı (her sütun kendi en geniş hücresi kadar).
 - AI bloğu 2×1, sistem bloğu 2×4. Aynı monitördeki bloklar bildirim alanının solunda yan yana dizilir (sıra ayardan). Farklı monitördeki blok o monitörün taskbar'ına ayrı pencere olarak kurulur.
-- `taskbar.toml`: ortak `font`, `font_pt`, `gap_px`; blok başına `[ai]` / `[sys]`: `enabled`, `monitor` (`primary` / `left` / `right`), `order`. Eski tek-blok ayarı (`monitor`, `reserved_px`) AI bloğuna uygulanır.
+- `taskbar.toml`: ortak `font`, `font_pt`, `gap_px`; blok başına `[ai]` / `[sys]`: `enabled`, `monitor` (`primary` / `left` / `right`; Faz 3). Eski tek-blok ayarı (`monitor`, `reserved_px`) AI bloğuna uygulanır.
 - Çizim yöntemi değişmez (ADR-0032 Faz 2: `Shell_TrayWnd` alt penceresi, GDI+, `UpdateLayeredWindow`, WinEvent ile konum).
 
 ### Biçim ve renk
@@ -65,6 +65,18 @@ Eşikler `taskbar.toml` `[sys]` altında değiştirilebilir. Renkler AI bloğuyl
 | GPU kaynağı | **D3DKMT** (NVML değil). Ölçüm: NVML sürece +19,8 MiB private (tray bütçesi ~5 MB), okuma 14 µs; D3DKMT +0 MiB, okuma ~1,6 ms. Değerler aynı (0 %, 46 °C). Ek kazanç: üreticiden bağımsız |
 | CPU °C | **ACPI termal bölge (PDH) kalır.** Aynı anda tümleşik GPU'nun D3DKMT sıcaklığı 52–54 °C, ACPI bölgesi 74–85 °C; hangisinin çip sıcaklığına yakın olduğu doğrulanmadı |
 | Okuma ritmi | GPU + CPU °C her okumada (2 s); disk °C 15 okumada bir (30 s): sorgu aygıt G/Ç'si, 5–35 ms bekletir. Okuma arayüz iş parçacığında yapılmaz |
+
+## Faz 2 notları (2026-11-17)
+| Konu | Uygulama |
+|---|---|
+| Bloklar | `Bar::new(.., blocks)`, `show(blok, Grid)` / `hide(blok)`; her blok ayrı alt pencere, blok numarası tıkla birlikte gelir (`PostMessage(owner, msg, EV_*, blok)`). Blok 0 = sistem (sağda), blok 1 = AI (solunda) |
+| Sıra | Sabit (sistem sağda). `order` ayarı eklenmedi; istenirse sonra |
+| Monitör | Faz 2'de iki blok da ortak `monitor` ayarındaki taskbar'da; blok başına monitör Faz 3 |
+| `taskbar.toml` | `[ai] enabled`; `[sys] enabled`, `cpu_temp`, `warn_pct` / `crit_pct`, `temp_warn_c` / `temp_crit_c`, `disk_warn_c` / `disk_crit_c`. Eski düz ayarlar (`monitor`, `gap_px`, `reserved_px`, `font`, `font_pt`) aynen geçerli |
+| Genişlik | Sütun genişliği yalnız büyür (sayılar değiştikçe blok daralıp genişlemesin, yanındaki AI bloğu oynamasın); DPI değişince sıfırlanır |
+| Çizim ritmi | Sistem bloğu pipe `Sample` ritminde (2 s) çizilir; sensör iş parçacığı yalnız değeri günceller (servis kapalıysa çizimi o tetikler). İçerik aynıysa çizim atlanır; bir blok değişince diğeri yeniden çizilmez |
+| Tık | Sistem bloğu sol tık `lowmon-ui`'ı açar / öne getirir (yeni açılışta Canlı; zaten açıksa bulunduğu sekmede kalır). AI bloğu sol tık AI sekmesi |
+| Ölçüm | `docs/olcumler/2026-11-17_tray-sys-taskbar.md`: tray private 6,74 → 9,25 MiB, CPU 1,04 → 1,74 ms/s, exe 836 608 → 879 104 B |
 
 ## Fazlar
 | Faz | İş | Doğrulama |

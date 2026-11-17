@@ -1,8 +1,9 @@
 //! AI kullanımı (ADR-0032 Faz 2): `lowmon-ai` işçisi + `lowmon-taskbar` göstergesi, UI thread'inde.
+//! Gösterge iki blokludur (ADR-0033): sistem ızgarası (`sys`, blok 0) sağda, AI (blok 1) solunda.
 //! İşçi durum değişince `WM_AI` gönderir; kalan süre metni için 30 s'lik zamanlayıcı yeniden çizer.
 use lowmon_ai::{Config, Running, State, api::Window, text, usage, usage::Level};
 use lowmon_deck::{AI_TEXT_MAX, AiUsage, AiWindow};
-use lowmon_taskbar::{Bar, EV_LEFT, EV_MOVED, EV_RIGHT, Line};
+use lowmon_taskbar::{Bar, EV_LEFT, EV_MOVED, EV_RIGHT, Grid, Line};
 use std::{cell::RefCell, ptr};
 use windows_sys::Win32::{
     Foundation::HWND,
@@ -27,10 +28,15 @@ pub const ID_KEY_SAVE: usize = 23;
 pub const ID_KEY_DEL: usize = 24;
 pub const ID_REPORT: usize = 25;
 const TICK_MS: u32 = 30_000;
+/// AI bloğu: sistem ızgarasının (`sys::BLOCK` = 0) solunda.
+const BLOCK: usize = 1;
 
 thread_local! {
     static AI: RefCell<Option<(Config, Running)>> = const { RefCell::new(None) };
-    static BAR: RefCell<Option<Bar>> = const { RefCell::new(None) };
+    /// Taskbar göstergesi (iki blok); `sys` de buradan çizer.
+    pub static BAR: RefCell<Option<Bar>> = const { RefCell::new(None) };
+    /// `[ai] enabled`
+    static SHOW: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
     /// ai.toml / taskbar.toml okuma hatası (varsayılanla devam edilir)
     static CFG_ERR: RefCell<Option<String>> = const { RefCell::new(None) };
 }
@@ -67,7 +73,10 @@ pub fn start(hwnd: HWND) {
     });
     let run = lowmon_ai::start(cfg.clone(), on_change, log);
     AI.set(Some((cfg, run)));
-    BAR.set(Some(Bar::new(hwnd, WM_BAR, tb)));
+    SHOW.set(tb.ai.enabled);
+    let sys = tb.sys;
+    BAR.set(Some(Bar::new(hwnd, WM_BAR, tb, 2)));
+    crate::sys::start(hwnd, sys);
     // SAFETY: kendi penceremiz; aynı kimlik yeniden kurulursa süre güncellenir.
     unsafe { SetTimer(hwnd, TIMER, TICK_MS, None) };
     render();
@@ -76,6 +85,7 @@ pub fn start(hwnd: HWND) {
 pub fn stop(hwnd: HWND) {
     // SAFETY: kendi penceremiz.
     unsafe { KillTimer(hwnd, TIMER) };
+    crate::sys::stop();
     BAR.set(None);
     AI.set(None);
 }
@@ -132,23 +142,26 @@ pub fn render() {
         });
         BAR.with_borrow_mut(|b| {
             let Some(b) = b else { return };
-            let Some(s) = &st.snapshot else {
-                b.hide();
+            let Some(s) = st.snapshot.as_ref().filter(|_| SHOW.get()) else {
+                b.hide(BLOCK);
                 return;
             };
             let [t1, t2] = text::lines(s, now, cfg.language);
             let (v1, v2) = usage::levels(s, now, &cfg.colors, st.stale(now, cfg.refresh_sec));
             let light = lowmon_taskbar::light_theme();
-            b.show([
-                Line {
-                    text: t1,
-                    rgb: color(v1, light),
-                },
-                Line {
-                    text: t2,
-                    rgb: color(v2, light),
-                },
-            ]);
+            b.show(
+                BLOCK,
+                Grid::lines([
+                    Line {
+                        text: t1,
+                        rgb: color(v1, light),
+                    },
+                    Line {
+                        text: t2,
+                        rgb: color(v2, light),
+                    },
+                ]),
+            );
         });
     });
 }
@@ -159,21 +172,29 @@ pub enum Click {
     None,
     /// sağ tık → tray menüsü
     Menu,
-    /// sol tık → `lowmon-ui` AI sekmesi (rapor)
+    /// AI bloğuna sol tık → `lowmon-ui` AI sekmesi (rapor)
     Report,
+    /// sistem ızgarasına sol tık → `lowmon-ui` Canlı sekmesi
+    Live,
 }
 
-/// Taskbar olayı.
-pub fn on_bar(ev: usize) -> Click {
+/// Taskbar olayı; `block` = tıklanan blok (`EV_MOVED`'da anlamsız).
+pub fn on_bar(ev: usize, block: usize) -> Click {
     match ev {
         EV_MOVED => {
             BAR.with_borrow_mut(|b| b.as_mut().map(Bar::layout));
             Click::None
         }
+        EV_LEFT if block == crate::sys::BLOCK => Click::Live,
         EV_LEFT => Click::Report,
         EV_RIGHT => Click::Menu,
         _ => Click::None,
     }
+}
+
+/// Tüm blokları yeniden konumlar + çizer (çözünürlük / monitör değişimi).
+pub fn layout() {
+    BAR.with_borrow_mut(|b| b.as_mut().map(Bar::layout));
 }
 
 /// Explorer yeniden başladı.

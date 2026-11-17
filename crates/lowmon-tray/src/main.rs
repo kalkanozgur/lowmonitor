@@ -7,6 +7,7 @@
 
 mod ai;
 mod autostart;
+mod sys;
 
 use lowmon_core::{
     metrics::{EventKind, Sample},
@@ -79,6 +80,7 @@ struct Live {
     cpu: u16, // 0.01 %
     ram_kb: u64,
     rx_bps: u64,
+    tx_bps: u64,
 }
 
 static LATEST: Mutex<Option<Live>> = Mutex::new(None);
@@ -508,17 +510,28 @@ fn setting_is(lp: LPARAM, name: &str) -> bool {
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
-        WM_DATA => notify(hwnd, NIM_MODIFY),
+        WM_DATA => {
+            notify(hwnd, NIM_MODIFY);
+            sys::render();
+        }
+        // Sensör okuması geldi; servis çalışıyorsa çizim zaten WM_DATA ritminde (2 s'de iki çizim olmasın)
+        sys::WM_SYS if LATEST.lock().unwrap_or_else(|e| e.into_inner()).is_none() => sys::render(),
         WM_TRAY if lp as u32 == WM_RBUTTONUP => menu(hwnd),
-        ai::WM_AI | WM_DISPLAYCHANGE => ai::render(),
+        ai::WM_AI => ai::render(),
+        // Çözünürlük / monitör değişti: içerik aynı, konum değişir
+        WM_DISPLAYCHANGE => ai::layout(),
         WM_TIMER if wp == ai::TIMER => ai::render(),
-        ai::WM_BAR => match ai::on_bar(wp) {
+        ai::WM_BAR => match ai::on_bar(wp, lp as usize) {
             ai::Click::Menu => menu(hwnd),
             ai::Click::Report => open_ui(hwnd, "--ai"),
+            ai::Click::Live => open_ui(hwnd, ""),
             ai::Click::None => {}
         },
         // Taskbar açık/koyu tema değişti → metin rengi
-        WM_SETTINGCHANGE if setting_is(lp, "ImmersiveColorSet") => ai::render(),
+        WM_SETTINGCHANGE if setting_is(lp, "ImmersiveColorSet") => {
+            ai::render();
+            sys::render();
+        }
         // Explorer yeniden başladı → ikon ve taskbar göstergesi kayboldu, yeniden kur
         m if m == TASKBAR_CREATED.get() && m != 0 => {
             notify(hwnd, NIM_ADD);
@@ -578,6 +591,7 @@ fn summarize(s: &Sample) -> Live {
         cpu: s.cpu_total,
         ram_kb: s.ram_used_kb,
         rx_bps: s.net.iter().map(|n| n.rx_bps).sum(),
+        tx_bps: s.net.iter().map(|n| n.tx_bps).sum(),
     }
 }
 
@@ -729,6 +743,7 @@ mod tests {
             cpu: 1234,
             ram_kb: 8 << 20,
             rx_bps: 3 << 19,
+            tx_bps: 0,
         };
         assert_eq!(
             tooltip(Some(l), 16 << 20, &[], None),
