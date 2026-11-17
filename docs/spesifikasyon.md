@@ -334,6 +334,7 @@ clear    = { below = 85.0, for_s = 30 }
 - Yeniden çizim yalnız veri değişince, ≤ 1 Hz; sürekli timer/animasyon yok.
 - Simge durumu → abonelik bırakılır; geri gelince yeniden abone.
 - Grafik verisi sabit kapasiteli ring buffer.
+- Grafik hover'ı (Canlı + Geçmiş): dikey çizgi + kutucuk (saat / kova aralığı + o andaki seriler). Metin Rust'ta en yakın örnekten (`Hover.text`); yeniden çizim yalnız fare hareketinde ve yeni veride.
 - Yetki: arayüz ve tray yükseltilmemiş; Admin işleri UAC ile: ayar yazma `lowmon-elev`, süreç müdahalesi `lowmon-ui`'nın yükseltilmiş kopyası (ADR-0030).
 
 ---

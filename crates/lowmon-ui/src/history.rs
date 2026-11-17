@@ -61,6 +61,20 @@ impl History {
             .filter(move |s| now_s.saturating_sub(s.ts_s) <= WINDOW_S)
     }
 
+    /// Grafiğin `x` oranındaki (0 = 5 dk önce, 1 = şimdi) en yakın örnek; sağ kenar = son örnek.
+    /// `GAP_S`'ten uzaksa (çizgi boşluğu) `None`.
+    pub fn at(&self, frac: f32) -> Option<&Sample> {
+        let now = self.iter().last()?.ts_s;
+        let t = now as f32 - WINDOW_S as f32 * (1.0 - frac.clamp(0.0, 1.0));
+        self.recent(now)
+            .min_by(|a, b| {
+                (a.ts_s as f32 - t)
+                    .abs()
+                    .total_cmp(&(b.ts_s as f32 - t).abs())
+            })
+            .filter(|s| (s.ts_s as f32 - t).abs() <= GAP_S as f32)
+    }
+
     /// Penceredeki en büyük değer (oto-ölçek için).
     pub fn max(&self, now_s: u64, f: impl Fn(&Sample) -> u32) -> u32 {
         self.recent(now_s).map(f).max().unwrap_or(0)
@@ -152,6 +166,23 @@ mod tests {
         assert!(ts.windows(2).all(|w| w[0] < w[1]));
         h.clear();
         assert_eq!(h.iter().count(), 0);
+    }
+
+    #[test]
+    fn at_nearest() {
+        let mut h = History::default();
+        assert!(h.at(0.5).is_none());
+        for t in [1000, 1001, 1002, 1100] {
+            h.push(Sample {
+                ts_s: t,
+                ..Default::default()
+            });
+        }
+        // sağ kenar = son örnek (1100); x = 0,5 → 950: en yakın 1000, 50 s uzak → boşluk
+        assert!(h.at(0.5).is_none());
+        assert_eq!(h.at(1.0).map(|s| s.ts_s), Some(1100));
+        // 1100 − 300·(1 − 0,673) ≈ 1001,9 → 1002
+        assert_eq!(h.at(0.673).map(|s| s.ts_s), Some(1002));
     }
 
     #[test]

@@ -23,6 +23,13 @@ export global Lang {
     }
 }
 
+// Grafik üstünde fare (ADR yok, spek §9): metin Rust'ta (`hover_text`); `rev` yeni veriyle artar,
+// fare durağanken de kutucuk güncellenir. Yeniden çizim yalnız fare hareketinde / yeni veride.
+export global Hover {
+    in property <int> rev;
+    pure callback text(int, float, int) -> string;
+}
+
 export struct TopRow { name: string, cpu: string, ws: string }
 export struct EventRow { time: string, kind: int, name: string, value: string }
 export struct GroupRow { name: string, pct: string, tokens: string, fill: float }
@@ -55,6 +62,7 @@ component Spark inherits Rectangle {
     in property <color> cb;
     in property <string> scale; // "" = sabit 0..%100 ölçek, etiket yok
     in property <float> vb: 300; // viewbox genişliği: Canlı 300 s, Geçmiş kova sayısı
+    in property <int> kind: -1; // hover sorgusu (`hover_text`); -1 = hover yok
     if root.a != "": Path {
         width: 100%;
         height: 100%;
@@ -83,6 +91,32 @@ component Spark inherits Rectangle {
         color: Theme.dim;
         font-size: 10px;
     }
+    ta := TouchArea { }
+    if root.kind >= 0 && ta.has-hover: Rectangle {
+        x: clamp(ta.mouse-x, 0, root.width - 1px);
+        width: 1px;
+        background: Theme.dim;
+    }
+    if root.kind >= 0 && ta.has-hover: tip := Rectangle {
+        property <string> s: Hover.text(root.kind, ta.mouse-x / max(1px, root.width), Hover.rev);
+        visible: self.s != "";
+        width: t.preferred-width + 12px;
+        height: t.preferred-height + 6px;
+        // Sağ yarıda imlecin soluna geçer (kart dışına taşmasın)
+        x: ta.mouse-x > root.width / 2 ? ta.mouse-x - self.width - 6px : ta.mouse-x + 6px;
+        y: 0;
+        background: Theme.bg;
+        border-color: Theme.disabled;
+        border-width: 1px;
+        border-radius: 4px;
+        t := Text {
+            x: 6px;
+            y: 3px;
+            text: tip.s;
+            color: Theme.text;
+            font-size: 11px;
+        }
+    }
 }
 
 // Geçmiş kartı: etiket + büyük grafik (Spark, kova sayısı viewbox).
@@ -94,6 +128,7 @@ component HistCard inherits Rectangle {
     in property <color> cb: Theme.accent2;
     in property <string> scale;
     in property <float> vb;
+    in property <int> kind: -1;
     background: Theme.surface;
     border-radius: 8px;
     // Eşit 2×2: tercih/min genişlik içerikten bağımsız (0), yer yalnız stretch ile bölünür.
@@ -116,6 +151,7 @@ component HistCard inherits Rectangle {
             cb: root.cb;
             scale: root.scale;
             vb: root.vb;
+            kind: root.kind;
         }
     }
 }
@@ -129,6 +165,7 @@ component Stat inherits Rectangle {
     in property <color> color-a: Theme.accent;
     in property <color> color-b: Theme.accent2;
     in property <string> scale;
+    in property <int> kind: -1;
     background: Theme.surface;
     border-radius: 8px;
     min-height: 124px;
@@ -153,6 +190,7 @@ component Stat inherits Rectangle {
             ca: root.live ? root.color-a : Theme.disabled;
             cb: root.live ? root.color-b : Theme.disabled;
             scale: root.scale;
+            kind: root.kind;
         }
     }
 }
@@ -308,8 +346,8 @@ export component MainWindow inherits Window {
             }
             HorizontalLayout {
                 spacing: 12px;
-                Stat { label: Lang.t("CPU  5 dk", "CPU  5 min"); value: root.lm-cpu; live: root.live; path-a: root.lm-cpu-path; }
-                Stat { label: Lang.t("RAM  5 dk", "RAM  5 min"); value: root.lm-ram; live: root.live; path-a: root.lm-ram-path; }
+                Stat { label: Lang.t("CPU  5 dk", "CPU  5 min"); value: root.lm-cpu; live: root.live; path-a: root.lm-cpu-path; kind: 0; }
+                Stat { label: Lang.t("RAM  5 dk", "RAM  5 min"); value: root.lm-ram; live: root.live; path-a: root.lm-ram-path; kind: 1; }
                 Stat {
                     label: Lang.t("DİSK  B/s", "DISK  B/s");
                     value: root.lm-disk;
@@ -317,6 +355,7 @@ export component MainWindow inherits Window {
                     path-a: root.lm-disk-r-path;
                     path-b: root.lm-disk-w-path;
                     scale: root.lm-disk-scale;
+                    kind: 2;
                 }
                 Stat {
                     label: Lang.t("AĞ  B/s", "NET  B/s");
@@ -326,6 +365,7 @@ export component MainWindow inherits Window {
                     path-b: root.lm-net-tx-path;
                     color-a: Theme.ok;
                     scale: root.lm-net-scale;
+                    kind: 3;
                 }
             }
             // Mutlak konum: `for` içeren layout boşken max-width = 0 verir (telefon UI'ı notu).
@@ -389,14 +429,14 @@ export component MainWindow inherits Window {
                 spacing: 12px;
                 vertical-stretch: 1;
                 // Max önce (soluk), ortalama üstte
-                HistCard { label: Lang.t("CPU  ort. / en yüksek", "CPU  avg / max"); a: root.hist-cpu-max; ca: #2f6f8a; b: root.hist-cpu-avg; cb: Theme.accent; vb: root.hist-n; }
-                HistCard { label: "RAM"; a: root.hist-ram; scale: root.hist-ram-scale; vb: root.hist-n; }
+                HistCard { label: Lang.t("CPU  ort. / en yüksek", "CPU  avg / max"); a: root.hist-cpu-max; ca: #2f6f8a; b: root.hist-cpu-avg; cb: Theme.accent; vb: root.hist-n; kind: 10; }
+                HistCard { label: "RAM"; a: root.hist-ram; scale: root.hist-ram-scale; vb: root.hist-n; kind: 11; }
             }
             HorizontalLayout {
                 spacing: 12px;
                 vertical-stretch: 1;
-                HistCard { label: Lang.t("DİSK  R / W", "DISK  R / W"); a: root.hist-disk-r; b: root.hist-disk-w; scale: root.hist-disk-scale; vb: root.hist-n; }
-                HistCard { label: Lang.t("AĞ  ↓ / ↑", "NET  ↓ / ↑"); a: root.hist-net-rx; b: root.hist-net-tx; ca: Theme.ok; scale: root.hist-net-scale; vb: root.hist-n; }
+                HistCard { label: Lang.t("DİSK  R / W", "DISK  R / W"); a: root.hist-disk-r; b: root.hist-disk-w; scale: root.hist-disk-scale; vb: root.hist-n; kind: 12; }
+                HistCard { label: Lang.t("AĞ  ↓ / ↑", "NET  ↓ / ↑"); a: root.hist-net-rx; b: root.hist-net-tx; ca: Theme.ok; scale: root.hist-net-scale; vb: root.hist-n; kind: 13; }
             }
         }
 

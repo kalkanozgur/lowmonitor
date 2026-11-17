@@ -51,6 +51,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let events = Rc::new(VecModel::<EventRow>::default());
     ui.set_events(ModelRc::from(events.clone()));
     let offset = local_offset_s();
+    ui.global::<Hover>()
+        .on_text(move |kind, frac, _rev| hover_text(kind, frac, offset).into());
     procs_init(&ui, offset);
     window_events(&ui);
     aitab::init(&ui, offset);
@@ -705,6 +707,7 @@ fn draw_history(ui: &MainWindow, offset: i64) {
         ui.set_hist_disk_scale(rate(disk as u32).into());
         ui.set_hist_net_scale(rate(net as u32).into());
         ui.set_hist_n(pts.len().max(1) as f32);
+        bump_hover(ui);
         let to_ms = h.from_ms + h.step_ms * pts.len() as u64;
         ui.set_hist_range(
             format!(
@@ -833,6 +836,65 @@ fn graphs(ui: &MainWindow, m: &Metrics, now_s: u64) {
         ui.set_lm_disk_scale(rate(disk as u32).into());
         ui.set_lm_net_scale(rate(net as u32).into());
     });
+    bump_hover(ui);
+}
+
+fn bump_hover(ui: &MainWindow) {
+    let g = ui.global::<Hover>();
+    g.set_rev(g.get_rev().wrapping_add(1));
+}
+
+/// Grafik hover kutucuğu: saat + o andaki seriler. `kind`: 0–3 Canlı (CPU, RAM, disk, ağ),
+/// 10–13 Geçmiş (aynı sıra). Veri yoksa "" (kutucuk gizlenir).
+fn hover_text(kind: i32, frac: f32, offset: i64) -> String {
+    let pct = |v: f32| format!("{:.0} %", v * 100.0);
+    if kind < 10 {
+        return HIST.with(|h| {
+            let h = h.borrow();
+            let Some(s) = h.0.at(frac) else {
+                return String::new();
+            };
+            let v = match kind {
+                0 => pct(s.cpu as f32 / 10_000.0),
+                1 => pct(s.ram),
+                2 => format!("R {}  W {}", rate(s.dr), rate(s.dw)),
+                _ => format!("↓ {}  ↑ {}", rate(s.rx), rate(s.tx)),
+            };
+            format!("{}\n{v}", &fmt_time(s.ts_s * 1000, offset)[11..])
+        });
+    }
+    HQ.with(|h| {
+        let h = h.borrow();
+        let n = h.pts.len();
+        if n == 0 {
+            return String::new();
+        }
+        // Kova i, viewbox'ta x = i (genişlik n)
+        let i = ((frac * n as f32) as usize).min(n - 1);
+        let Some(p) = &h.pts[i] else {
+            return String::new();
+        };
+        let from = h.from_ms + h.step_ms * i as u64;
+        let v = match kind {
+            10 => format!(
+                "{} {}  {} {}",
+                tr("ort.", "avg"),
+                pct(p.cpu_avg as f32 / 10_000.0),
+                tr("en yüksek", "max"),
+                pct(p.cpu_max as f32 / 10_000.0)
+            ),
+            11 => format!("{:.1} GB", p.ram_mb as f32 / 1024.0),
+            12 => format!("R {}  W {}", rate(p.disk_r_kbps), rate(p.disk_w_kbps)),
+            _ => format!("↓ {}  ↑ {}", rate(p.net_rx_kbps), rate(p.net_tx_kbps)),
+        };
+        // "11-17 14:32–14:33": tarih 7 g aralığında gerekli; dakikadan kısa kovada saniye de
+        let end = if h.step_ms < 60_000 { 19 } else { 16 };
+        format!(
+            "{}–{}\n{v}",
+            &fmt_time(from, offset)[5..end],
+            &fmt_time(from + h.step_ms, offset)[11..end]
+        )
+    })
 }
 
 fn clear_graphs(ui: &MainWindow) {
