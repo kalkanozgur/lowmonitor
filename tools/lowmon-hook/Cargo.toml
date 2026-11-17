@@ -1,0 +1,15 @@
+[package]
+name = "lowmon-hook"
+description = "Claude Code hook komutu: olay türü + oturum + araç adını tray'e iletir (ADR-0034); olabildiğince küçük ve hızlı"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Bilerek başka crate'e bağlı değil: her araç çağrısında başlar, yalnız kernel32 + user32 yüklensin.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_UI_WindowsAndMessaging",
+] }
