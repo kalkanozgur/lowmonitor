@@ -321,7 +321,7 @@ clear    = { below = 85.0, for_s = 30 }
 > **ADR-0019 → ADR-0029 → ADR-0031:** UI Slint ile, bu repoda `lowmon-ui` (eski LowDeck masaüstü). Veriye yalnız tray'deki `lowmon-deck` üzerinden erişir (loopback, `lowdeck-proto`); port + token `deck.toml`'dan. Pipe'a bağlanan deck'tir. Medya/ses kontrolü yok, yalnız izler (ADR-0031 §6).
 
 **Ekranlar** (sıra = teslim sırası). Üst çubuk: sekmeler; sağda bağlantı noktası (sorunsuzken yalnız yeşil nokta, metin üzerine gelince; kopuk / servis yok → turuncu nokta + metin) ve ⚙ (Ayarlar, sekme 6).
-1. **Canlı:** CPU (toplam + çekirdek), RAM/commit, disk, ağ (son 5 dk). — ilk teslimat. Üstte AI bandı: Claude oturum/hafta %, kalan süre, seviye rengi (ADR-0032; veri yoksa gizli).
+1. **Canlı:** CPU (toplam + çekirdek) + CPU °C, GPU % + °C, RAM/commit, disk (+ en sıcak disk °C), ağ (son 5 dk). Sıcaklık/GPU tray sensörlerinden deck `TOPIC_SENSORS` ile (ADR-0033 Faz 4a). — ilk teslimat. Üstte AI bandı: Claude oturum/hafta %, kalan süre, seviye rengi (ADR-0032; veri yoksa gizli).
 2. **Olaylar:** `CH_EVENT` canlı + `QueryRange` `RangeItem::Event` geçmişi; aktif alarmlar; her olayın altında okunur açıklama (sistem olayları adına göre, alarm metrik önekine göre). — ilk teslimat
 3. **Geçmiş:** zaman aralığı → `QueryRange`, otomatik çözünürlük (aralık > 6 saat → 1 dk); aralık seçici grafiklerin altında.
 4. **Süreçler:** `lowmon-ui` süreçleri kendisi tarar (2 s, yalnız sekme açıkken; Top-N kullanılmaz) + müdahale (§10, ADR-0030).

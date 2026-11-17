@@ -18,8 +18,8 @@ mod win;
 use history::{History, Sample, nice_scale, series_path};
 use lowdeck_client::{Client, Config, Event};
 use lowdeck_proto::{
-    AiUsage, AiWindow, C2S, EventItem, HIST_POINTS_MAX, HistPoint, Metrics, S2C, TOPIC_AI,
-    TOPIC_EVENTS, TOPIC_METRICS, TopItem,
+    AiUsage, AiWindow, C2S, EventItem, HIST_POINTS_MAX, HistPoint, Metrics, S2C, Sensors, TOPIC_AI,
+    TOPIC_EVENTS, TOPIC_METRICS, TOPIC_SENSORS, TopItem,
 };
 use lowmon_ai::text::tr;
 use slint::{Model, ModelRc, VecModel};
@@ -150,12 +150,12 @@ fn start_client(
     QUERY.with(|q| *q.borrow_mut() = Some(Box::new(query)));
 }
 
-/// Küçültülünce metrik + AI düşer (deck abone kalmazsa pipe'ı kapatır); olaylar sürer: alarm bandı + liste güncel.
+/// Küçültülünce metrik + AI + sensör düşer (tray sensör iş parçacığı da abone kalmazsa durur) (deck abone kalmazsa pipe'ı kapatır); olaylar sürer: alarm bandı + liste güncel.
 fn topics(minimized: bool) -> lowdeck_proto::Topics {
     if minimized {
         TOPIC_EVENTS
     } else {
-        TOPIC_METRICS | TOPIC_EVENTS | TOPIC_AI
+        TOPIC_METRICS | TOPIC_EVENTS | TOPIC_AI | TOPIC_SENSORS
     }
 }
 
@@ -506,6 +506,8 @@ thread_local! {
     static CLIENT: std::cell::RefCell<Option<Rc<Client>>> = const { std::cell::RefCell::new(None) };
     /// Son AI durumu: geri sayım her metrik örneğinde yenilenir (ek timer yok).
     static LAST_AI: std::cell::RefCell<Option<AiUsage>> = const { std::cell::RefCell::new(None) };
+    /// Son tray sensör okuması (`TOPIC_SENSORS`, ~2 s); 1 Hz grafik örneğine eklenir.
+    static LAST_SENS: std::cell::Cell<Option<Sensors>> = const { std::cell::Cell::new(None) };
     static MINIMIZED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static PROCS: std::cell::RefCell<ProcUi> = std::cell::RefCell::new(ProcUi::default());
     static HQ: std::cell::RefCell<HistRx> = std::cell::RefCell::new(HistRx::default());
@@ -554,6 +556,8 @@ fn apply(ui: &MainWindow, ev: Event, offset: i64) {
                 .into(),
             );
             ui.set_lm_state(0);
+            LAST_SENS.set(None);
+            show_sensors(ui, None);
             ui.set_ai_state(0);
             ui.set_alarms("".into());
             clear_graphs(ui);
@@ -569,6 +573,10 @@ fn apply(ui: &MainWindow, ev: Event, offset: i64) {
         Event::Msg(S2C::Metrics(Some(m))) => {
             show_metrics(ui, &m);
             LAST_AI.with_borrow(|a| show_ai(ui, a.as_ref(), unix_now()));
+        }
+        Event::Msg(S2C::Sensors(v)) => {
+            LAST_SENS.set(Some(v));
+            show_sensors(ui, Some(&v));
         }
         Event::Msg(S2C::Ai(a)) => {
             show_ai(ui, a.as_ref(), unix_now());
@@ -858,6 +866,21 @@ fn ai_line(label: &str, w: &Option<AiWindow>, now: i64) -> String {
     }
 }
 
+/// Sensör metinleri (grafik çizgileri `graphs` ile 1 Hz'te).
+fn show_sensors(ui: &MainWindow, v: Option<&Sensors>) {
+    let c = |t: Option<i16>| t.map(|t| format!("{t} °C")).unwrap_or_default();
+    let v = v.copied().unwrap_or_default();
+    ui.set_lm_cpu_c(c(v.cpu_c).into());
+    ui.set_lm_gpu_c(c(v.gpu_c).into());
+    ui.set_lm_disk_c(c(v.disk_c).into());
+    ui.set_lm_gpu(
+        v.gpu_pct
+            .map(|p| format!("{p}%"))
+            .unwrap_or_default()
+            .into(),
+    );
+}
+
 fn show_metrics(ui: &MainWindow, m: &Metrics) {
     ui.set_lm_state(1);
     HQ.with(|h| h.borrow_mut().ram_total_mb = m.ram_total_mb);
@@ -879,6 +902,9 @@ fn show_metrics(ui: &MainWindow, m: &Metrics) {
 
 /// Örneği geçmişe ekler, 6 çizgi + 2 ölçek etiketini günceller (Metrics başına bir kez, ≈ 1 Hz).
 fn graphs(ui: &MainWindow, m: &Metrics, now_s: u64) {
+    let sens = LAST_SENS.get();
+    // °C ekseni 0..100 (CPU % ile aynı kartta)
+    let temp = |t: Option<i16>| t.map(|t| t as f32 / 100.0);
     HIST.with(|h| {
         let (h, buf) = &mut *h.borrow_mut();
         h.push(Sample {
@@ -889,20 +915,30 @@ fn graphs(ui: &MainWindow, m: &Metrics, now_s: u64) {
             dw: m.disk_w_kbps,
             rx: m.net_rx_kbps,
             tx: m.net_tx_kbps,
+            cpu_c: sens.and_then(|v| v.cpu_c),
+            gpu_pct: sens.and_then(|v| v.gpu_pct),
+            gpu_c: sens.and_then(|v| v.gpu_c),
         });
-        let mut line = |f: &dyn Fn(&Sample) -> f32, set: &dyn Fn(slint::SharedString)| {
+        let mut line = |f: &dyn Fn(&Sample) -> Option<f32>, set: &dyn Fn(slint::SharedString)| {
             h.path(now_s, f, buf);
             set(buf.as_str().into());
         };
-        line(&|s| s.cpu as f32 / 10_000.0, &|v| ui.set_lm_cpu_path(v));
-        line(&|s| s.ram, &|v| ui.set_lm_ram_path(v));
+        line(&|s| Some(s.cpu as f32 / 10_000.0), &|v| {
+            ui.set_lm_cpu_path(v)
+        });
+        line(&|s| temp(s.cpu_c), &|v| ui.set_lm_cpu_c_path(v));
+        line(&|s| s.gpu_pct.map(|p| p as f32 / 100.0), &|v| {
+            ui.set_lm_gpu_path(v)
+        });
+        line(&|s| temp(s.gpu_c), &|v| ui.set_lm_gpu_c_path(v));
+        line(&|s| Some(s.ram), &|v| ui.set_lm_ram_path(v));
         // Disk/ağ: iki çizgi ortak ölçekte (penceredeki max, 1-2-5 yuvarlama).
         let disk = nice_scale(h.max(now_s, |s| s.dr.max(s.dw))) as f32;
-        line(&|s| s.dr as f32 / disk, &|v| ui.set_lm_disk_r_path(v));
-        line(&|s| s.dw as f32 / disk, &|v| ui.set_lm_disk_w_path(v));
+        line(&|s| Some(s.dr as f32 / disk), &|v| ui.set_lm_disk_r_path(v));
+        line(&|s| Some(s.dw as f32 / disk), &|v| ui.set_lm_disk_w_path(v));
         let net = nice_scale(h.max(now_s, |s| s.rx.max(s.tx))) as f32;
-        line(&|s| s.rx as f32 / net, &|v| ui.set_lm_net_rx_path(v));
-        line(&|s| s.tx as f32 / net, &|v| ui.set_lm_net_tx_path(v));
+        line(&|s| Some(s.rx as f32 / net), &|v| ui.set_lm_net_rx_path(v));
+        line(&|s| Some(s.tx as f32 / net), &|v| ui.set_lm_net_tx_path(v));
         ui.set_lm_disk_scale(rate(disk as u32).into());
         ui.set_lm_net_scale(rate(net as u32).into());
     });
@@ -1083,8 +1119,14 @@ fn hover_text(kind: i32, frac: f32, offset: i64) -> String {
             let Some(s) = h.0.at(frac) else {
                 return String::new();
             };
+            let c = |t: Option<i16>| t.map(|t| format!("  {t} °C")).unwrap_or_default();
             let v = match kind {
-                0 => pct(s.cpu as f32 / 10_000.0),
+                0 => format!("{}{}", pct(s.cpu as f32 / 10_000.0), c(s.cpu_c)),
+                4 => format!(
+                    "{}{}",
+                    s.gpu_pct.map_or("—".into(), |p| format!("{p} %")),
+                    c(s.gpu_c)
+                ),
                 1 => pct(s.ram),
                 2 => format!("R {}  W {}", rate(s.dr), rate(s.dw)),
                 _ => format!("↓ {}  ↑ {}", rate(s.rx), rate(s.tx)),
@@ -1130,6 +1172,9 @@ fn clear_graphs(ui: &MainWindow) {
     HIST.with(|h| h.borrow_mut().0.clear());
     for set in [
         MainWindow::set_lm_cpu_path,
+        MainWindow::set_lm_cpu_c_path,
+        MainWindow::set_lm_gpu_path,
+        MainWindow::set_lm_gpu_c_path,
         MainWindow::set_lm_ram_path,
         MainWindow::set_lm_disk_r_path,
         MainWindow::set_lm_disk_w_path,

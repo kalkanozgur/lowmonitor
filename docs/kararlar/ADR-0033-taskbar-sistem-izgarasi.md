@@ -94,7 +94,8 @@ Eşikler `taskbar.toml` `[sys]` altında değiştirilebilir. Renkler AI bloğuyl
 | 1 | `lowmon-sensors` crate + `examples/dump` (değerleri yazar) | Görev Yöneticisi / `nvidia-smi` ile karşılaştırma; **ölçüm** `docs/olcumler/2026-11-17_lowmon-sensors.md`: kaynak başına private, okuma süresi, açılış |
 | 2 | `lowmon-taskbar` çok blok + tray `sys` modülü + `taskbar.toml` | canlı taskbar, AI ile yan yana; tray private / CPU önce-sonra |
 | 3 | Sistem bloğu diğer monitörde (takılıysa; takılı değilse birincil) | iki monitörle canlı |
-| 4 (ayrı karar) | Geçmiş + telefon + `lowmon-ui`: üretici kanalı | o fazda |
+| 4a | Canlı `lowmon-ui` + telefon: deck `TOPIC_SENSORS` (aşağıdaki ek) | 2026-11-17 |
+| 4b (ayrı karar) | Sıcaklık geçmişi | o fazda |
 
 ## Sonuçlar
 - (+) İstenen görüntü; servis, proto, segment biçimi değişmez. Bloklar genel: sonraki göstergeler aynı yapıyı kullanır.
@@ -103,3 +104,10 @@ Eşikler `taskbar.toml` `[sys]` altında değiştirilebilir. Renkler AI bloğuyl
 - (−) CPU °C ACPI bölgesidir; HWiNFO'nun çip sıcaklığından farklı olabilir.
 - (−) Faz 1–2'de GPU / sıcaklık geçmişi yok.
 - Spek: §1 Prensipler (PDH istisnası), §1 bütçe (tray satırı), §2 bileşen tablosu (`lowmon-sensors`; `lowmon-gpu` satırı buna bağlanır), §8 tray (sistem bloğu, `taskbar.toml`) ilgili faz PR'ında güncellenir.
+
+## Ek (2026-11-17): Faz 4a — sensörler deck üzerinden (kullanıcı kararı)
+- Karar 3 / sonuç satırındaki "üretici kanalı (`ProducerPush`)" yerine: tray'in zaten okuduğu `lowmon-sensors` değeri deck'e verilir; LowDeck `TOPIC_SENSORS = 8` + `S2C::Sensors` (LowDeck #30, ek varyant, `PROTO_VERSION` 4). `lowmon-ui` ve telefon aynı mesajı alır; servis ve pipe değişmez.
+- Sensör iş parçacığı: ızgara açıkken **ya da** en az bir deck sensör abonesi varken çalışır; ikisi de yoksa kendisi çıkar (`sys::sync`, abonelik değişince `WM_DATA`). Maliyet ızgara açıkken değişmez; ızgara kapalıyken yalnız UI/telefon açıkken +2,5 MiB / +0,7 ms/s.
+- `lowmon-ui` Canlı: CPU kartında % + CPU °C (aynı 0..100 ekseni), yeni GPU kartı (% + °C), disk °C disk kartı başlığında.
+- Geçmiş (4b): tray kullanıcı dosyası, ayrı ADR.
+

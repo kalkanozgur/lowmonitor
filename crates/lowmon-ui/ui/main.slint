@@ -11,6 +11,8 @@ global Theme {
     out property <color> accent: #4fc3f7;
     out property <color> accent2: #ba68c8;
     out property <color> warn: #ff7043;
+    // Sıcaklık çizgileri (uyarı turuncusundan ayrı)
+    out property <color> temp: #ffb74d;
     out property <color> ok: #66bb6a;
     out property <color> disabled: #3a3a3a;
 }
@@ -245,6 +247,14 @@ export component MainWindow inherits Window {
     in property <string> lm-ram;
     in property <string> lm-disk;
     in property <string> lm-net;
+    // Tray sensörleri (`TOPIC_SENSORS`); "" = yok
+    in property <string> lm-gpu;
+    in property <string> lm-cpu-c;
+    in property <string> lm-gpu-c;
+    in property <string> lm-disk-c;
+    in property <string> lm-cpu-c-path;
+    in property <string> lm-gpu-path;
+    in property <string> lm-gpu-c-path;
     in property <[float]> lm-cores; // 0..1
     // 5 dk grafikleri (SVG path); disk/ağ ölçeği iki çizginin ortak max'ı
     in property <string> lm-cpu-path;
@@ -416,10 +426,28 @@ export component MainWindow inherits Window {
             }
             HorizontalLayout {
                 spacing: 12px;
-                Stat { label: Lang.t("CPU  5 dk", "CPU  5 min"); value: root.lm-cpu; live: root.live; path-a: root.lm-cpu-path; kind: 0; }
+                // Sıcaklık çizgisi aynı 0..100 ekseninde (°C), turuncu
+                Stat {
+                    label: Lang.t("CPU  5 dk", "CPU  5 min");
+                    value: root.lm-cpu + (root.lm-cpu-c != "" ? "  " + root.lm-cpu-c : "");
+                    live: root.live;
+                    path-a: root.lm-cpu-path;
+                    path-b: root.lm-cpu-c-path;
+                    color-b: Theme.temp;
+                    kind: 0;
+                }
+                Stat {
+                    label: Lang.t("GPU  5 dk", "GPU  5 min");
+                    value: root.lm-gpu == "" && root.lm-gpu-c == "" ? "—" : root.lm-gpu + (root.lm-gpu-c != "" ? "  " + root.lm-gpu-c : "");
+                    live: root.live;
+                    path-a: root.lm-gpu-path;
+                    path-b: root.lm-gpu-c-path;
+                    color-b: Theme.temp;
+                    kind: 4;
+                }
                 Stat { label: Lang.t("RAM  5 dk", "RAM  5 min"); value: root.lm-ram; live: root.live; path-a: root.lm-ram-path; kind: 1; }
                 Stat {
-                    label: Lang.t("DİSK  B/s", "DISK  B/s");
+                    label: Lang.t("DİSK  B/s", "DISK  B/s") + (root.lm-disk-c != "" ? "  · " + root.lm-disk-c : "");
                     value: root.lm-disk;
                     live: root.live;
                     path-a: root.lm-disk-r-path;

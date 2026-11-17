@@ -23,7 +23,7 @@ use std::time::Duration;
 #[macro_use]
 pub mod log;
 /// Tray AI yayını için (ADR-0032).
-pub use lowdeck_proto::{AI_TEXT_MAX, AiUsage, AiWindow};
+pub use lowdeck_proto::{AI_TEXT_MAX, AiUsage, AiWindow, Sensors};
 mod lowmon;
 #[cfg(windows)]
 mod win;
@@ -96,6 +96,7 @@ struct Client {
     metrics: bool,
     events: bool,
     ai: bool,
+    sensors: bool,
 }
 
 /// Yuva = dinleyici (ADR-0003): LAN (telefon) ve loopback (PC arayüzü) birbirini düşürmez.
@@ -112,6 +113,8 @@ struct HubInner {
     alarms: Vec<String>,
     /// Son AI kullanımı (tray `lowmon-ai`, ADR-0032); yeni `TOPIC_AI` abonesine ilk çerçeve.
     ai: Option<AiUsage>,
+    /// Son tray sensör okuması (ADR-0033); yeni `TOPIC_SENSORS` abonesine ilk çerçeve.
+    sensors: Option<Sensors>,
 }
 
 impl HubInner {
@@ -159,14 +162,21 @@ impl Hub {
         let mut g = self.lock();
         let alarms = S2C::Alarms(g.alarms.clone());
         let ai = S2C::Ai(g.ai.clone());
+        let sensors = g.sensors.map(S2C::Sensors);
         if let Some(c) = g.by_id(id) {
             let new_events = t & TOPIC_EVENTS != 0 && !c.events;
             let new_ai = t & TOPIC_AI != 0 && !c.ai;
+            let new_sensors = t & TOPIC_SENSORS != 0 && !c.sensors;
             c.metrics = t & TOPIC_METRICS != 0;
             c.events = t & TOPIC_EVENTS != 0;
             c.ai = t & TOPIC_AI != 0;
+            c.sensors = t & TOPIC_SENSORS != 0;
             if (new_events && write_frame(&mut c.w, &alarms).is_err())
                 || (new_ai && write_frame(&mut c.w, &ai).is_err())
+                || (new_sensors
+                    && sensors
+                        .as_ref()
+                        .is_some_and(|m| write_frame(&mut c.w, m).is_err()))
             {
                 let _ = c.w.get_ref().shutdown(Shutdown::Both);
             }
@@ -217,6 +227,21 @@ impl Hub {
             drop(g);
             self.changed();
         }
+    }
+
+    /// Tray sensör iş parçacığı: önbellek + sensör abonelerine (ADR-0033).
+    pub fn set_sensors(&self, v: Sensors) {
+        let mut g = self.lock();
+        g.sensors = Some(v);
+        if !g.send_to(&S2C::Sensors(v), |c| c.sensors) {
+            drop(g);
+            self.changed();
+        }
+    }
+
+    /// En az bir istemci sensörlere abone mi (tray sensör iş parçacığını buna göre açar).
+    pub fn wants_sensors(&self) -> bool {
+        self.lock().clients.iter().flatten().any(|c| c.sensors)
     }
 
     /// Tray için: bağlı telefonun adı (LAN yuvası; PC arayüzü sayılmaz).
@@ -288,6 +313,7 @@ impl Hub {
             metrics: false,
             events: false,
             ai: false,
+            sensors: false,
         });
         drop(g);
         self.changed();
@@ -1117,6 +1143,38 @@ mod tests {
             S2C::Ai(None)
         );
         assert!(!hub.want.get(), "AI aboneliği pipe'ı açtırmaz");
+    }
+
+    #[test]
+    fn sensors_subscription() {
+        let hub = Arc::new(Hub::default());
+        let v = Sensors {
+            gpu_pct: Some(12),
+            cpu_c: Some(61),
+            ..Default::default()
+        };
+        hub.set_sensors(v); // abone yok → yalnız önbellek
+        assert!(!hub.wants_sensors());
+        let (mut w, mut rd) = client(serve(&hub, SLOT_LOCAL, Arc::new(Null)));
+        let mut buf = [0u8; MAX_FRAME];
+        write_frame(&mut w, &C2S::Subscribe(TOPIC_SENSORS)).unwrap();
+        // İlk çerçeve önbellekteki son okuma
+        assert_eq!(
+            read_frame::<_, S2C>(&mut rd, &mut buf).unwrap(),
+            S2C::Sensors(v)
+        );
+        assert!(hub.wants_sensors());
+        hub.push_metrics(S2C::Metrics(None)); // metrik abonesi değil → gitmez
+        let v2 = Sensors {
+            gpu_c: Some(50),
+            ..v
+        };
+        hub.set_sensors(v2);
+        assert_eq!(
+            read_frame::<_, S2C>(&mut rd, &mut buf).unwrap(),
+            S2C::Sensors(v2)
+        );
+        assert!(!hub.want.get(), "sensör aboneliği pipe'ı açtırmaz");
     }
 
     #[test]
