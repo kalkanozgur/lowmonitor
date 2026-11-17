@@ -8,6 +8,7 @@ pub mod breakdown;
 pub mod creds;
 #[cfg(windows)]
 pub mod fetch;
+pub mod hooks;
 pub mod json;
 pub mod report;
 pub mod text;

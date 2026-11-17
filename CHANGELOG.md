@@ -7,6 +7,7 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 - `lowmon-ui` `release-ui` profiliyle (`opt-level = "s"`) derlenir: exe 10,5 → 8,9 MB; `install.ps1` `-UiSrc target\release-ui`
 - Tray "Arayüzü aç": `UiExe` kaydı var ama exe yoksa (taşınmış/silinmiş) menü pasif ve etiket nedeni söyler; önceden tıklama sessizce boşa gidiyordu
 ### Eklendi
+- Tray "AI kullanımı ▸ Claude Code hook'larını kur / kaldır": `~/.claude/settings.json`'a yalnız `lowmon-hook` girdilerini ekler / siler (`async`, anahtar sırası korunur, ilk yazmada `.lowmon-backup`, geçersiz JSON'a dokunmaz); `install.ps1` `lowmon-hook.exe`'yi kurar (ADR-0034 Parça 4)
 - Claude Code etkinlik balonu: AI bloğunun üstünde yarı saydam konuşma balonu (`Thinking…`, araç adı, `Waiting for input`, `Done`); tam ekranda gizlenir; `taskbar.toml` `[ai] bubble`. Hook kurulumu Parça 4'te (ADR-0034 Parça 3)
 - `lowmon-hook.exe` (Claude Code hook komutu) + tray alıcısı: hook olayı → `WM_COPYDATA` → etkinlik durumu; şimdilik yalnız `deck.log`'a yazılır, balon Parça 3'te (ADR-0034 Parça 2)
 - `lowmon_ai::activity`: Claude Code hook olaylarından etkinlik durumu (çalışıyor / bekliyor / bitti), oturum önceliği, bayat kayıt; henüz hiçbir yere bağlı değil (ADR-0034 Parça 1)
