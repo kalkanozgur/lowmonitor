@@ -1,24 +1,26 @@
 # HANDOFF — LowMonitor
-**Güncelleme:** 2026-11-17 · **Güncelleyen:** Claude (sohbet; TODO.md + devlog 2026-11-15 sonuna göre) · **Kaynak durumu:** main, devlog son girdisi 2026-11-15
+**Güncelleme:** 2026-11-17 · **Güncelleyen:** Claude Code (devam oturumu; `git log`, TODO.md, devlog 2026-11-17 sonuna göre) · **Kaynak durumu:** main `d05144d`
 
 ## Durum
-Rust workspace (svc, tray, net, core, proto, lwm-dump) çalışıyor; M0 ve M3 tamam, M1/M2/M4/M5/M6 kod tarafında büyük ölçüde tamam, **nihai kabul soak'u henüz yok**. main `836c06a` kurulu. PC arayüzü bu repoda değil, LowDeck'te (ADR-0029).
+Rust workspace: svc, tray, net, core, proto, lwm-dump + `lowmon-ui` (Slint PC arayüzü, artık bu repoda), `lowmon-ai`, `lowmon-taskbar`, `lowmon-sensors`, `lowmon-deck`, `lowmon-hook`. M0/M3 tamam, M1/M2/M4/M5/M6 kodda büyük ölçüde tamam, **nihai kabul soak'u henüz yok**. Kurulu build = main `d05144d` (2026-11-17 15:37).
 
-## Son yapılanlar (2026-11-15)
-- M5 alarmlar: durum makinesi, REC_EVENT, pipe `CH_EVENT`/`Alarms`, tray balonu, lowmon-net `alarms` — Event yolu canlı doğrulandı
-- M6: telefon kabul testi ✅ (Samsung M21, LAN); `install.ps1` + firewall
-- pipe `QueryEvents` (LowDeck ADR-0003), tray "Arayüzü aç" → `UiExe` (`ShellExecuteW`)
-- Soak kullanıcı kararıyla 12:33'te durduruldu (taban çizgisi ~1 sa 20 dk): `docs/olcumler/2026-11-15_m6d-soak.csv`
+## Son yapılanlar (2026-11-16/17, PR #50–#57)
+- ADR-0032 AI kullanımı: `lowmon-ai`, taskbar AI bloğu, telefon/ui, rapor sekmesi; eski C++ widget kaldırıldı
+- ADR-0033 Faz 1–3: `lowmon-sensors` (GPU, disk °C, ACPI termal), taskbar 2×4 sistem ızgarası, ikinci monitör
+- ADR-0034 Parça 0–4: Claude Code etkinlik balonu, `lowmon-hook.exe`, tray menüsünden hook kur / kaldır
+- Dil: `ai.toml` `language` (tray + `lowmon-ui` + taskbar)
+- `lowmon-ui`: grafiklerde fare ile zaman damgası (#56), Ayarlar sekmesi ilk parti — `ai/taskbar/deck.toml`, `toml_edit`, kayıtta tray'e `WM_APP+6` (#57)
 
 ## Açık sorun / blokaj
-- CPU: toplayıcılar ~0,5 ms/s, servis 1,45–2,26 ms/s → ~1 ms/s fark açık (EcoQoS açık/kapalı karşılaştırması soak sonrası)
-- Tray "Aktif alarm: …" bağlanış balonu canlı görülmedi
-- Worktree'ler ve dallar incelenmedi: `.claude/worktrees/{devam-1a0c49,graphify-98adac,desktop-mascot-animations-6f1445}`, dallar `feat/ai-bubble`, `feat/ai-hook-setup`, `feat/ui-hover`, `feat/ui-settings`. Bunlarda `lowmon-ui/ai/deck/taskbar/sensors` crate'leri var; main'den ilerideler. Devlog'da 2026-11-16/17 girdisi yok.
+- CPU: toplayıcılar ~0,5 ms/s, servis 1,45–2,26 ms/s → ~1 ms/s fark açık
+- Canlı doğrulanmadı: Ayarlar'dan font / port / dil değişikliğinin tray'e yansıması, Notification matcher (izin istemi), monitör tak/çıkar, gerçek telefon APK'sı (AI bölümü)
+- Tray 2026-11-17 00:10 yeniden başlatmadan sonra açılmadı (nedeni bilinmiyor)
+- `install.ps1` Claude masaüstü oturumundan çalışırsa HKCU/AppData yazmaları MSIX sanallaştırmasına düşer → normal yönetici pwsh'tan çalıştır
 
 ## Sıradaki adımlar (sırayla)
-1. Durumu doğrula: `git status`, `git branch -a`, `git worktree list`; hangi dalın güncel olduğunu belirle, devlog boşluğunu doldur, bu dosyayı düzelt
+1. Ayarlar 2. parti: servis ayarları (örnekleme, saklama, alarm kuralları) `lowmon-elev --op write-config` ile
 2. Nihai kabul soak'u: yönetici pwsh ile `scripts/soak.ps1` (kabul: CPU < %0,05 toplam, ADR-0026; Private < 3 MB; sızıntı yok)
-3. `lowmon-elev` (kill/priority/affinity + `--op write-config`) ve uçtan uca Admin testi
+3. Rafta karar: `lowmon-ui` veriyi doğrudan servisten alsın (yeni ADR)
 
 ## Dokunma
 - `docs/spesifikasyon.md` — tek doğruluk kaynağı; spekten sapma önce ADR
@@ -28,7 +30,7 @@ Rust workspace (svc, tray, net, core, proto, lwm-dump) çalışıyor; M0 ve M3 t
 
 ## Kritik dosyalar
 - `CLAUDE.md` — kurallar · `TODO.md` — milestone durumu · `docs/spesifikasyon.md` — spek
-- `docs/devlog/2026-11.md` — gelişim günlüğü · `docs/kararlar/ADR-*.md` — kararlar (son: ADR-0029)
+- `docs/devlog/2026-11.md` — gelişim günlüğü · `docs/kararlar/ADR-*.md` — kararlar (son: ADR-0034)
 - `crates/lowmon-proto/src/proto.rs` — pipe protokolü (LowDeck sözleşmesi, `PROTO` sürümü)
 
 ## Doğrulama
