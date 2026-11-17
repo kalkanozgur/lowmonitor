@@ -660,6 +660,58 @@ fn event_row(e: &EventItem, offset: i64) -> EventRow {
         kind: e.kind as i32,
         name: e.name.as_str().into(),
         value: fmt_event_value(e).into(),
+        desc: event_desc(e).into(),
+    }
+}
+
+/// Olayın okunur açıklaması. Sistem adları `lowmon-svc` `main.rs` (`sys.push` / `start_events`) ile aynı.
+fn event_desc(e: &EventItem) -> String {
+    let t = |a: &'static str, b: &'static str| tr(a, b).to_string();
+    match (e.kind, e.name.as_str()) {
+        (2, "service_start") => t("Servis başladı", "Service started"),
+        (2, "config_invalid") => t(
+            "config.toml hatalı; varsayılan ayarlar kullanılıyor",
+            "config.toml invalid; using defaults",
+        ),
+        (2, "pipe_unavailable") => t(
+            "Pipe açılamadı; tray ve arayüz servise bağlanamaz",
+            "Pipe unavailable; tray and UI cannot connect",
+        ),
+        (2, "integrity") => t(
+            "Kayıt dosyasında bozuk bölüm bulundu, atlandı (önceki kapanış temiz değil)",
+            "Corrupt log section found and skipped (unclean shutdown)",
+        ),
+        (2, "retention_ok") => format!(
+            "{} ({})",
+            tr("Eski kayıtlar temizlendi", "Old logs pruned"),
+            e.value
+        ),
+        (2, "retention_error") => t("Eski kayıtlar temizlenemedi", "Pruning old logs failed"),
+        (2, "control_pause") => t("Kayıt duraklatıldı", "Recording paused"),
+        (2, "control_resume") => t("Kayıt sürdürüldü", "Recording resumed"),
+        (2, "control_reload") if e.value != 0 => t("Ayarlar yeniden yüklendi", "Settings reloaded"),
+        (2, "control_reload") => t(
+            "Ayarlar yeniden yüklenemedi (config.toml hatalı)",
+            "Settings reload failed (config.toml invalid)",
+        ),
+        (2, "write_error") => t("Kayıt dosyasına yazılamadı", "Log write failed"),
+        (2, _) => String::new(),
+        (k, name) => {
+            // shortcut: metrik kural adından tahmin (kural tanımı config.toml'da, kullanıcıya kapalı); alarm tanımı UI'a gelirse oradan
+            let what = match name.split(['_', '.']).next().unwrap_or("") {
+                "cpu" => tr("CPU kullanımı", "CPU usage"),
+                "ram" | "mem" => tr("Bellek kullanımı", "Memory usage"),
+                "disk" => tr("Disk", "Disk"),
+                "net" => tr("Ağ", "Network"),
+                _ => tr("Ölçüm", "Metric"),
+            };
+            let state = if k == 0 {
+                tr("eşiği aştı", "crossed threshold")
+            } else {
+                tr("normale döndü", "back to normal")
+            };
+            format!("{what} {state}")
+        }
     }
 }
 
@@ -1174,6 +1226,28 @@ fn fmt_time(ts_ms: u64, offset_s: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn event_desc_maps_system_and_alarm() {
+        let ev = |kind, name: &str, value| EventItem {
+            ts_ms: 0,
+            kind,
+            name: name.into(),
+            value,
+        };
+        lowmon_ai::text::set_lang(lowmon_ai::text::Lang::En);
+        assert_eq!(event_desc(&ev(2, "control_reload", 1)), "Settings reloaded");
+        assert!(event_desc(&ev(2, "control_reload", 0)).contains("failed"));
+        assert_eq!(event_desc(&ev(2, "bilinmeyen", 0)), "");
+        assert_eq!(
+            event_desc(&ev(0, "cpu_high", 9500)),
+            "CPU usage crossed threshold"
+        );
+        assert_eq!(
+            event_desc(&ev(1, "mem.used", 0)),
+            "Memory usage back to normal"
+        );
+    }
 
     #[test]
     fn ai_line_format() {
