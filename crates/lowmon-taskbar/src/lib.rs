@@ -1,6 +1,7 @@
 //! lowmon-taskbar (ADR-0032 Faz 2, ADR-0033 Faz 2): taskbar'a gömülü renkli metin blokları.
 //! Blok = 2 satır × N sütun hücre ızgarası (AI 2×1, sistem 2×4); bloklar bildirim alanının solunda
-//! yan yana dizilir (blok 0 en sağda), her biri ayrı alt pencere.
+//! yan yana dizilir (blok 0 en sağda), her biri ayrı alt pencere. Her blok kendi monitörünün taskbar'ına
+//! kurulur (ADR-0033 Faz 3); o monitörde taskbar yoksa ortak `monitor` ayarındakine döner.
 //! Yöntem (kullanıcı kararı, C++ widget'ın topmost + 1 s yoklamasının yerine):
 //! - Pencere `Shell_TrayWnd`'nin **alt penceresi**: taskbar'la hareket eder, tam ekranda onunla
 //!   gizlenir; z-sırası kavgası ve zamanlayıcı yok.
@@ -67,6 +68,9 @@ pub enum Monitor {
     Primary,
     Left,
     Right,
+    /// Ortak `monitor` ayarının seçtiği monitörden farklı olan (birden çoksa ona en yakını);
+    /// yalnız blok ayarında anlamlı. Başka monitör yoksa blok ortak monitöre döner.
+    Other,
 }
 
 /// `[ai]`: AI kullanım bloğu.
@@ -74,11 +78,16 @@ pub enum Monitor {
 #[serde(default, deny_unknown_fields)]
 pub struct Ai {
     pub enabled: bool,
+    /// Bloğun monitörü; yoksa ortak `monitor`
+    pub monitor: Option<Monitor>,
 }
 
 impl Default for Ai {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            monitor: None,
+        }
     }
 }
 
@@ -87,6 +96,8 @@ impl Default for Ai {
 #[serde(default, deny_unknown_fields)]
 pub struct Sys {
     pub enabled: bool,
+    /// Bloğun monitörü; varsayılan `other` (ikinci monitör takılıysa orada, değilse AI'ın yanında)
+    pub monitor: Option<Monitor>,
     /// CPU °C (ACPI termal bölge, PDH: +~4 MiB); kapalıysa hücre `—`
     pub cpu_temp: bool,
     /// CPU / GPU / MEM kullanımı (%)
@@ -104,6 +115,7 @@ impl Default for Sys {
     fn default() -> Self {
         Self {
             enabled: true,
+            monitor: Some(Monitor::Other),
             cpu_temp: true,
             warn_pct: 75,
             crit_pct: 90,
@@ -166,14 +178,26 @@ pub fn config_path() -> PathBuf {
         .join("taskbar.toml")
 }
 
-/// Monitör seçimi; `mons` = (sol kenar, birincil mi).
-pub fn pick(mons: &[(i32, bool)], sel: Monitor) -> Option<usize> {
+/// Monitör seçimi; `mons` = (sol kenar, birincil mi). `base`: ortak `monitor` ayarı (`Other` buna göre;
+/// `base` de `Other` ise birincil sayılır). `Other` için başka monitör yoksa `None`.
+pub fn pick(mons: &[(i32, bool)], sel: Monitor, base: Monitor) -> Option<usize> {
     let by_left =
         |rev: bool| (0..mons.len()).max_by_key(|&i| if rev { -mons[i].0 } else { mons[i].0 });
     match sel {
         Monitor::Right => by_left(false),
         Monitor::Left => by_left(true),
         Monitor::Primary => mons.iter().position(|m| m.1).or_else(|| by_left(false)),
+        Monitor::Other => {
+            let base = if base == Monitor::Other {
+                Monitor::Primary
+            } else {
+                base
+            };
+            let b = pick(mons, base, base)?;
+            (0..mons.len())
+                .filter(|&i| i != b)
+                .min_by_key(|&i| (mons[i].0 - mons[b].0).abs())
+        }
     }
 }
 
@@ -199,11 +223,25 @@ mod tests {
     #[test]
     fn monitor_pick() {
         let m = [(1920, false), (0, true), (-1280, false)];
-        assert_eq!(pick(&m, Monitor::Right), Some(0));
-        assert_eq!(pick(&m, Monitor::Left), Some(2));
-        assert_eq!(pick(&m, Monitor::Primary), Some(1));
-        assert_eq!(pick(&[(0, false), (800, false)], Monitor::Primary), Some(1));
-        assert_eq!(pick(&[], Monitor::Right), None);
+        let r = Monitor::Right;
+        assert_eq!(pick(&m, Monitor::Right, r), Some(0));
+        assert_eq!(pick(&m, Monitor::Left, r), Some(2));
+        assert_eq!(pick(&m, Monitor::Primary, r), Some(1));
+        assert_eq!(
+            pick(&[(0, false), (800, false)], Monitor::Primary, r),
+            Some(1)
+        );
+        assert_eq!(pick(&[], Monitor::Right, r), None);
+        // Other: ortak monitörden farklı, ona en yakın olan
+        assert_eq!(pick(&m, Monitor::Other, Monitor::Right), Some(1));
+        assert_eq!(pick(&m, Monitor::Other, Monitor::Left), Some(1));
+        assert_eq!(pick(&m, Monitor::Other, Monitor::Primary), Some(2));
+        assert_eq!(pick(&m, Monitor::Other, Monitor::Other), Some(2)); // taban birincil sayılır
+        // bu PC: birincil 2560 (x=0) + solda dizüstü (x=-1920)
+        let pc = [(-1920, false), (0, true)];
+        assert_eq!(pick(&pc, Monitor::Other, Monitor::Right), Some(0));
+        // tek monitör: başka yok
+        assert_eq!(pick(&[(0, true)], Monitor::Other, Monitor::Right), None);
     }
 
     #[test]
@@ -244,6 +282,12 @@ mod tests {
         let c = Config::parse("[sys]\nenabled = false\ntemp_crit_c = 95\n[ai]\nenabled = false")
             .unwrap();
         assert!(!c.sys.enabled && !c.ai.enabled);
+        assert_eq!((c.sys.monitor, c.ai.monitor), (Some(Monitor::Other), None));
+        let d = Config::parse("[sys]\nmonitor = \"primary\"\n[ai]\nmonitor = \"other\"").unwrap();
+        assert_eq!(
+            (d.sys.monitor, d.ai.monitor),
+            (Some(Monitor::Primary), Some(Monitor::Other))
+        );
         assert_eq!((c.sys.temp_crit_c, c.sys.temp_warn_c), (95, 80));
         assert!(Config::parse("[sys]\nx = 1").is_err());
         let missing = std::env::temp_dir().join("lowmon-test-yok-taskbar.toml");
