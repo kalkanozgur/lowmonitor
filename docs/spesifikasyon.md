@@ -328,7 +328,7 @@ clear    = { below = 85.0, for_s = 30 }
 3. **Geçmiş:** zaman aralığı → `QueryRange`, otomatik çözünürlük (aralık > 6 saat → 1 dk).
 4. **Süreçler:** `lowmon-ui` süreçleri kendisi tarar (2 s, yalnız sekme açıkken; Top-N kullanılmaz) + müdahale (§10, ADR-0030).
 5. **AI:** Claude kullanım raporu (ADR-0032 Faz 5): limit çizgisi (oturum + hafta %), token dökümü (araç grubu başına efektif maliyet), oturum tablosu; Son oturum / Bugün / Bu hafta. Veri `lowmon-ai` ile dosyalardan (`~/.claude/projects` dökümleri, limit CSV'si, bulut özetleri), yalnız sekme açılınca / Yenile ile, arka iş parçacığında; yalnız sayılar, araç ve proje klasörü adları (mesaj metni okunup saklanmaz). `lowmon-ui --ai` bu sekmeyle açar.
-6. **Ayarlar:** servis kontrolü, retention, alarm kuralları (`lowmon-elev --op write-config` + `ReloadConfig`).
+6. **Ayarlar:** ilk parti (yapıldı): kullanıcı dosyaları `ai.toml` (dil, sorgu aralığı, kimlik, rapor oturumu, CSV), `taskbar.toml` (monitör, yazı boyutu, AI / sistem bloğu, monitörleri, balon, CPU °C, eşikler), `deck.toml` (bind, port). Yalnız değişen anahtar yazılır (`toml_edit`, yorum + sıra korunur); sonuç dosyanın ayrıştırıcısından geçmezse yazılmaz; kaydedince tray'e `WM_APP + 6` (bit 0 ai + taskbar, bit 1 deck) → yeniden yükleme. Sonraki parti: servis kontrolü, retention, alarm kuralları (`lowmon-elev --op write-config` + `ReloadConfig`; `ProgramData\LowMonitor` kullanıcıya kapalı).
 
 **Performans kuralları (Slint)**
 - Yeniden çizim yalnız veri değişince, ≤ 1 Hz; sürekli timer/animasyon yok.

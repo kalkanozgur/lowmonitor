@@ -1,7 +1,7 @@
 // LowMonitor PC arayüzü (ADR-0031): Canlı, Olaylar, Geçmiş, Süreçler, AI (ADR-0032). Veri tray'deki deck'ten loopback.
 // Animasyon/timer yok; yalnız property değişince yeniden çizim.
 
-import { ListView, LineEdit } from "std-widgets.slint";
+import { ListView, LineEdit, ComboBox, CheckBox, Button, ScrollView } from "std-widgets.slint";
 
 global Theme {
     out property <color> bg: #101010;
@@ -28,6 +28,17 @@ export global Lang {
 export global Hover {
     in property <int> rev;
     pure callback text(int, float, int) -> string;
+}
+
+// Ayarlar sekmesi (kullanıcı dosyaları): sayılar metin, Rust'ta doğrulanır. Monitör: 0 primary, 1 left,
+// 2 right; AI blok monitörü 0 = ortak ayar, 1–4 = primary / left / right / other; sistem 0–3 (ortak yok).
+export struct SettingsForm {
+    lang: int, refresh: string, auth: int, csv: bool, report: string,
+    monitor: int, font-pt: string,
+    ai-on: bool, ai-mon: int, bubble: bool,
+    sys-on: bool, sys-mon: int, cpu-temp: bool,
+    warn: string, crit: string, twarn: string, tcrit: string, dwarn: string, dcrit: string,
+    bind: string, port: string,
 }
 
 export struct TopRow { name: string, cpu: string, ws: string }
@@ -195,6 +206,19 @@ component Stat inherits Rectangle {
     }
 }
 
+component Field inherits HorizontalLayout {
+    in property <string> label;
+    spacing: 12px;
+    alignment: start;
+    Text { text: root.label; color: Theme.dim; font-size: 13px; width: 220px; vertical-alignment: center; overflow: elide; }
+    @children
+}
+
+component Section inherits Text {
+    color: Theme.accent;
+    font-size: 14px;
+}
+
 export component MainWindow inherits Window {
     // Tek örnek: ikinci kopya bu başlıkla pencereyi bulup öne getirir.
     title: "LowMonitor";
@@ -274,6 +298,12 @@ export component MainWindow inherits Window {
     property <bool> live: root.connected && root.lm-state == 1;
 
     callback refresh-events();
+    // Ayarlar (spek §9.6, ilk parti: kullanıcı dosyaları)
+    in-out property <SettingsForm> st;
+    in property <string> st-status;
+    in property <bool> st-error;
+    callback settings-load();
+    callback settings-save();
 
     VerticalLayout {
         padding: 16px;
@@ -286,6 +316,7 @@ export component MainWindow inherits Window {
             Tab { label: Lang.t("Geçmiş", "History"); active: root.tab == 2; clicked => { root.tab = 2; root.query-history(root.hist-span); } }
             Tab { label: Lang.t("Süreçler", "Processes"); active: root.tab == 3; clicked => { root.tab = 3; } }
             Tab { label: "AI"; width: 64px; active: root.tab == 4; clicked => { root.tab = 4; } }
+            Tab { label: Lang.t("Ayarlar", "Settings"); active: root.tab == 5; clicked => { root.tab = 5; } }
             Rectangle { horizontal-stretch: 1; }
             Rectangle {
                 width: 10px;
@@ -607,6 +638,107 @@ export component MainWindow inherits Window {
         }
 
         // --- Olaylar (son 24 saat + canlı) ---
+        // --- Ayarlar: ai.toml, taskbar.toml, deck.toml; yalnız değişen anahtar yazılır ---
+        if root.tab == 5: ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding-right: 16px;
+                spacing: 8px;
+                alignment: start;
+                Section { text: Lang.t("AI kullanımı (ai.toml)", "AI usage (ai.toml)"); }
+                Field {
+                    label: Lang.t("Dil (tray + arayüz)", "Language (tray + UI)");
+                    ComboBox { width: 160px; model: ["Türkçe", "English"]; current-index <=> root.st.lang; }
+                }
+                Field {
+                    label: Lang.t("Sorgu aralığı (s, ≥ 30)", "Query interval (s, ≥ 30)");
+                    LineEdit { width: 100px; text <=> root.st.refresh; }
+                }
+                Field {
+                    label: Lang.t("Kimlik", "Auth");
+                    ComboBox { width: 160px; model: ["auto", "oauth", "session"]; current-index <=> root.st.auth; }
+                }
+                Field {
+                    label: Lang.t("Rapor oturum sayısı (1–200)", "Report sessions (1–200)");
+                    LineEdit { width: 100px; text <=> root.st.report; }
+                }
+                Field {
+                    label: "";
+                    CheckBox { text: Lang.t("Her sorguyu CSV'ye yaz", "Log every query to CSV"); checked <=> root.st.csv; }
+                }
+
+                Section { text: Lang.t("Taskbar (taskbar.toml)", "Taskbar (taskbar.toml)"); }
+                Field {
+                    label: Lang.t("Monitör", "Monitor");
+                    ComboBox { width: 160px; model: ["primary", "left", "right"]; current-index <=> root.st.monitor; }
+                }
+                Field {
+                    label: Lang.t("Yazı boyutu (pt)", "Font size (pt)");
+                    LineEdit { width: 100px; text <=> root.st.font-pt; }
+                }
+                Field {
+                    label: Lang.t("AI bloğu", "AI block");
+                    CheckBox { text: Lang.t("Açık", "On"); checked <=> root.st.ai-on; }
+                    ComboBox { width: 160px; model: [Lang.t("ortak monitör", "same monitor"), "primary", "left", "right", "other"]; current-index <=> root.st.ai-mon; }
+                    CheckBox { text: Lang.t("Claude Code balonu", "Claude Code bubble"); checked <=> root.st.bubble; }
+                }
+                Field {
+                    label: Lang.t("Sistem ızgarası", "System grid");
+                    CheckBox { text: Lang.t("Açık", "On"); checked <=> root.st.sys-on; }
+                    ComboBox { width: 160px; model: ["primary", "left", "right", "other"]; current-index <=> root.st.sys-mon; }
+                    CheckBox { text: "CPU °C (+~4 MiB)"; checked <=> root.st.cpu-temp; }
+                }
+                Field {
+                    label: Lang.t("Kullanım % uyarı / kritik", "Usage % warn / critical");
+                    LineEdit { width: 70px; text <=> root.st.warn; }
+                    LineEdit { width: 70px; text <=> root.st.crit; }
+                }
+                Field {
+                    label: Lang.t("CPU-GPU °C uyarı / kritik", "CPU-GPU °C warn / critical");
+                    LineEdit { width: 70px; text <=> root.st.twarn; }
+                    LineEdit { width: 70px; text <=> root.st.tcrit; }
+                }
+                Field {
+                    label: Lang.t("Disk °C uyarı / kritik", "Disk °C warn / critical");
+                    LineEdit { width: 70px; text <=> root.st.dwarn; }
+                    LineEdit { width: 70px; text <=> root.st.dcrit; }
+                }
+
+                Section { text: Lang.t("Telefon sunucusu (deck.toml)", "Phone server (deck.toml)"); }
+                Field {
+                    label: Lang.t("Dinleme adresi", "Bind address");
+                    LineEdit { width: 160px; text <=> root.st.bind; }
+                }
+                Field {
+                    label: "Port";
+                    LineEdit { width: 100px; text <=> root.st.port; }
+                }
+
+                Section { text: Lang.t("Servis", "Service"); }
+                Text {
+                    text: Lang.t("Örnekleme, saklama süresi ve alarm kuralları yönetici izni ister (sonraki sürüm).", "Sampling, retention and alarm rules need admin rights (next release).");
+                    color: Theme.dim;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    padding-top: 8px;
+                    Button { text: Lang.t("Kaydet", "Save"); clicked => { root.settings-save(); } }
+                    Button { text: Lang.t("Geri al", "Revert"); clicked => { root.settings-load(); } }
+                    Text {
+                        text: root.st-status;
+                        color: root.st-error ? Theme.warn : Theme.dim;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+
         if root.tab == 1: VerticalLayout {
             spacing: 8px;
             HorizontalLayout {

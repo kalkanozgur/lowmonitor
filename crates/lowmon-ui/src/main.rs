@@ -11,6 +11,7 @@ slint::include_modules!();
 mod aitab;
 mod history;
 mod procs;
+mod settings;
 #[cfg(windows)]
 mod win;
 
@@ -54,6 +55,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.global::<Hover>()
         .on_text(move |kind, frac, _rev| hover_text(kind, frac, offset).into());
     procs_init(&ui, offset);
+    settings_init(&ui);
     window_events(&ui);
     aitab::init(&ui, offset);
     #[cfg(windows)]
@@ -244,6 +246,9 @@ fn procs_init(ui: &MainWindow, offset: i64) {
         procs_sync(&ui);
         if t == 4 {
             aitab::refresh(&ui, offset);
+        }
+        if t == 5 {
+            settings_load(&ui, None);
         }
     });
     let w = ui.as_weak();
@@ -501,6 +506,8 @@ thread_local! {
     static TOP_EMA: std::cell::RefCell<HashMap<(String, u8), u16>> = std::cell::RefCell::new(HashMap::new());
     static QUERY: std::cell::RefCell<Option<Box<dyn Fn()>>> = const { std::cell::RefCell::new(None) };
     /// Canlı grafik geçmişi + path buffer'ı (yalnız event loop thread'i).
+    /// Ayarlar formunun dosyadan son yüklenen hâli (fark bununla alınır).
+    static ST_BASE: std::cell::RefCell<SettingsForm> = std::cell::RefCell::new(SettingsForm::default());
     static HIST: std::cell::RefCell<(History, String)> = std::cell::RefCell::new((History::default(), String::new()));
 }
 
@@ -837,6 +844,72 @@ fn graphs(ui: &MainWindow, m: &Metrics, now_s: u64) {
         ui.set_lm_net_scale(rate(net as u32).into());
     });
     bump_hover(ui);
+}
+
+/// Formu dosyalardan doldurur; `note` başarı iletisi (okuma hatası varsa o gösterilir).
+fn settings_load(ui: &MainWindow, note: Option<String>) {
+    let (f, errs) = settings::load();
+    ST_BASE.with(|b| *b.borrow_mut() = f.clone());
+    ui.set_st(f);
+    ui.set_st_error(!errs.is_empty());
+    ui.set_st_status(
+        if errs.is_empty() {
+            note.unwrap_or_default()
+        } else {
+            errs.join(" · ")
+        }
+        .into(),
+    );
+}
+
+fn settings_init(ui: &MainWindow) {
+    let w = ui.as_weak();
+    ui.on_settings_load(move || {
+        if let Some(ui) = w.upgrade() {
+            settings_load(&ui, None);
+        }
+    });
+    let w = ui.as_weak();
+    ui.on_settings_save(move || {
+        let Some(ui) = w.upgrade() else { return };
+        let old = ST_BASE.with(|b| b.borrow().clone());
+        let new = ui.get_st();
+        match settings::save(&old, &new) {
+            Ok(written) if written == [false; 3] => {
+                ui.set_st_error(false);
+                ui.set_st_status(tr("Değişiklik yok", "No changes").into());
+            }
+            Ok(written) => {
+                if written[0] && old.lang != new.lang {
+                    let l = if new.lang == 1 {
+                        lowmon_ai::text::Lang::En
+                    } else {
+                        lowmon_ai::text::Lang::Tr
+                    };
+                    lowmon_ai::text::set_lang(l);
+                    ui.global::<Lang>().set_english(new.lang == 1);
+                }
+                let bits = (written[0] || written[1]) as usize | (written[2] as usize) << 1;
+                #[cfg(windows)]
+                let sent = bits == 0 || win::tray_reload(bits);
+                #[cfg(not(windows))]
+                let sent = bits == 0;
+                let note = if sent {
+                    tr("Kaydedildi, tray'e bildirildi", "Saved, tray notified")
+                } else {
+                    tr(
+                        "Kaydedildi (tray kapalı: açılışta okunur)",
+                        "Saved (tray not running: read on start)",
+                    )
+                };
+                settings_load(&ui, Some(note.into()));
+            }
+            Err(e) => {
+                ui.set_st_error(true);
+                ui.set_st_status(e.into());
+            }
+        }
+    });
 }
 
 fn bump_hover(ui: &MainWindow) {

@@ -62,6 +62,8 @@ use windows_sys::Win32::{
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_DATA: u32 = WM_APP + 2;
+/// `lowmon-ui` Ayarlar kaydetti (`lowmon-ui/src/win.rs` ile aynı): wParam bit 0 = ai + taskbar, bit 1 = deck.
+const WM_RELOAD: u32 = WM_APP + 6;
 /// Monitör değişiminden sonra taskbar bloklarını bir kez daha kuran tek seferlik zamanlayıcı
 const TIMER_DISPLAY: usize = 0xA2;
 const ID_UI: usize = 1;
@@ -547,6 +549,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         sys::WM_SYS if LATEST.lock().unwrap_or_else(|e| e.into_inner()).is_none() => sys::render(),
         WM_TRAY if lp as u32 == WM_RBUTTONUP => menu(hwnd),
         ai::WM_AI => ai::render(),
+        WM_RELOAD => {
+            if wp & 1 != 0 {
+                ai::start(hwnd);
+            }
+            if wp & 2 != 0 {
+                deck_reload(true);
+                notify(hwnd, NIM_MODIFY);
+            }
+        }
         // Çözünürlük / monitör değişti: bloklar taskbar'larına yeniden kurulur. İkincil taskbar'ı explorer
         // bu mesajdan sonra açar / kapatır → birkaç saniye sonra bir kez daha.
         WM_DISPLAYCHANGE => {
