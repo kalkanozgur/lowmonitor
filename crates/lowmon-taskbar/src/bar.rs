@@ -1,5 +1,7 @@
 //! Win32 tarafı: taskbar bulma, alt pencere, olay kancası, GDI+ çizim.
-use crate::{Config, EV_LEFT, EV_MOVED, EV_RIGHT, Grid, Monitor, anchor, columns, pick, scale};
+use crate::{
+    Config, EV_LEFT, EV_MOVED, EV_RIGHT, Grid, Line, Monitor, anchor, columns, pick, scale,
+};
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use windows_sys::Win32::{
@@ -347,6 +349,153 @@ fn draw(grid: &Grid, h: i32, dpi: u32, cfg: &Config, cols: &mut Vec<i32>) -> Opt
     }
 }
 
+/// Konuşma balonu (ADR-0034): yarı saydam yuvarlatılmış kutu + sağ altta bloğa bakan kuyruk, tek satır metin.
+fn draw_bubble(line: &Line, dpi: u32, cfg: &Config) -> Option<Image> {
+    let text: Vec<u16> = line.text.encode_utf16().collect();
+    // SAFETY: tüm GDI+/GDI nesneleri bu fonksiyonda (Gp/Image ile) sahiplenilir; tampon DIB'in.
+    unsafe {
+        let mut fam = null_mut();
+        if GdipCreateFontFamilyFromName(wide(&cfg.font).as_ptr(), null_mut(), &mut fam) != Ok {
+            GdipGetGenericFontFamilySansSerif(&mut fam);
+        }
+        let fam = Gp(fam, GdipDeleteFontFamily);
+        let mut font = null_mut();
+        GdipCreateFont(
+            fam.0,
+            cfg.font_pt * dpi as f32 / 72.0,
+            FontStyleRegular,
+            UnitPixel,
+            &mut font,
+        );
+        let font = Gp(font, GdipDeleteFont);
+        let mut fmt = null_mut();
+        GdipCreateStringFormat(StringFormatFlagsNoWrap, 0, &mut fmt);
+        let fmt = Gp(fmt, GdipDeleteStringFormat);
+        if font.0.is_null() || fmt.0.is_null() {
+            return None;
+        }
+        let dc = CreateCompatibleDC(null_mut());
+        let mut g = null_mut();
+        GdipCreateFromHDC(dc, &mut g);
+        let g = Gp(g, GdipDeleteGraphics);
+        GdipSetTextRenderingHint(g.0, TextRenderingHintAntiAliasGridFit);
+        let big = RectF {
+            X: 0.0,
+            Y: 0.0,
+            Width: 10_000.0,
+            Height: 1_000.0,
+        };
+        let mut b = RectF::default();
+        GdipMeasureString(
+            g.0,
+            text.as_ptr(),
+            text.len() as i32,
+            font.0,
+            &big,
+            fmt.0,
+            &mut b,
+            null_mut(),
+            null_mut(),
+        );
+        drop(g);
+        let (pad_x, pad_y) = (scale(8, dpi), scale(3, dpi));
+        let (tail, d) = (scale(6, dpi), scale(12, dpi) as f32); // kuyruk yüksekliği, köşe çapı
+        let (tw, th) = (b.Width.ceil() as i32, b.Height.ceil() as i32);
+        let (w, body) = (tw + 2 * pad_x, th + 2 * pad_y);
+        let h = body + tail;
+
+        let mut bi: BITMAPINFO = std::mem::zeroed();
+        bi.bmiHeader = BITMAPINFOHEADER {
+            biSize: size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: w,
+            biHeight: -h, // üstten aşağı
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            ..std::mem::zeroed()
+        };
+        let mut bits = null_mut();
+        let bmp = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &mut bits, null_mut(), 0);
+        if bmp.is_null() || bits.is_null() {
+            DeleteDC(dc);
+            return None;
+        }
+        let img = Image {
+            dc,
+            bmp,
+            old: SelectObject(dc, bmp),
+            w,
+            h,
+        };
+        let mut bitmap: *mut GpBitmap = null_mut();
+        GdipCreateBitmapFromScan0(w, h, w * 4, PARGB, bits.cast(), &mut bitmap);
+        let bitmap = Gp(bitmap.cast::<GpImage>(), GdipDisposeImage);
+        let mut g = null_mut();
+        GdipGetImageGraphicsContext(bitmap.0, &mut g);
+        let g = Gp(g, GdipDeleteGraphics);
+        GdipSetSmoothingMode(g.0, SmoothingModeAntiAlias);
+        GdipSetTextRenderingHint(g.0, TextRenderingHintAntiAliasGridFit);
+        GdipGraphicsClear(g.0, 0); // tam saydam; pencere zaten tıklamayı geçirir
+
+        // Gövde: saat yönünde dört köşe yayı; alt kenarda sağ köşeden sonra kuyruk üçgeni.
+        let mut path = null_mut();
+        GdipCreatePath(FillModeAlternate, &mut path);
+        let path = Gp(path, GdipDeletePath);
+        let (r, bt) = (w as f32 - 1.0, body as f32 - 1.0);
+        GdipAddPathArc(path.0, 0.0, 0.0, d, d, 180.0, 90.0);
+        GdipAddPathArc(path.0, r - d, 0.0, d, d, 270.0, 90.0);
+        GdipAddPathArc(path.0, r - d, bt - d, d, d, 0.0, 90.0);
+        let tx = r - d / 2.0 - tail as f32; // kuyruğun sağ ucu
+        GdipAddPathLine(path.0, tx, bt, tx - tail as f32 / 2.0, bt + tail as f32);
+        GdipAddPathLine(
+            path.0,
+            tx - tail as f32 / 2.0,
+            bt + tail as f32,
+            tx - tail as f32,
+            bt,
+        );
+        GdipAddPathArc(path.0, 0.0, bt - d, d, d, 90.0, 90.0);
+        GdipClosePathFigure(path.0);
+        // ~%70 opak; koyu temada koyu, açık temada açık zemin
+        let (bg, edge) = if light_theme() {
+            (0xB4F3_F3F3, 0x4000_0000)
+        } else {
+            (0xB42B_2B2B, 0x50FF_FFFF)
+        };
+        let mut fill: *mut GpSolidFill = null_mut();
+        GdipCreateSolidFill(bg, &mut fill);
+        let fill = Gp(fill.cast::<GpBrush>(), GdipDeleteBrush);
+        GdipFillPath(g.0, fill.0, path.0);
+        // ince kenar: koyu masaüstünde / koyu pencere üstünde balon seçilsin
+        let mut pen = null_mut();
+        GdipCreatePen1(edge, 1.0, UnitPixel, &mut pen);
+        let pen = Gp(pen, GdipDeletePen);
+        GdipDrawPath(g.0, pen.0, path.0);
+
+        let mut brush: *mut GpSolidFill = null_mut();
+        GdipCreateSolidFill(0xFF00_0000 | line.rgb, &mut brush);
+        let brush = Gp(brush.cast::<GpBrush>(), GdipDeleteBrush);
+        let rect = RectF {
+            X: pad_x as f32,
+            Y: pad_y as f32,
+            Width: tw as f32,
+            Height: th as f32,
+        };
+        GdipDrawString(
+            g.0,
+            text.as_ptr(),
+            text.len() as i32,
+            font.0,
+            &rect,
+            fmt.0,
+            brush.0,
+        );
+        drop(g); // flush → bits
+        drop(bitmap);
+        Some(img)
+    }
+}
+
 /// Bir blok: kendi alt penceresi + son içeriği.
 struct Block {
     /// İstenen monitör (`None` → ortak `cfg.monitor`)
@@ -379,6 +528,26 @@ pub struct Bar {
     gdip: usize,
     hooks: Vec<HWINEVENTHOOK>,
     blocks: Vec<Block>,
+    /// Konuşma balonu: (blok, içerik), penceresi (ilk gösterimde kurulur), son çapa (bloğun sağ-üstü)
+    bubble: Option<(usize, Line)>,
+    bubble_hwnd: HWND,
+    bubble_anchor: (i32, i32),
+    bubble_dirty: bool,
+}
+
+/// Tam ekran uygulama / sunum var mı (balon oyunun, videonun üstüne çıkmasın).
+fn fullscreen() -> bool {
+    use windows_sys::Win32::UI::Shell::{
+        QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
+        SHQueryUserNotificationState,
+    };
+    let mut st = 0;
+    // SAFETY: st yerel çıktı.
+    let ok = unsafe { SHQueryUserNotificationState(&mut st) } == 0;
+    ok && matches!(
+        st,
+        QUNS_BUSY | QUNS_RUNNING_D3D_FULL_SCREEN | QUNS_PRESENTATION_MODE
+    )
 }
 
 impl Bar {
@@ -409,6 +578,10 @@ impl Bar {
             cfg,
             gdip,
             hooks: Vec::new(),
+            bubble: None,
+            bubble_hwnd: null_mut(),
+            bubble_anchor: (0, 0),
+            bubble_dirty: false,
             blocks: monitors
                 .iter()
                 .map(|&mon| Block {
@@ -451,6 +624,104 @@ impl Bar {
         self.place(Some(block)); // kalan bloklar kayar
     }
 
+    /// Bloğun üstünde konuşma balonu gösterir (`None` → gizler). Balon ayrı üst düzey penceredir:
+    /// tıklamayı geçirir, odak almaz; blok görünmüyorsa ya da tam ekran uygulama varsa gösterilmez.
+    pub fn bubble(&mut self, block: usize, line: Option<Line>) {
+        let new = line.map(|l| (block, l));
+        if self.bubble == new {
+            return;
+        }
+        self.bubble = new;
+        self.bubble_dirty = true;
+        self.place_bubble();
+    }
+
+    /// Balonu bloğun üstüne yerleştirir / gizler. İçerik ve konum değişmediyse iş yapmaz.
+    fn place_bubble(&mut self) {
+        let hide = |hwnd: HWND| {
+            if !hwnd.is_null() {
+                // SAFETY: kendi penceremiz.
+                unsafe { ShowWindow(hwnd, SW_HIDE) };
+            }
+        };
+        let target = self.bubble.as_ref().and_then(|(i, line)| {
+            let b = self.blocks.get(*i)?;
+            // SAFETY: IsWindowVisible geçersiz tutamaçta 0 döner.
+            let shown =
+                b.grid.is_some() && !b.hwnd.is_null() && unsafe { IsWindowVisible(b.hwnd) } != 0;
+            (shown && !fullscreen()).then(|| (b.hwnd, b.dpi.max(96), line.clone()))
+        });
+        let Some((block, dpi, line)) = target else {
+            hide(self.bubble_hwnd);
+            self.bubble_dirty = true; // yeniden görünürken çizilsin
+            return;
+        };
+        let _dpi = Pmv2::enter();
+        // SAFETY: blok penceresi yukarıda doğrulandı; balon penceresi bize ait, Drop'ta yok edilir.
+        unsafe {
+            let mut r: RECT = std::mem::zeroed();
+            GetWindowRect(block, &mut r);
+            let anchor = (r.right, r.top);
+            if !self.bubble_dirty && self.bubble_anchor == anchor {
+                return;
+            }
+            if self.bubble_hwnd.is_null() {
+                self.bubble_hwnd = CreateWindowExW(
+                    WS_EX_LAYERED
+                        | WS_EX_TOPMOST
+                        | WS_EX_NOACTIVATE
+                        | WS_EX_TRANSPARENT
+                        | WS_EX_TOOLWINDOW,
+                    wide(CLASS).as_ptr(),
+                    null(),
+                    WS_POPUP,
+                    0,
+                    0,
+                    1,
+                    1,
+                    null_mut(),
+                    null_mut(),
+                    GetModuleHandleW(null()),
+                    null(),
+                );
+                if self.bubble_hwnd.is_null() {
+                    return;
+                }
+            }
+            let Some(img) = draw_bubble(&line, dpi, &self.cfg) else {
+                return;
+            };
+            let size = SIZE {
+                cx: img.w,
+                cy: img.h,
+            };
+            let dst = POINT {
+                x: anchor.0 - img.w,
+                y: anchor.1 - img.h - scale(2, dpi),
+            };
+            let src = POINT { x: 0, y: 0 };
+            let blend = BLENDFUNCTION {
+                BlendOp: AC_SRC_OVER as u8,
+                BlendFlags: 0,
+                SourceConstantAlpha: 255,
+                AlphaFormat: AC_SRC_ALPHA as u8,
+            };
+            UpdateLayeredWindow(
+                self.bubble_hwnd,
+                null_mut(),
+                &dst,
+                &size,
+                img.dc,
+                &src,
+                0,
+                &blend,
+                ULW_ALPHA,
+            );
+            ShowWindow(self.bubble_hwnd, SW_SHOWNOACTIVATE);
+            (self.bubble_anchor, self.bubble_dirty) = (anchor, false);
+        }
+    }
+
     /// Explorer yeniden başladı (`TaskbarCreated`) ya da monitör takıldı / çıkarıldı: pencereler
     /// bırakılır, her blok monitörünün taskbar'ına yeniden kurulur.
     pub fn reset(&mut self) {
@@ -468,6 +739,7 @@ impl Bar {
     fn place(&mut self, only: Option<usize>) {
         MOVED.store(false, Ordering::Relaxed);
         if self.blocks.iter().all(|b| b.grid.is_none()) {
+            self.place_bubble(); // blok gizlendi → balon da
             return;
         }
         let _dpi = Pmv2::enter();
@@ -544,6 +816,7 @@ impl Bar {
                 dock.right -= b.w + dock.gap;
             }
         }
+        self.place_bubble(); // blok yer değiştirdiyse / gizlendiyse balon izler
     }
 
     /// Taskbar ölçüleri; `ch == 0` → dikey / geçersiz (bloklar gizlenir).
@@ -674,6 +947,10 @@ impl Bar {
 impl Drop for Bar {
     fn drop(&mut self) {
         self.detach();
+        if !self.bubble_hwnd.is_null() {
+            // SAFETY: kendi penceremiz, bir kez.
+            unsafe { DestroyWindow(self.bubble_hwnd) };
+        }
         if self.gdip != 0 {
             // SAFETY: GdiplusStartup'tan alınan jeton, tüm GDI+ nesneleri silindi.
             unsafe { GdiplusShutdown(self.gdip) };
