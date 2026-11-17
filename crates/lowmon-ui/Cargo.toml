@@ -13,6 +13,8 @@ lowmon-deck = { path = "../lowmon-deck" }
 lowmon-ai = { path = "../lowmon-ai" }
 # Ayarlar sekmesi: taskbar.toml biçimi + doğrulama
 lowmon-taskbar = { path = "../lowmon-taskbar" }
+# Servis ayarları (yükseltilmiş kopya): config.toml doğrulaması
+lowmon-core = { path = "../lowmon-core" }
 # Ayarlar: yalnız değişen anahtar yazılır, yorumlar korunur
 toml_edit.workspace = true
 toml.workspace = true

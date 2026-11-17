@@ -32,6 +32,15 @@ export global Hover {
 
 // Ayarlar sekmesi (kullanıcı dosyaları): sayılar metin, Rust'ta doğrulanır. Monitör: 0 primary, 1 left,
 // 2 right; AI blok monitörü 0 = ortak ayar, 1–4 = primary / left / right / other; sistem 0–3 (ortak yok).
+// Servis config.toml alanları (yalnız yükseltilmiş kopya, ADR-0030 eki)
+export struct SvcForm {
+    interval: string,
+    topn-every: string,
+    topn-count: string,
+    raw-days: string,
+    total-days: string,
+}
+
 export struct SettingsForm {
     lang: int, refresh: string, auth: int, csv: bool, report: string,
     monitor: int, font-pt: string,
@@ -221,7 +230,8 @@ component Section inherits Text {
 
 export component MainWindow inherits Window {
     // Tek örnek: ikinci kopya bu başlıkla pencereyi bulup öne getirir.
-    title: "LowMonitor";
+    // Yükseltilmiş kopya (`--service-settings`) farklı başlık taşır: tek örnek onu bulmaz.
+    title: root.admin ? Lang.t("LowMonitor (Yönetici)", "LowMonitor (Administrator)") : "LowMonitor";
     background: Theme.bg;
     preferred-width: 760px;
     preferred-height: 580px;
@@ -302,6 +312,13 @@ export component MainWindow inherits Window {
     in-out property <SettingsForm> st;
     in property <string> st-status;
     in property <bool> st-error;
+    in-out property <SvcForm> svc;
+    in property <string> svc-status;
+    in property <bool> svc-error;
+    callback svc-load();
+    callback svc-save();
+    in property <bool> admin;
+    callback service-elevate();
     callback settings-load();
     callback settings-save();
 
@@ -715,11 +732,53 @@ export component MainWindow inherits Window {
                 }
 
                 Section { text: Lang.t("Servis", "Service"); }
-                Text {
-                    text: Lang.t("Örnekleme, saklama süresi ve alarm kuralları yönetici izni ister (sonraki sürüm).", "Sampling, retention and alarm rules need admin rights (next release).");
-                    color: Theme.dim;
-                    font-size: 13px;
-                    wrap: word-wrap;
+                if !root.admin: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Button { text: Lang.t("Servis ayarlarını düzenle (yönetici)", "Edit service settings (admin)"); clicked => { root.service-elevate(); } }
+                    Text {
+                        text: Lang.t("Örnekleme ve saklama; UAC ile ayrı pencerede açılır.", "Sampling and retention; opens in a separate window via UAC.");
+                        color: Theme.dim;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+                if root.admin: VerticalLayout {
+                    spacing: 8px;
+                    Field {
+                        label: Lang.t("Örnekleme aralığı (ms, 100–60000)", "Sampling interval (ms, 100–60000)");
+                        LineEdit { width: 100px; text <=> root.svc.interval; }
+                    }
+                    Field {
+                        label: Lang.t("Top-N her (örnek, 1–3600)", "Top-N every (samples, 1–3600)");
+                        LineEdit { width: 100px; text <=> root.svc.topn-every; }
+                    }
+                    Field {
+                        label: Lang.t("Top-N süreç sayısı (0–50)", "Top-N process count (0–50)");
+                        LineEdit { width: 100px; text <=> root.svc.topn-count; }
+                    }
+                    Field {
+                        label: Lang.t("Ham veri saklama (gün)", "Raw data retention (days)");
+                        LineEdit { width: 100px; text <=> root.svc.raw-days; }
+                    }
+                    Field {
+                        label: Lang.t("Toplam saklama (gün, ≤ 3650)", "Total retention (days, ≤ 3650)");
+                        LineEdit { width: 100px; text <=> root.svc.total-days; }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Button { text: Lang.t("Servise kaydet", "Save to service"); clicked => { root.svc-save(); } }
+                        Button { text: Lang.t("Geri al", "Revert"); clicked => { root.svc-load(); } }
+                        Text {
+                            text: root.svc-status;
+                            color: root.svc-error ? Theme.warn : Theme.dim;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
                 }
 
                 HorizontalLayout {

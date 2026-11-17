@@ -23,3 +23,16 @@ Top-N'i süreç tablosuna yetecek kadar büyütmek svc CPU'sunu artırır (Top-N
 - \+ `lowmon-elev` kapsamı küçüldü; LowDeck'te yeni exe yok.
 - − Müdahale log'a düşmüyor (madde 4).
 - − Tarama mantığı iki yerde (svc Top-N, LowDeck): `Reserved1` ofsetleri iki repoda aynı tutulmalı.
+
+## Ek (2026-11-17): servis ayarları da `lowmon-ui`'nın yükseltilmiş kopyasında; `lowmon-elev` iptal
+Bağlam: ADR-0031 ile PC arayüzü `lowmon-ui` oldu ve `--kill` için yükseltilmiş kopya deseni hazır. `ProgramData\LowMonitor\config.toml` kullanıcıya kapalı: okumak da yükseltme ister; ayrı `lowmon-elev` ya iki UAC (oku + yaz) ya da pipe'a yeni okuma mesajı (proto sürümü, LowDeck sözleşmesi) gerektirirdi.
+
+Karar:
+1. Ayarlar sekmesinde "Servis ayarlarını düzenle" → `ShellExecuteExW(runas, lowmon-ui.exe --service-settings)`; tek UAC.
+2. Yükseltilmiş kopya Ayarlar sekmesinde açılır, `config.toml`'u okur; yalnız değişen anahtarı `toml_edit` ile yazar (yorum + sıra korunur), sonuç `lowmon_core::Config::parse`'tan geçmezse yazmaz; ardından pipe'a `Control::ReloadConfig` gönderir (Admin yetkisi rolden değil yükseltilmiş token'dan, spek §6.1), sonucu gösterir.
+3. İlk parti: `[sampling]` `interval_ms`, `topn_every`, `topn_count`; `[retention]` `raw_days`, `total_days`. Alarm kuralları sonraki parti.
+4. `lowmon-elev` planı kaldırıldı (madde 3'ün yerine geçer).
+
+Sonuçlar:
+- \+ Yeni exe yok; tek UAC; proto değişmez.
+- − Yükseltilmiş kopya tam arayüzdür: açık kaldıkça Süreçler'de sonlandırma UAC'sız çalışır. Pencere başlığı "(Yönetici)" gösterir.

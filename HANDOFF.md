@@ -18,7 +18,7 @@ Rust workspace: svc, tray, net, core, proto, lwm-dump + `lowmon-ui` (Slint PC ar
 - `install.ps1` Claude masaüstü oturumundan çalışırsa HKCU/AppData yazmaları MSIX sanallaştırmasına düşer → normal yönetici pwsh'tan çalıştır
 
 ## Sıradaki adımlar (sırayla)
-1. Ayarlar 2. parti: servis ayarları (örnekleme, saklama, alarm kuralları) `lowmon-elev --op write-config` ile
+1. Ayarlar 2. parti: servis ayarları (örnekleme, saklama; alarmlar sonra) `lowmon-ui --service-settings` yükseltilmiş kopyasıyla (ADR-0030 eki)
 2. Nihai kabul soak'u: yönetici pwsh ile `scripts/soak.ps1` (kabul: CPU < %0,05 toplam, ADR-0026; Private < 3 MB; sızıntı yok)
 3. Rafta karar: `lowmon-ui` veriyi doğrudan servisten alsın (yeni ADR)
 

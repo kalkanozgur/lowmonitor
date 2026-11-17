@@ -4,6 +4,7 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 ## [Unreleased]
 ### Eklendi
 - `lowmon-ui` Ayarlar sekmesi: `ai.toml`, `taskbar.toml`, `deck.toml` formu; yalnız değişen anahtar yazılır (yorumlar korunur), değerler doğrulanır, kaydedince tray yeniden yükler. Servis ayarları sonraki partide
+- `lowmon-ui` servis ayarları: Ayarlar ▸ "Servis ayarlarını düzenle (yönetici)" → UAC → `lowmon-ui --service-settings`; örnekleme (`interval_ms`, `topn_every`, `topn_count`) ve saklama (`raw_days`, `total_days`) `config.toml`'a yerinde yazılır, servis `ReloadConfig` ile yeniden başlamadan uygular. `lowmon-elev` planı kaldırıldı (ADR-0030 eki)
 ### Değişti
 - `lowmon-ui` grafikleri: fareyle üzerine gelince dikey çizgi + kutucuk; Canlı'da saat + değer(ler), Geçmiş'te kova aralığı (dakikadan kısa kovada saniyeli, 7 g'de tarihli) + ort/max, RAM, R/W, ↓/↑
 - Taskbar AI göstergesine sol tık artık raporu açar (önceden: şimdi yenile; menüde duruyor)
