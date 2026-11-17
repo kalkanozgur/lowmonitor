@@ -74,14 +74,26 @@ Claude Code çalışırken ne yaptığı ("düşünüyor", "Bash çalışıyor",
 | "Bitti" | `DONE_SEC` + 0,2 s'lik tek seferlik zamanlayıcı (`TIMER_BUBBLE`) kaydı düşürür; sürekli zamanlayıcı yok |
 | Log | Parça 2'deki `ai: etkinlik: …` log satırı kaldırıldı |
 
+## Parça 4 kararları ve notları (2026-11-17)
+| Konu | Karar / uygulama |
+|---|---|
+| Ayar yazma | `lowmon_ai::hooks` (`install` / `uninstall` / `installed`): `serde_json` + `preserve_order` (kullanıcı kararı: anahtar sırası korunur). Yalnız komutunda `lowmon-hook.exe` geçen işleyicilere dokunulur; boşalan grup / olay / `hooks` anahtarı silinir. Kurulum önce eskileri siler, sonra ekler (tekrar kurmak aynı dosyayı verir, yol değişince güncellenir) |
+| Olaylar | `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification` (matcher `permission_prompt\|idle_prompt\|elicitation_dialog`), `Stop`, `SessionEnd` |
+| `async` | **Hepsi `"async": true`** (kullanıcı kararı; Claude Code belgesi: arka planda çalışır, bloklamaz). Bedel: sık olaylarda `Pre`/`PostToolUse` sırası nadiren kayabilir; sonraki olay düzeltir |
+| Komut | `"C:/Program Files/LowMonitor/lowmon-hook.exe"`: tırnaklı, ileri eğik çizgi (Windows'ta Git Bash ile de çalışır); yol tray exe'sinin yanından |
+| Tray menüsü | "AI kullanımı ▸ Claude Code hook'larını kur" (kuruluysa "yeniden kur") / "… kaldır" (kurulu değilse pasif). Menü açılışında `settings.json` okunur |
+| Güvenlik | Geçersiz JSON, kök nesne değil ya da `hooks` beklenen tipte değil → dokunulmaz, ileti kutusunda neden. İlk yazmadan önce `settings.json.lowmon-backup` (bir kez). Yazma `settings.json.lowmon-tmp` + rename. Hook exe'si yoksa yazılmaz |
+| `install.ps1` | `lowmon-hook.exe` kopyalanır; kopyadan önce çalışan `lowmon-hook` süreçleri durdurulur. `settings.json`'a dokunmaz |
+| Canlı | Gerçek `settings.json`'da kur → kaldır: dosya bayt bayt geri geldi. `claude -p --debug hooks`: async hook'lar arka plana alınıyor (11–13 ms). Claude masaüstü bilgisayar kullanımı kaplaması QUNS_BUSY verir → balon gizli (beklenen) |
+| Kaldırma | Kaldırma betiği yok: LowMonitor silinmeden önce menüden "kaldır" seçilmeli; yoksa Claude Code bulunamayan exe için hata satırı gösterebilir (async: bloklamaz) |
+
 ## Sonuçlar
 - (+) Claude kapalıyken maliyet sıfır; açıkken yalnız olay başına kısa ömürlü küçük süreç + bir pencere mesajı.
 - (+) Sır riski yok: yalnız olay türü ve araç adı işlenir.
 - (−) Her araç çağrısında (önce + sonra) bir süreç başlar. Ölçüm kabul edilemez çıkarsa `PreToolUse` / `PostToolUse` hook'ları kurulmaz; balon yalnız "çalışıyor / bekliyor / bitti" gösterir.
 - (−) Balon üst düzey topmost pencere: tam ekran kontrolü olay anında yapılır, tam ekrana geçiş ile sonraki olay arasında balon kısa süre görünebilir.
 - (−) Hook ayarı kullanıcının Claude Code dosyasında; Claude Code hook biçimi değişirse kurulum komutu güncellenir.
-- Spek §8 (tray), §2 (bileşen tablosu: `lowmon-hook`) Parça 4 PR'ında güncellenir.
 
 ## Açık
-- Hook'un `async` çalıştırılması (Claude Code destekliyorsa araç çağrısını hiç bekletmez): Parça 4'te belgeye bakılır.
-- `Notification` olayının izin istemi ile boşta bekleme ayrımı (alan adı): Parça 4'te gerçek olayla doğrulanır.
+- ~~Hook'un `async` çalıştırılması~~: belgede var, kuruldu (Parça 4).
+- `Notification` ayrımı belgede matcher değeriyle (`notification_type`): `permission_prompt` / `idle_prompt` / `elicitation_dialog`. Regex matcher'ın ve gerçek olay sırasının doğrulanması: Parça 4 canlı denemesi.

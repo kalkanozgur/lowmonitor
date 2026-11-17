@@ -30,6 +30,8 @@ pub const ID_RELOAD: usize = 22;
 pub const ID_KEY_SAVE: usize = 23;
 pub const ID_KEY_DEL: usize = 24;
 pub const ID_REPORT: usize = 25;
+pub const ID_HOOK_SET: usize = 26;
+pub const ID_HOOK_DEL: usize = 27;
 const TICK_MS: u32 = 30_000;
 /// AI bloğu: sistem ızgarasının (`sys::BLOCK` = 0) solunda.
 const BLOCK: usize = 1;
@@ -428,6 +430,87 @@ pub fn delete_key() {
     refresh_now();
 }
 
+fn claude_settings() -> std::path::PathBuf {
+    lowmon_ai::claude_dir().join("settings.json")
+}
+
+/// Claude Code hook'larını kur / kaldır (ADR-0034 Parça 4). Dosya Claude Code'un: ilk yazmadan
+/// önce `.lowmon-backup` alınır, geçersiz JSON'a dokunulmaz, yazma geçici dosya + rename ile.
+pub fn hooks(hwnd: HWND, install: bool) {
+    let path = claude_settings();
+    let r = (|| -> Result<bool, String> {
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e.to_string()),
+        };
+        let out = if install {
+            let exe = std::env::current_exe()
+                .map_err(|e| e.to_string())?
+                .with_file_name("lowmon-hook.exe");
+            if !exe.exists() {
+                return Err(format!("{} yok", exe.display()));
+            }
+            lowmon_ai::hooks::install(&text, &lowmon_ai::hooks::command(&exe))?
+        } else {
+            match lowmon_ai::hooks::uninstall(&text)? {
+                Some(t) => t,
+                None => return Ok(false),
+            }
+        };
+        let bak = path.with_extension("json.lowmon-backup");
+        if !text.is_empty() && !bak.exists() {
+            std::fs::write(&bak, &text).map_err(|e| e.to_string())?;
+        }
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let tmp = path.with_extension("json.lowmon-tmp");
+        std::fs::write(&tmp, out).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+        Ok(true)
+    })();
+    match r {
+        Ok(changed) => {
+            log(&format!(
+                "hook {}: {}",
+                if install { "kuruldu" } else { "kaldırıldı" },
+                path.display()
+            ));
+            let m = match (install, changed) {
+                (true, _) => tr(
+                    "Claude Code hook'ları kuruldu. Açık Claude Code oturumları yeniden başlatılınca etkin olur.",
+                    "Claude Code hooks installed. Restart open Claude Code sessions to activate them.",
+                ),
+                (false, true) => tr(
+                    "Claude Code hook'ları kaldırıldı.",
+                    "Claude Code hooks removed.",
+                ),
+                (false, false) => tr(
+                    "Kurulu LowMonitor hook'u yok.",
+                    "No LowMonitor hooks installed.",
+                ),
+            };
+            message(hwnd, m, MB_ICONINFORMATION);
+        }
+        Err(e) => {
+            log(&format!("hook ayarı yazılamadı: {e}"));
+            message(
+                hwnd,
+                &format!(
+                    "{}\n{}\n\n{e}",
+                    tr(
+                        "Claude Code ayarı değiştirilmedi:",
+                        "Claude Code settings were not changed:"
+                    ),
+                    path.display()
+                ),
+                MB_ICONERROR,
+            );
+        }
+    }
+}
+
 fn clip(s: &str, n: usize) -> String {
     if s.chars().count() > n {
         s.chars().take(n - 1).chain(['…']).collect()
@@ -506,6 +589,34 @@ pub fn menu() -> HMENU {
             MF_STRING | has,
             ID_KEY_DEL,
             crate::wide(tr("sessionKey'i sil", "Delete sessionKey")).as_ptr(),
+        );
+        // ADR-0034: etkinlik balonu için Claude Code hook'ları
+        let on = std::fs::read_to_string(claude_settings())
+            .is_ok_and(|t| lowmon_ai::hooks::installed(&t));
+        AppendMenuW(sub, MF_SEPARATOR, 0, ptr::null());
+        AppendMenuW(
+            sub,
+            MF_STRING,
+            ID_HOOK_SET,
+            crate::wide(if on {
+                tr(
+                    "Claude Code hook'larını yeniden kur",
+                    "Reinstall Claude Code hooks",
+                )
+            } else {
+                tr("Claude Code hook'larını kur", "Install Claude Code hooks")
+            })
+            .as_ptr(),
+        );
+        AppendMenuW(
+            sub,
+            MF_STRING | if on { 0 } else { MF_GRAYED },
+            ID_HOOK_DEL,
+            crate::wide(tr(
+                "Claude Code hook'larını kaldır",
+                "Remove Claude Code hooks",
+            ))
+            .as_ptr(),
         );
         sub
     }

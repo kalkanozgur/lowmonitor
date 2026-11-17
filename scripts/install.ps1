@@ -11,13 +11,13 @@ $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 if (-not $admin) { throw "Yönetici PowerShell gerekli." }
 
 $dst = Join-Path $env:ProgramFiles 'LowMonitor'
-$exes = 'lowmon-svc.exe', 'lowmon-net.exe', 'lowmon-tray.exe', 'lwm-dump.exe'
+$exes = 'lowmon-svc.exe', 'lowmon-net.exe', 'lowmon-tray.exe', 'lowmon-hook.exe', 'lwm-dump.exe'
 foreach ($e in $exes) { if (-not (Test-Path (Join-Path $Src $e))) { throw "$Src\$e yok; önce release build." } }
 $ui = Join-Path $UiSrc 'lowmon-ui.exe'
 if (-not (Test-Path $ui)) { throw "$ui yok; önce cargo build --profile release-ui -p lowmon-ui." }
 
 # Kopyalanacak exe'leri kilitleyen kullanıcı süreçleri + eski LowDeck PC bileşenleri (ADR-0031: deck tray'de)
-Get-Process lowmon-tray, lowmon-ui, lowmon-net, lowdeck-agent, lowdeck-desktop -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process lowmon-tray, lowmon-ui, lowmon-net, lowmon-hook, lowdeck-agent, lowdeck-desktop -ErrorAction SilentlyContinue | Stop-Process -Force
 
 # Eski LowDeck izleri: agent autostart'ı, UiExe kaydı, agent firewall kuralı. agent.cfg kalır (deck.toml göçü okur).
 Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' LowDeckAgent -ErrorAction SilentlyContinue

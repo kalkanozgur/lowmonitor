@@ -388,6 +388,8 @@ fn menu(hwnd: HWND) {
             ai::ID_RELOAD => ai::start(hwnd),
             ai::ID_KEY_SAVE => ai::save_key(hwnd),
             ai::ID_KEY_DEL => ai::delete_key(),
+            ai::ID_HOOK_SET => ai::hooks(hwnd, true),
+            ai::ID_HOOK_DEL => ai::hooks(hwnd, false),
             ID_LOG => open_notepad(hwnd, &lowmon_deck::config_path().with_file_name("deck.log")),
             ID_RELOAD => {
                 deck_reload(true);
