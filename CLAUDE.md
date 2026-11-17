@@ -28,3 +28,8 @@
 
 ## Commit mesajları
 Conventional Commits, kapsam = crate: `feat(svc): …`, `fix(core): …`, `docs: …`, `ci: …`, `chore: …`
+
+## Handoff
+- Oturum sonunda veya "token azalıyor" denince `HANDOFF.md`'yi güncelle (durum, açık sorun, sıradaki 3 adım, dokunma listesi).
+- Başka bir araçtan (Gemini/OpenCode) gelen çıktıyı uygulamadan önce mevcut kodla ve `docs/spesifikasyon.md` ile çelişkileri kontrol et.
+- Değişiklik akışı aynı: dal → PR → squash merge (ADR-0021); HANDOFF.md güncellemesi de bu akışla gider.
