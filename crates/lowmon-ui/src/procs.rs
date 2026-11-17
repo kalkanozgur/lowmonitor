@@ -150,13 +150,36 @@ pub mod exit {
     pub const CANCELLED: i32 = 1223;
 
     pub fn text(code: i32, name: &str) -> String {
+        use lowmon_ai::text::tr;
         match code {
-            OK => format!("{name} sonlandırıldı"),
-            GONE => format!("{name}: süreç artık yok (ya da PID başka sürece geçti)"),
-            PROTECTED => format!("{name}: korumalı süreç, sonlandırılamaz"),
-            DENIED => format!("{name}: erişim reddedildi"),
-            CANCELLED => format!("{name}: yönetici onayı verilmedi"),
-            c => format!("{name}: sonlandırılamadı (kod {c})"),
+            OK => format!("{name} {}", tr("sonlandırıldı", "ended")),
+            GONE => format!(
+                "{name}: {}",
+                tr(
+                    "süreç artık yok (ya da PID başka sürece geçti)",
+                    "process is gone (or the PID now belongs to another process)"
+                )
+            ),
+            PROTECTED => format!(
+                "{name}: {}",
+                tr(
+                    "korumalı süreç, sonlandırılamaz",
+                    "protected process, cannot be ended"
+                )
+            ),
+            DENIED => format!("{name}: {}", tr("erişim reddedildi", "access denied")),
+            CANCELLED => format!(
+                "{name}: {}",
+                tr(
+                    "yönetici onayı verilmedi",
+                    "administrator approval was not given"
+                )
+            ),
+            c => format!(
+                "{name}: {} ({} {c})",
+                tr("sonlandırılamadı", "could not be ended"),
+                tr("kod", "code")
+            ),
         }
     }
 }

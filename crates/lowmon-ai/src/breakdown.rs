@@ -84,6 +84,32 @@ pub fn group_for_tool(n: &str) -> String {
     fixed.to_string()
 }
 
+/// Grup adının gösterimi: kimlikler Türkçe (veri); İngilizce arayüzde çevrilir.
+pub fn group_label(lang: crate::text::Lang, id: &str) -> String {
+    if lang == crate::text::Lang::Tr {
+        return id.to_string();
+    }
+    let fixed = [
+        (INSTRUCTIONS, "Claude instructions"),
+        (CONVERSATION, "Conversation/other"),
+        (CHROME, "Claude in Chrome"),
+        (SCREEN, "Computer use"),
+        (BROWSER, "Built-in browser"),
+        (WEB, "Web"),
+        (FILES, "Files/shell"),
+        (SKILLS, "Skills"),
+        (TOOL_LOAD, "Tool loading"),
+        (SUBAGENTS, "Subagents"),
+    ];
+    if let Some((_, en)) = fixed.iter().find(|(k, _)| *k == id) {
+        return en.to_string();
+    }
+    match id.strip_prefix(CONNECTION_PREFIX) {
+        Some(name) => format!("Connector: {name}"),
+        None => id.to_string(),
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GroupCost {
     pub name: String,
@@ -490,6 +516,18 @@ mod tests {
         ] {
             assert_eq!(group_for_tool(tool), group, "{tool}");
         }
+    }
+
+    #[test]
+    fn labels() {
+        use crate::text::Lang;
+        assert_eq!(group_label(Lang::Tr, FILES), "Dosya/shell");
+        assert_eq!(group_label(Lang::En, FILES), "Files/shell");
+        assert_eq!(
+            group_label(Lang::En, "Bağlantı: memory"),
+            "Connector: memory"
+        );
+        assert_eq!(group_label(Lang::En, "bilinmeyen"), "bilinmeyen");
     }
 
     #[test]

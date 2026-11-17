@@ -20,6 +20,7 @@ use lowdeck_proto::{
     AiUsage, AiWindow, C2S, EventItem, HIST_POINTS_MAX, HistPoint, Metrics, S2C, TOPIC_AI,
     TOPIC_EVENTS, TOPIC_METRICS, TopItem,
 };
+use lowmon_ai::text::tr;
 use slint::{Model, ModelRc, VecModel};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -39,7 +40,14 @@ fn main() -> Result<(), slint::PlatformError> {
         return Ok(());
     }
 
+    // Dil: tray ile aynı ayar (`ai.toml` `language`); dosya bozuksa Türkçe.
+    let lang = lowmon_ai::Config::load(&lowmon_ai::config_path())
+        .map(|c| c.language)
+        .unwrap_or_default();
+    lowmon_ai::text::set_lang(lang);
     let ui = MainWindow::new()?;
+    ui.global::<Lang>()
+        .set_english(lang == lowmon_ai::text::Lang::En);
     let events = Rc::new(VecModel::<EventRow>::default());
     ui.set_events(ModelRc::from(events.clone()));
     let offset = local_offset_s();
@@ -60,7 +68,13 @@ fn main() -> Result<(), slint::PlatformError> {
     match target() {
         Some((port, token)) => start_client(&ui, events, port, token, offset),
         // deck.toml'u tray ilk açılışta yazar; arayüz oluşturmaz (token tray'inkiyle aynı olmalı).
-        None => ui.set_status("deck.toml yok: LowMonitor tray'ini bir kez çalıştırın".into()),
+        None => ui.set_status(
+            tr(
+                "deck.toml yok: LowMonitor tray'ini bir kez çalıştırın",
+                "deck.toml missing: run the LowMonitor tray once",
+            )
+            .into(),
+        ),
     }
     ui.run()
 }
@@ -79,7 +93,7 @@ fn start_client(
             host: "127.0.0.1".into(),
             port,
             token,
-            name: "LowMonitor arayüzü".into(),
+            name: tr("LowMonitor arayüzü", "LowMonitor interface").into(),
         },
         move |ev| {
             let _ = weak.upgrade_in_event_loop(move |ui| apply(&ui, ev, offset));
@@ -105,9 +119,9 @@ fn start_client(
                     h.pending += 1;
                     h.pts.clear();
                 });
-                ui.set_hist_status("Yükleniyor…".into());
+                ui.set_hist_status(tr("Yükleniyor…", "Loading…").into());
             } else {
-                ui.set_hist_status("Tray'e bağlı değil".into());
+                ui.set_hist_status(tr("Tray'e bağlı değil", "Not connected to tray").into());
             }
         });
     }
@@ -263,7 +277,7 @@ fn procs_init(ui: &MainWindow, offset: i64) {
             p.selected = Some((r.pid, r.ctime));
             p.confirm = false;
             let lock = if procs::protected(r.pid, &r.name) {
-                "  ·  korumalı"
+                tr("  ·  korumalı", "  ·  protected")
             } else {
                 ""
             };
@@ -354,8 +368,13 @@ fn procs_render(ui: &MainWindow) {
         ui.set_proc_confirm(p.confirm);
         let status = match (p.status.is_empty(), p.filter.is_empty()) {
             (false, _) => p.status.clone(),
-            (true, true) => format!("{} süreç", p.rows.len()),
-            (true, false) => format!("{} / {} süreç", rows_len, p.rows.len()),
+            (true, true) => format!("{} {}", p.rows.len(), tr("süreç", "processes")),
+            (true, false) => format!(
+                "{} / {} {}",
+                rows_len,
+                p.rows.len(),
+                tr("süreç", "processes")
+            ),
         };
         ui.set_proc_status(status.into());
     });
@@ -380,7 +399,10 @@ fn proc_kill(ui: &MainWindow) {
         }
         p.confirm = !p.confirm;
         if p.confirm {
-            p.status = format!("{name} (PID {pid}) sonlandırılsın mı?");
+            p.status = format!(
+                "{name} (PID {pid}) {}",
+                tr("sonlandırılsın mı?", ": end this process?")
+            );
         }
         Some(p.confirm)
     });
@@ -395,7 +417,13 @@ fn proc_kill(ui: &MainWindow) {
         PROCS.with(|p| {
             let mut p = p.borrow_mut();
             p.busy = true;
-            p.status = format!("{name}: yönetici onayı isteniyor…");
+            p.status = format!(
+                "{name}: {}",
+                tr(
+                    "yönetici onayı isteniyor…",
+                    "asking for administrator approval…"
+                )
+            );
         });
         procs_render(ui);
         let w = ui.as_weak();
@@ -489,16 +517,22 @@ fn apply(ui: &MainWindow, ev: Event, offset: i64) {
     match ev {
         Event::Connecting => {
             ui.set_connected(false);
-            ui.set_status("Bağlanıyor…".into());
+            ui.set_status(tr("Bağlanıyor…", "Connecting…").into());
         }
         Event::Connected { server } => {
             ui.set_connected(true);
-            ui.set_status(format!("Bağlı: {server}").into());
+            ui.set_status(format!("{}: {server}", tr("Bağlı", "Connected")).into());
             QUERY.with(|q| q.borrow().as_ref().map(|f| f()));
         }
         Event::Disconnected { reason } => {
             ui.set_connected(false);
-            ui.set_status(format!("Tray'e bağlı değil: {reason}").into());
+            ui.set_status(
+                format!(
+                    "{}: {reason}",
+                    tr("Tray'e bağlı değil", "Not connected to tray")
+                )
+                .into(),
+            );
             ui.set_lm_state(0);
             ui.set_ai_state(0);
             ui.set_alarms("".into());
@@ -683,7 +717,10 @@ fn draw_history(ui: &MainWindow, offset: i64) {
         let empty = pts.iter().all(Option::is_none);
         ui.set_hist_status(
             if empty {
-                "Veri yok (LowMonitor servisi?)"
+                tr(
+                    "Veri yok (LowMonitor servisi?)",
+                    "No data (LowMonitor service?)",
+                )
             } else {
                 ""
             }
@@ -713,14 +750,19 @@ fn show_ai(ui: &MainWindow, a: Option<&AiUsage>, now: i64) {
             w.map_or(0, |w| w.level.min(2) as i32)
         }
     };
-    ui.set_ai_session(ai_line("Oturum", &a.session, now).into());
-    ui.set_ai_week(ai_line("Hafta", &a.week, now).into());
+    ui.set_ai_session(ai_line(tr("Oturum", "Session"), &a.session, now).into());
+    ui.set_ai_week(ai_line(tr("Hafta", "Week"), &a.week, now).into());
     ui.set_ai_session_level(level(&a.session));
     ui.set_ai_week_level(level(&a.week));
     let note = if !a.error.is_empty() {
         a.error.clone()
     } else if a.stale {
-        format!("eski · {} dk önce", (now - a.fetched_at as i64).max(0) / 60)
+        format!(
+            "{} · {} {}",
+            tr("eski", "stale"),
+            (now - a.fetched_at as i64).max(0) / 60,
+            tr("dk önce", "min ago")
+        )
     } else {
         a.source.clone()
     };
@@ -729,16 +771,16 @@ fn show_ai(ui: &MainWindow, a: Option<&AiUsage>, now: i64) {
 
 /// "Oturum %33 · 4s16dk" (taskbar ile aynı biçim).
 fn ai_line(label: &str, w: &Option<AiWindow>, now: i64) -> String {
-    use lowmon_ai::text::{Lang, pct, remaining};
+    use lowmon_ai::text::{lang, pct, remaining};
     match w {
         None => format!("{label} —"),
         Some(w) => {
             let left = if w.resets_at == 0 {
                 "—".into()
             } else {
-                remaining(Lang::Tr, w.resets_at as i64 - now)
+                remaining(lang(), w.resets_at as i64 - now)
             };
-            format!("{label} {} · {left}", pct(Lang::Tr, w.pct as f64 / 10.0))
+            format!("{label} {} · {left}", pct(lang(), w.pct as f64 / 10.0))
         }
     }
 }

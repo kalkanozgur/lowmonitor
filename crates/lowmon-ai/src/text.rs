@@ -1,4 +1,6 @@
 //! Kullanıcıya görünen metin: en/tr (ADR-0032, `ai.toml` `language`).
+//! Aynı ayar tray menüsünün ve `lowmon-ui`'ın dilini de seçer: süreç açılışta `set_lang` çağırır,
+//! metinler yerinde `tr("Türkçe", "English")` çiftiyle yazılır.
 use crate::api::{Snapshot, Window};
 use serde::Deserialize;
 
@@ -8,6 +10,30 @@ pub enum Lang {
     #[default]
     Tr,
     En,
+}
+
+/// Sürecin arayüz dili (0 = tr, 1 = en); `set_lang` çağrılmadıysa Türkçe.
+static LANG: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+pub fn set_lang(l: Lang) {
+    LANG.store((l == Lang::En) as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn lang() -> Lang {
+    if LANG.load(std::sync::atomic::Ordering::Relaxed) == 1 {
+        Lang::En
+    } else {
+        Lang::Tr
+    }
+}
+
+/// Sürecin diline göre iki metinden biri.
+pub fn tr(tr: &'static str, en: &'static str) -> &'static str {
+    pick(lang(), tr, en)
+}
+
+pub fn pick<'a>(lang: Lang, tr: &'a str, en: &'a str) -> &'a str {
+    if lang == Lang::En { en } else { tr }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

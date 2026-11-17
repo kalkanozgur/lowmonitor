@@ -2,6 +2,7 @@
 //! Veri `lowmon_ai::report` (dosyalardan, arka iş parçacığında); görünüm değişimi yalnız yeniden çizer.
 use crate::{GroupRow, MainWindow, SessRow, fmt_time, unix_now};
 use lowmon_ai::report::{self, Data, View, format_tokens};
+use lowmon_ai::text::{Lang, lang, tr};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::cell::{Cell, RefCell};
 
@@ -27,7 +28,7 @@ pub fn refresh(ui: &MainWindow, offset: i64) {
     if BUSY.replace(true) {
         return;
     }
-    ui.set_ai_rep_status("Yükleniyor…".into());
+    ui.set_ai_rep_status(tr("Yükleniyor…", "Loading…").into());
     let w = ui.as_weak();
     std::thread::spawn(move || {
         // ai.toml bozuksa tray zaten hata gösterir; rapor varsayılanla çıkar.
@@ -45,8 +46,14 @@ pub fn refresh(ui: &MainWindow, offset: i64) {
     });
 }
 
+/// "%47,7" / "47.7%"
 fn pct1(share: f64) -> String {
-    format!("%{:.1}", 100.0 * share).replace('.', ",")
+    let v = format!("{:.1}", 100.0 * share);
+    if lang() == Lang::En {
+        format!("{v}%")
+    } else {
+        format!("%{}", v.replace('.', ","))
+    }
 }
 
 fn render(ui: &MainWindow, offset: i64) {
@@ -67,9 +74,9 @@ fn render(ui: &MainWindow, offset: i64) {
             .groups
             .iter()
             .map(|g| GroupRow {
-                name: g.name.as_str().into(),
+                name: lowmon_ai::breakdown::group_label(lang(), &g.name).into(),
                 pct: pct1(g.share).into(),
-                tokens: format_tokens(g.effective).into(),
+                tokens: format_tokens(g.effective, lang()).into(),
                 fill: (g.effective / top) as f32,
             })
             .collect();
@@ -90,26 +97,35 @@ fn render(ui: &MainWindow, offset: i64) {
                 }
                 .into(),
                 requests: s.request_count.to_string().into(),
-                tokens: format_tokens(s.total_effective).into(),
+                tokens: format_tokens(s.total_effective, lang()).into(),
                 top: s
                     .groups
                     .first()
-                    .map_or("—".into(), |g| format!("{} {}", g.name, pct1(g.share)))
+                    .map_or("—".into(), |g| {
+                        format!(
+                            "{} {}",
+                            lowmon_ai::breakdown::group_label(lang(), &g.name),
+                            pct1(g.share)
+                        )
+                    })
                     .into(),
             })
             .collect();
         ui.set_ai_rep_sub(
             format!(
-                "{} oturum · {} istek · toplam {}",
+                "{} {} · {} {} · {} {}",
                 sessions.len(),
+                tr("oturum", "sessions"),
                 total.request_count,
-                format_tokens(total.total_effective)
+                tr("istek", "requests"),
+                tr("toplam", "total"),
+                format_tokens(total.total_effective, lang())
             )
             .into(),
         );
         ui.set_ai_rep_status(
             if sessions.is_empty() && d.samples.is_empty() {
-                "Veri yok"
+                tr("Veri yok", "No data")
             } else {
                 ""
             }

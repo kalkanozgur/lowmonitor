@@ -15,6 +15,14 @@ global Theme {
     out property <color> disabled: #3a3a3a;
 }
 
+// Dil (tray ile aynı ayar: ai.toml `language`); metinler yerinde `Lang.t("Türkçe", "English")`.
+export global Lang {
+    in property <bool> english;
+    pure public function t(tr: string, en: string) -> string {
+        return self.english ? en : tr;
+    }
+}
+
 export struct TopRow { name: string, cpu: string, ws: string }
 export struct EventRow { time: string, kind: int, name: string, value: string }
 export struct GroupRow { name: string, pct: string, tokens: string, fill: float }
@@ -158,7 +166,7 @@ export component MainWindow inherits Window {
     min-width: 520px;
     min-height: 360px;
 
-    in property <string> status: "Bağlanıyor…";
+    in property <string> status: Lang.t("Bağlanıyor…", "Connecting…");
     in property <bool> connected: false;
     in property <int> lm-state: 0; // 0 = veri yok, 1 = canlı, 2 = LowMonitor servisi yok
     in property <string> lm-cpu;
@@ -235,10 +243,10 @@ export component MainWindow inherits Window {
 
         HorizontalLayout {
             spacing: 8px;
-            Tab { label: "Canlı"; active: root.tab == 0; clicked => { root.tab = 0; } }
-            Tab { label: "Olaylar"; active: root.tab == 1; clicked => { root.tab = 1; } }
-            Tab { label: "Geçmiş"; active: root.tab == 2; clicked => { root.tab = 2; root.query-history(root.hist-span); } }
-            Tab { label: "Süreçler"; active: root.tab == 3; clicked => { root.tab = 3; } }
+            Tab { label: Lang.t("Canlı", "Live"); active: root.tab == 0; clicked => { root.tab = 0; } }
+            Tab { label: Lang.t("Olaylar", "Events"); active: root.tab == 1; clicked => { root.tab = 1; } }
+            Tab { label: Lang.t("Geçmiş", "History"); active: root.tab == 2; clicked => { root.tab = 2; root.query-history(root.hist-span); } }
+            Tab { label: Lang.t("Süreçler", "Processes"); active: root.tab == 3; clicked => { root.tab = 3; } }
             Tab { label: "AI"; width: 64px; active: root.tab == 4; clicked => { root.tab = 4; } }
             Rectangle { horizontal-stretch: 1; }
             Rectangle {
@@ -249,7 +257,7 @@ export component MainWindow inherits Window {
                 background: root.connected ? Theme.ok : Theme.warn;
             }
             Text {
-                text: !root.connected ? root.status : root.lm-state == 2 ? "LowMonitor servisi yok" : root.status;
+                text: !root.connected ? root.status : root.lm-state == 2 ? Lang.t("LowMonitor servisi yok", "LowMonitor service not running") : root.status;
                 color: root.connected && root.lm-state != 2 ? Theme.dim : Theme.warn;
                 font-size: 13px;
                 vertical-alignment: center;
@@ -263,7 +271,7 @@ export component MainWindow inherits Window {
             height: 32px;
             Text {
                 x: 12px;
-                text: "⚠ Aktif alarm: " + root.alarms;
+                text: Lang.t("⚠ Aktif alarm: ", "⚠ Active alarm: ") + root.alarms;
                 color: Theme.warn;
                 font-size: 14px;
                 vertical-alignment: center;
@@ -300,10 +308,10 @@ export component MainWindow inherits Window {
             }
             HorizontalLayout {
                 spacing: 12px;
-                Stat { label: "CPU  5 dk"; value: root.lm-cpu; live: root.live; path-a: root.lm-cpu-path; }
-                Stat { label: "RAM  5 dk"; value: root.lm-ram; live: root.live; path-a: root.lm-ram-path; }
+                Stat { label: Lang.t("CPU  5 dk", "CPU  5 min"); value: root.lm-cpu; live: root.live; path-a: root.lm-cpu-path; }
+                Stat { label: Lang.t("RAM  5 dk", "RAM  5 min"); value: root.lm-ram; live: root.live; path-a: root.lm-ram-path; }
                 Stat {
-                    label: "DİSK  B/s";
+                    label: Lang.t("DİSK  B/s", "DISK  B/s");
                     value: root.lm-disk;
                     live: root.live;
                     path-a: root.lm-disk-r-path;
@@ -311,7 +319,7 @@ export component MainWindow inherits Window {
                     scale: root.lm-disk-scale;
                 }
                 Stat {
-                    label: "AĞ  B/s";
+                    label: Lang.t("AĞ  B/s", "NET  B/s");
                     value: root.lm-net;
                     live: root.live;
                     path-a: root.lm-net-rx-path;
@@ -335,7 +343,7 @@ export component MainWindow inherits Window {
                     }
                 }
             }
-            Text { text: "EN ÇOK CPU"; color: Theme.dim; font-size: 12px; }
+            Text { text: Lang.t("EN ÇOK CPU", "TOP CPU"); color: Theme.dim; font-size: 12px; }
             Rectangle {
                 height: 5 * 22px;
                 VerticalLayout {
@@ -359,7 +367,7 @@ export component MainWindow inherits Window {
             spacing: 8px;
             HorizontalLayout {
                 spacing: 6px;
-                for l[i] in ["1 sa", "6 sa", "24 sa", "7 g"]: Tab {
+                for l[i] in [Lang.t("1 sa", "1 h"), Lang.t("6 sa", "6 h"), Lang.t("24 sa", "24 h"), Lang.t("7 g", "7 d")]: Tab {
                     label: l;
                     width: 64px;
                     active: root.hist-span == i;
@@ -381,14 +389,14 @@ export component MainWindow inherits Window {
                 spacing: 12px;
                 vertical-stretch: 1;
                 // Max önce (soluk), ortalama üstte
-                HistCard { label: "CPU  ort. / en yüksek"; a: root.hist-cpu-max; ca: #2f6f8a; b: root.hist-cpu-avg; cb: Theme.accent; vb: root.hist-n; }
+                HistCard { label: Lang.t("CPU  ort. / en yüksek", "CPU  avg / max"); a: root.hist-cpu-max; ca: #2f6f8a; b: root.hist-cpu-avg; cb: Theme.accent; vb: root.hist-n; }
                 HistCard { label: "RAM"; a: root.hist-ram; scale: root.hist-ram-scale; vb: root.hist-n; }
             }
             HorizontalLayout {
                 spacing: 12px;
                 vertical-stretch: 1;
-                HistCard { label: "DİSK  R / W"; a: root.hist-disk-r; b: root.hist-disk-w; scale: root.hist-disk-scale; vb: root.hist-n; }
-                HistCard { label: "AĞ  ↓ / ↑"; a: root.hist-net-rx; b: root.hist-net-tx; ca: Theme.ok; scale: root.hist-net-scale; vb: root.hist-n; }
+                HistCard { label: Lang.t("DİSK  R / W", "DISK  R / W"); a: root.hist-disk-r; b: root.hist-disk-w; scale: root.hist-disk-scale; vb: root.hist-n; }
+                HistCard { label: Lang.t("AĞ  ↓ / ↑", "NET  ↓ / ↑"); a: root.hist-net-rx; b: root.hist-net-tx; ca: Theme.ok; scale: root.hist-net-scale; vb: root.hist-n; }
             }
         }
 
@@ -396,7 +404,7 @@ export component MainWindow inherits Window {
         if root.tab == 3: VerticalLayout {
             spacing: 6px;
             LineEdit {
-                placeholder-text: "Ara: ad ya da PID";
+                placeholder-text: Lang.t("Ara: ad ya da PID", "Search: name or PID");
                 font-size: 14px;
                 edited(t) => { root.proc-filter-changed(t); }
             }
@@ -404,7 +412,7 @@ export component MainWindow inherits Window {
                 padding-left: 6px;
                 padding-right: 6px;
                 spacing: 8px;
-                Text { text: "AD"; color: Theme.dim; font-size: 12px; horizontal-stretch: 1; }
+                Text { text: Lang.t("AD", "NAME"); color: Theme.dim; font-size: 12px; horizontal-stretch: 1; }
                 Text { text: "PID"; color: Theme.dim; font-size: 12px; width: 64px; horizontal-alignment: right; }
                 Text {
                     text: root.proc-sort == 0 ? "CPU ▾" : "CPU";
@@ -458,7 +466,7 @@ export component MainWindow inherits Window {
                 spacing: 8px;
                 height: 32px;
                 Text {
-                    text: (root.proc-hover ? "⏸ sabit  ·  " : "") + root.proc-status;
+                    text: (root.proc-hover ? Lang.t("⏸ sabit  ·  ", "⏸ paused  ·  ") : "") + root.proc-status;
                     color: root.proc-confirm ? Theme.warn : Theme.dim;
                     font-size: 13px;
                     horizontal-stretch: 1;
@@ -467,7 +475,7 @@ export component MainWindow inherits Window {
                 }
                 if root.proc-can-kill: Tab {
                     width: 128px;
-                    label: root.proc-confirm ? "Evet, sonlandır" : "Sonlandır";
+                    label: root.proc-confirm ? Lang.t("Evet, sonlandır", "Yes, end it") : Lang.t("Sonlandır", "End process");
                     active: root.proc-confirm;
                     clicked => { root.proc-kill(); }
                 }
@@ -479,7 +487,7 @@ export component MainWindow inherits Window {
             spacing: 8px;
             HorizontalLayout {
                 spacing: 6px;
-                for l[i] in ["Son oturum", "Bugün", "Bu hafta"]: Tab {
+                for l[i] in [Lang.t("Son oturum", "Last session"), Lang.t("Bugün", "Today"), Lang.t("Bu hafta", "This week")]: Tab {
                     label: l;
                     active: root.ai-view == i;
                     clicked => {
@@ -495,10 +503,10 @@ export component MainWindow inherits Window {
                     vertical-alignment: center;
                     overflow: elide;
                 }
-                Tab { label: "Yenile"; width: 72px; active: true; clicked => { root.ai-report(true); } }
+                Tab { label: Lang.t("Yenile", "Refresh"); width: 72px; active: true; clicked => { root.ai-report(true); } }
             }
             HistCard {
-                label: "LİMİT %   oturum (mavi) / hafta (mor)";
+                label: Lang.t("LİMİT %   oturum (mavi) / hafta (mor)", "LIMIT %   session (blue) / week (purple)");
                 a: root.ai-chart-w;
                 ca: Theme.accent2;
                 b: root.ai-chart-s;
@@ -507,7 +515,7 @@ export component MainWindow inherits Window {
                 vertical-stretch: 0;
                 height: 150px;
             }
-            Text { text: "TOKEN DÖKÜMÜ  (efektif = girdi + 0,1×önbellek okuma + 2×önbellek yazma + 5×çıktı)"; color: Theme.dim; font-size: 12px; overflow: elide; }
+            Text { text: Lang.t("TOKEN DÖKÜMÜ  (efektif = girdi + 0,1×önbellek okuma + 2×önbellek yazma + 5×çıktı)", "TOKEN BREAKDOWN  (effective = input + 0.1×cache read + 2×cache write + 5×output)"); color: Theme.dim; font-size: 12px; overflow: elide; }
             ListView {
                 vertical-stretch: 1;
                 for g in root.ai-groups: HorizontalLayout {
@@ -537,11 +545,11 @@ export component MainWindow inherits Window {
             }
             HorizontalLayout {
                 spacing: 12px;
-                Text { text: "BİTİŞ"; color: Theme.dim; font-size: 12px; width: 88px; }
-                Text { text: "PROJE"; color: Theme.dim; font-size: 12px; horizontal-stretch: 1; }
-                Text { text: "İSTEK"; color: Theme.dim; font-size: 12px; width: 48px; horizontal-alignment: right; }
-                Text { text: "EFEKTİF"; color: Theme.dim; font-size: 12px; width: 64px; horizontal-alignment: right; }
-                Text { text: "EN BÜYÜK GRUP"; color: Theme.dim; font-size: 12px; width: 190px; }
+                Text { text: Lang.t("BİTİŞ", "ENDED"); color: Theme.dim; font-size: 12px; width: 88px; }
+                Text { text: Lang.t("PROJE", "PROJECT"); color: Theme.dim; font-size: 12px; horizontal-stretch: 1; }
+                Text { text: Lang.t("İSTEK", "REQ"); color: Theme.dim; font-size: 12px; width: 48px; horizontal-alignment: right; }
+                Text { text: Lang.t("EFEKTİF", "EFF."); color: Theme.dim; font-size: 12px; width: 64px; horizontal-alignment: right; }
+                Text { text: Lang.t("EN BÜYÜK GRUP", "LARGEST GROUP"); color: Theme.dim; font-size: 12px; width: 190px; }
             }
             ListView {
                 vertical-stretch: 1;
@@ -562,12 +570,12 @@ export component MainWindow inherits Window {
         if root.tab == 1: VerticalLayout {
             spacing: 8px;
             HorizontalLayout {
-                Text { text: "SON 24 SAAT"; color: Theme.dim; font-size: 12px; vertical-alignment: center; }
+                Text { text: Lang.t("SON 24 SAAT", "LAST 24 HOURS"); color: Theme.dim; font-size: 12px; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
-                Tab { label: "Yenile"; active: true; clicked => { root.refresh-events(); } }
+                Tab { label: Lang.t("Yenile", "Refresh"); active: true; clicked => { root.refresh-events(); } }
             }
             if root.events.length == 0: Text {
-                text: root.connected ? "Olay yok" : "—";
+                text: root.connected ? Lang.t("Olay yok", "No events") : "—";
                 color: Theme.dim;
                 font-size: 14px;
             }
@@ -579,7 +587,7 @@ export component MainWindow inherits Window {
                     padding-bottom: 3px;
                     Text { text: e.time; color: Theme.dim; font-size: 14px; width: 150px; }
                     Text {
-                        text: e.kind == 0 ? "ALARM" : e.kind == 1 ? "temizlendi" : "sistem";
+                        text: e.kind == 0 ? "ALARM" : e.kind == 1 ? Lang.t("temizlendi", "cleared") : Lang.t("sistem", "system");
                         color: e.kind == 0 ? Theme.warn : e.kind == 1 ? Theme.ok : Theme.dim;
                         font-size: 14px;
                         width: 88px;

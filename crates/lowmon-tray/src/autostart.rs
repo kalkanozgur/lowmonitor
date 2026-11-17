@@ -36,8 +36,11 @@ impl Ui {
     /// Menü satırı; yalnız `Ready` etkin.
     pub fn label(&self) -> &'static str {
         match self {
-            Ui::Ready(_) => "Arayüzü aç",
-            Ui::Missing => "Arayüzü aç (lowmon-ui.exe bulunamadı)",
+            Ui::Ready(_) => lowmon_ai::text::tr("Arayüzü aç", "Open interface"),
+            Ui::Missing => lowmon_ai::text::tr(
+                "Arayüzü aç (lowmon-ui.exe bulunamadı)",
+                "Open interface (lowmon-ui.exe not found)",
+            ),
         }
     }
 }
