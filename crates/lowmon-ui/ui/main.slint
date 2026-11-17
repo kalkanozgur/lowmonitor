@@ -80,8 +80,10 @@ component Tab inherits Rectangle {
 component Spark inherits Rectangle {
     in property <string> a;
     in property <string> b; // "" = tek çizgi
+    in property <string> c; // sıcaklık çizgisi (Geçmiş CPU)
     in property <color> ca;
     in property <color> cb;
+    in property <color> cc: Theme.temp;
     in property <string> scale; // "" = sabit 0..%100 ölçek, etiket yok
     in property <float> vb: 300; // viewbox genişliği: Canlı 300 s, Geçmiş kova sayısı
     in property <int> kind: -1; // hover sorgusu (`hover_text`); -1 = hover yok
@@ -103,6 +105,16 @@ component Spark inherits Rectangle {
         viewbox-height: 100;
         fit: fill; // varsayılan contain en-boy oranını korur → grafik kartı doldurmaz
         stroke: root.cb;
+        stroke-width: 1.5px;
+    }
+    if root.c != "": Path {
+        width: 100%;
+        height: 100%;
+        commands: root.c;
+        viewbox-width: root.vb;
+        viewbox-height: 100;
+        fit: fill;
+        stroke: root.cc;
         stroke-width: 1.5px;
     }
     if root.scale != "": Text {
@@ -148,6 +160,7 @@ component HistCard inherits Rectangle {
     in property <string> b;
     in property <color> ca: Theme.accent;
     in property <color> cb: Theme.accent2;
+    in property <string> c;
     in property <string> scale;
     in property <float> vb;
     in property <int> kind: -1;
@@ -169,6 +182,7 @@ component HistCard inherits Rectangle {
             min-height: 60px;
             a: root.a;
             b: root.b;
+            c: root.c;
             ca: root.ca;
             cb: root.cb;
             scale: root.scale;
@@ -297,6 +311,11 @@ export component MainWindow inherits Window {
     in property <string> hist-disk-w;
     in property <string> hist-net-rx;
     in property <string> hist-net-tx;
+    // Sıcaklık geçmişi (ADR-0035): °C 0..100 eksende
+    in property <string> hist-cpu-c;
+    in property <string> hist-gpu;
+    in property <string> hist-gpu-c;
+    in property <string> hist-disk-c;
     in property <string> hist-ram-scale;
     in property <string> hist-disk-scale;
     in property <string> hist-net-scale;
@@ -507,13 +526,14 @@ export component MainWindow inherits Window {
                 spacing: 12px;
                 vertical-stretch: 1;
                 // Max önce (soluk), ortalama üstte
-                HistCard { label: Lang.t("CPU  ort. / en yüksek", "CPU  avg / max"); a: root.hist-cpu-max; ca: #2f6f8a; b: root.hist-cpu-avg; cb: Theme.accent; vb: root.hist-n; kind: 10; }
+                HistCard { label: Lang.t("CPU  ort. / en yüksek / °C", "CPU  avg / max / °C"); a: root.hist-cpu-max; ca: #2f6f8a; b: root.hist-cpu-avg; cb: Theme.accent; c: root.hist-cpu-c; vb: root.hist-n; kind: 10; }
+                HistCard { label: "GPU  % / °C"; a: root.hist-gpu; b: root.hist-gpu-c; cb: Theme.temp; vb: root.hist-n; kind: 14; }
                 HistCard { label: "RAM"; a: root.hist-ram; scale: root.hist-ram-scale; vb: root.hist-n; kind: 11; }
             }
             HorizontalLayout {
                 spacing: 12px;
                 vertical-stretch: 1;
-                HistCard { label: Lang.t("DİSK  R / W", "DISK  R / W"); a: root.hist-disk-r; b: root.hist-disk-w; scale: root.hist-disk-scale; vb: root.hist-n; kind: 12; }
+                HistCard { label: Lang.t("DİSK  R / W", "DISK  R / W") + (root.hist-disk-c != "" ? "  · " + root.hist-disk-c : ""); a: root.hist-disk-r; b: root.hist-disk-w; scale: root.hist-disk-scale; vb: root.hist-n; kind: 12; }
                 HistCard { label: Lang.t("AĞ  ↓ / ↑", "NET  ↓ / ↑"); a: root.hist-net-rx; b: root.hist-net-tx; ca: Theme.ok; scale: root.hist-net-scale; vb: root.hist-n; kind: 13; }
             }
             HorizontalLayout {

@@ -95,7 +95,7 @@ Eşikler `taskbar.toml` `[sys]` altında değiştirilebilir. Renkler AI bloğuyl
 | 2 | `lowmon-taskbar` çok blok + tray `sys` modülü + `taskbar.toml` | canlı taskbar, AI ile yan yana; tray private / CPU önce-sonra |
 | 3 | Sistem bloğu diğer monitörde (takılıysa; takılı değilse birincil) | iki monitörle canlı |
 | 4a | Canlı `lowmon-ui` + telefon: deck `TOPIC_SENSORS` (aşağıdaki ek) | 2026-11-17 |
-| 4b (ayrı karar) | Sıcaklık geçmişi | o fazda |
+| 4b | Sıcaklık / GPU geçmişi: tray dakikalık halka dosyası (ADR-0035) | 2026-11-17 |
 
 ## Sonuçlar
 - (+) İstenen görüntü; servis, proto, segment biçimi değişmez. Bloklar genel: sonraki göstergeler aynı yapıyı kullanır.
@@ -109,5 +109,5 @@ Eşikler `taskbar.toml` `[sys]` altında değiştirilebilir. Renkler AI bloğuyl
 - Karar 3 / sonuç satırındaki "üretici kanalı (`ProducerPush`)" yerine: tray'in zaten okuduğu `lowmon-sensors` değeri deck'e verilir; LowDeck `TOPIC_SENSORS = 8` + `S2C::Sensors` (LowDeck #30, ek varyant, `PROTO_VERSION` 4). `lowmon-ui` ve telefon aynı mesajı alır; servis ve pipe değişmez.
 - Sensör iş parçacığı: ızgara açıkken **ya da** en az bir deck sensör abonesi varken çalışır; ikisi de yoksa kendisi çıkar (`sys::sync`, abonelik değişince `WM_DATA`). Maliyet ızgara açıkken değişmez; ızgara kapalıyken yalnız UI/telefon açıkken +2,5 MiB / +0,7 ms/s.
 - `lowmon-ui` Canlı: CPU kartında % + CPU °C (aynı 0..100 ekseni), yeni GPU kartı (% + °C), disk °C disk kartı başlığında.
-- Geçmiş (4b): tray kullanıcı dosyası, ayrı ADR.
+- Geçmiş (4b): tray kullanıcı dosyası, ADR-0035.
 
