@@ -60,6 +60,8 @@ use windows_sys::Win32::{
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_DATA: u32 = WM_APP + 2;
+/// Monitör değişiminden sonra taskbar bloklarını bir kez daha kuran tek seferlik zamanlayıcı
+const TIMER_DISPLAY: usize = 0xA2;
 const ID_UI: usize = 1;
 const ID_MUTE: usize = 2;
 const ID_EXIT: usize = 3;
@@ -518,8 +520,25 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         sys::WM_SYS if LATEST.lock().unwrap_or_else(|e| e.into_inner()).is_none() => sys::render(),
         WM_TRAY if lp as u32 == WM_RBUTTONUP => menu(hwnd),
         ai::WM_AI => ai::render(),
-        // Çözünürlük / monitör değişti: içerik aynı, konum değişir
-        WM_DISPLAYCHANGE => ai::layout(),
+        // Çözünürlük / monitör değişti: bloklar taskbar'larına yeniden kurulur. İkincil taskbar'ı explorer
+        // bu mesajdan sonra açar / kapatır → birkaç saniye sonra bir kez daha.
+        WM_DISPLAYCHANGE => {
+            ai::taskbar_created();
+            // SAFETY: kendi penceremiz; aynı kimlik yeniden kurulursa süre baştan başlar.
+            unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::SetTimer(
+                    hwnd,
+                    TIMER_DISPLAY,
+                    3000,
+                    None,
+                )
+            };
+        }
+        WM_TIMER if wp == TIMER_DISPLAY => {
+            // SAFETY: kendi zamanlayıcımız.
+            unsafe { windows_sys::Win32::UI::WindowsAndMessaging::KillTimer(hwnd, TIMER_DISPLAY) };
+            ai::taskbar_created();
+        }
         WM_TIMER if wp == ai::TIMER => ai::render(),
         ai::WM_BAR => match ai::on_bar(wp, lp as usize) {
             ai::Click::Menu => menu(hwnd),

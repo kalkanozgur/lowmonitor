@@ -1,5 +1,6 @@
 //! AI kullanımı (ADR-0032 Faz 2): `lowmon-ai` işçisi + `lowmon-taskbar` göstergesi, UI thread'inde.
-//! Gösterge iki blokludur (ADR-0033): sistem ızgarası (`sys`, blok 0) sağda, AI (blok 1) solunda.
+//! Gösterge iki blokludur (ADR-0033): sistem ızgarası (`sys`, blok 0) ve AI (blok 1). Aynı taskbar'da
+//! sistem sağda, AI solunda; varsayılan ayarda sistem ızgarası ikinci monitör takılıysa oradadır.
 //! İşçi durum değişince `WM_AI` gönderir; kalan süre metni için 30 s'lik zamanlayıcı yeniden çizer.
 use lowmon_ai::{Config, Running, State, api::Window, text, usage, usage::Level};
 use lowmon_deck::{AI_TEXT_MAX, AiUsage, AiWindow};
@@ -75,7 +76,8 @@ pub fn start(hwnd: HWND) {
     AI.set(Some((cfg, run)));
     SHOW.set(tb.ai.enabled);
     let sys = tb.sys;
-    BAR.set(Some(Bar::new(hwnd, WM_BAR, tb, 2)));
+    let monitors = [sys.monitor, tb.ai.monitor]; // sıra: sys::BLOCK, BLOCK
+    BAR.set(Some(Bar::new(hwnd, WM_BAR, tb, &monitors)));
     crate::sys::start(hwnd, sys);
     // SAFETY: kendi penceremiz; aynı kimlik yeniden kurulursa süre güncellenir.
     unsafe { SetTimer(hwnd, TIMER, TICK_MS, None) };
@@ -192,12 +194,7 @@ pub fn on_bar(ev: usize, block: usize) -> Click {
     }
 }
 
-/// Tüm blokları yeniden konumlar + çizer (çözünürlük / monitör değişimi).
-pub fn layout() {
-    BAR.with_borrow_mut(|b| b.as_mut().map(Bar::layout));
-}
-
-/// Explorer yeniden başladı.
+/// Explorer yeniden başladı ya da monitör düzeni değişti: bloklar taskbar'larına yeniden kurulur.
 pub fn taskbar_created() {
     BAR.with_borrow_mut(|b| b.as_mut().map(Bar::reset))
         .unwrap_or(())

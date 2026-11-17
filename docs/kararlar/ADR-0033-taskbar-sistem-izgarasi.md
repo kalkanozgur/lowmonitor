@@ -71,12 +71,22 @@ Eşikler `taskbar.toml` `[sys]` altında değiştirilebilir. Renkler AI bloğuyl
 |---|---|
 | Bloklar | `Bar::new(.., blocks)`, `show(blok, Grid)` / `hide(blok)`; her blok ayrı alt pencere, blok numarası tıkla birlikte gelir (`PostMessage(owner, msg, EV_*, blok)`). Blok 0 = sistem (sağda), blok 1 = AI (solunda) |
 | Sıra | Sabit (sistem sağda). `order` ayarı eklenmedi; istenirse sonra |
-| Monitör | Faz 2'de iki blok da ortak `monitor` ayarındaki taskbar'da; blok başına monitör Faz 3 |
+| Monitör | Faz 2'de iki blok da ortak `monitor` ayarındaki taskbar'daydı; blok başına monitör Faz 3'te geldi |
 | `taskbar.toml` | `[ai] enabled`; `[sys] enabled`, `cpu_temp`, `warn_pct` / `crit_pct`, `temp_warn_c` / `temp_crit_c`, `disk_warn_c` / `disk_crit_c`. Eski düz ayarlar (`monitor`, `gap_px`, `reserved_px`, `font`, `font_pt`) aynen geçerli |
 | Genişlik | Sütun genişliği yalnız büyür (sayılar değiştikçe blok daralıp genişlemesin, yanındaki AI bloğu oynamasın); DPI değişince sıfırlanır |
 | Çizim ritmi | Sistem bloğu pipe `Sample` ritminde (2 s) çizilir; sensör iş parçacığı yalnız değeri günceller (servis kapalıysa çizimi o tetikler). İçerik aynıysa çizim atlanır; bir blok değişince diğeri yeniden çizilmez |
 | Tık | Sistem bloğu sol tık `lowmon-ui`'ı açar / öne getirir (yeni açılışta Canlı; zaten açıksa bulunduğu sekmede kalır). AI bloğu sol tık AI sekmesi |
 | Ölçüm | `docs/olcumler/2026-11-17_tray-sys-taskbar.md`: tray private 6,74 → 9,25 MiB, CPU 1,04 → 1,74 ms/s, exe 836 608 → 879 104 B |
+
+## Faz 3 kararları (kullanıcı, 2026-11-17)
+| Konu | Karar / uygulama |
+|---|---|
+| Varsayılan | **Sistem ızgarası diğer monitörde**, AI ortak monitörde kalır. Ayar yazmadan geçerli (`[sys] monitor` varsayılanı `other`) |
+| `other` | Ortak `monitor` ayarının seçtiği monitörden farklı olan; birden çoksa ona en yakını |
+| Geri dönüş | Başka monitör yoksa ya da o monitörde taskbar yoksa ("görev çubuğunu tüm ekranlarda göster" kapalı) blok ortak monitöre döner: AI'ın sağında, Faz 2'deki gibi |
+| Ayar | `taskbar.toml`: `[sys] monitor` / `[ai] monitor` = `primary` / `left` / `right` / `other`; `[ai]`'de yoksa ortak `monitor` |
+| Tak / çıkar | `WM_DISPLAYCHANGE` → bloklar hemen ve 3 s sonra bir kez daha yeniden kurulur (explorer ikincil taskbar'ı mesajdan sonra açar / kapatır) |
+| İkincil taskbar | Bildirim alanı yok → blok sağdan `reserved_px` (saat) kadar içeride durur; DPI taskbar başına |
 
 ## Fazlar
 | Faz | İş | Doğrulama |

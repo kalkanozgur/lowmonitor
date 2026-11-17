@@ -1,5 +1,5 @@
 //! Win32 tarafı: taskbar bulma, alt pencere, olay kancası, GDI+ çizim.
-use crate::{Config, EV_LEFT, EV_MOVED, EV_RIGHT, Grid, anchor, columns, pick, scale};
+use crate::{Config, EV_LEFT, EV_MOVED, EV_RIGHT, Grid, Monitor, anchor, columns, pick, scale};
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use windows_sys::Win32::{
@@ -28,11 +28,11 @@ use windows_sys::Win32::{
 };
 
 /// Sahip pencere + mesaj; pencere yordamı ve olay kancası buradan okur.
-// shortcut: süreç başına tek `Bar`, tek taskbar; blok başına monitör (ADR-0033 Faz 3) gelince taskbar başına durum
+// shortcut: süreç başına tek `Bar` (statik sahip / izleme listesi); ikinci `Bar` gerekirse pencere başına veri
 static OWNER: AtomicUsize = AtomicUsize::new(0);
 static MSG: AtomicU32 = AtomicU32::new(0);
-/// İzlenen pencereler: taskbar, bildirim alanı
-static WATCH: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
+/// İzlenen pencereler: blokların taskbar'ları + bildirim alanları (en çok 4 taskbar)
+static WATCH: [AtomicUsize; 8] = [const { AtomicUsize::new(0) }; 8];
 /// Bekleyen EV_MOVED (animasyon sırasında yüzlerce olay → tek mesaj)
 static MOVED: AtomicBool = AtomicBool::new(false);
 
@@ -141,8 +141,8 @@ fn class_is(hwnd: HWND, names: &[&str]) -> bool {
     names.contains(&cls.as_str())
 }
 
-/// Seçili monitörün taskbar'ı.
-fn find_taskbar(cfg: &Config) -> HWND {
+/// `sel` monitörünün taskbar'ı; o monitör ya da taskbar'ı yoksa null.
+fn find_taskbar(sel: Monitor, base: Monitor) -> HWND {
     unsafe extern "system" fn mon(m: HMONITOR, _: HDC, _: *mut RECT, lp: LPARAM) -> i32 {
         let mut mi: MONITORINFO = unsafe { std::mem::zeroed() };
         mi.cbSize = size_of::<MONITORINFO>() as u32;
@@ -175,7 +175,7 @@ fn find_taskbar(cfg: &Config) -> HWND {
     unsafe {
         EnumDisplayMonitors(null_mut(), null(), Some(mon), (&raw mut mons) as LPARAM);
         let keys: Vec<(i32, bool)> = mons.iter().map(|m| (m.1, m.2)).collect();
-        let Some(i) = pick(&keys, cfg.monitor) else {
+        let Some(i) = pick(&keys, sel, base) else {
             return null_mut();
         };
         let mut ctx: (HMONITOR, HWND) = (mons[i].0, null_mut());
@@ -349,7 +349,12 @@ fn draw(grid: &Grid, h: i32, dpi: u32, cfg: &Config, cols: &mut Vec<i32>) -> Opt
 
 /// Bir blok: kendi alt penceresi + son içeriği.
 struct Block {
+    /// İstenen monitör (`None` → ortak `cfg.monitor`)
+    mon: Option<Monitor>,
     hwnd: HWND,
+    /// Kurulduğu taskbar ve onun bildirim alanı (ikincil taskbar'da yok → null)
+    taskbar: HWND,
+    notify: HWND,
     grid: Option<Grid>,
     /// Yapışkan sütun genişlikleri (`columns`); DPI değişince sıfırlanır
     cols: Vec<i32>,
@@ -358,20 +363,28 @@ struct Block {
     w: i32,
 }
 
-/// Taskbar göstergesi: `blocks` adet blok, 0 numaralı en sağda (bildirim alanının yanında).
-/// Sahip pencerenin thread'inde oluşturulur ve kullanılır.
+/// `place` sırasında bir taskbar'ın ölçüleri ve sıradaki bloğun sağ kenarı.
+struct Dock {
+    taskbar: HWND,
+    ch: i32,
+    dpi: u32,
+    gap: i32,
+    right: i32,
+}
+
+/// Taskbar göstergesi: bloklar bildirim alanının solunda yan yana; aynı taskbar'daki bloklardan
+/// küçük numaralı olan daha sağda. Sahip pencerenin thread'inde oluşturulur ve kullanılır.
 pub struct Bar {
     cfg: Config,
     gdip: usize,
-    taskbar: HWND,
-    notify: HWND,
-    hook: HWINEVENTHOOK,
+    hooks: Vec<HWINEVENTHOOK>,
     blocks: Vec<Block>,
 }
 
 impl Bar {
-    /// Olaylar `PostMessage(owner, msg, EV_*, blok)` ile gelir. Pencereler ilk `show`'da kurulur.
-    pub fn new(owner: HWND, msg: u32, cfg: Config, blocks: usize) -> Self {
+    /// `monitors`: blok başına monitör (`None` → ortak `cfg.monitor`). Olaylar
+    /// `PostMessage(owner, msg, EV_*, blok)` ile gelir. Pencereler ilk `show`'da kurulur.
+    pub fn new(owner: HWND, msg: u32, cfg: Config, monitors: &[Option<Monitor>]) -> Self {
         OWNER.store(owner as usize, Ordering::Relaxed);
         MSG.store(msg, Ordering::Relaxed);
         let mut gdip = 0;
@@ -395,12 +408,14 @@ impl Bar {
         Self {
             cfg,
             gdip,
-            taskbar: null_mut(),
-            notify: null_mut(),
-            hook: null_mut(),
-            blocks: (0..blocks)
-                .map(|_| Block {
+            hooks: Vec::new(),
+            blocks: monitors
+                .iter()
+                .map(|&mon| Block {
+                    mon,
                     hwnd: null_mut(),
+                    taskbar: null_mut(),
+                    notify: null_mut(),
                     grid: None,
                     cols: Vec::new(),
                     dpi: 0,
@@ -436,7 +451,8 @@ impl Bar {
         self.place(Some(block)); // kalan bloklar kayar
     }
 
-    /// Explorer yeniden başladı (`TaskbarCreated`): eski pencereler taskbar'la gitti, yeniden kur.
+    /// Explorer yeniden başladı (`TaskbarCreated`) ya da monitör takıldı / çıkarıldı: pencereler
+    /// bırakılır, her blok monitörünün taskbar'ına yeniden kurulur.
     pub fn reset(&mut self) {
         self.detach();
         self.layout();
@@ -447,8 +463,8 @@ impl Bar {
         self.place(None);
     }
 
-    /// Blokları sağdan sola dizer. `only`: yalnız bu blok yeniden çizilir (diğerleri yalnız konumlanır);
-    /// `None` = hepsi çizilir.
+    /// Blokları, her taskbar'da sağdan sola dizer. `only`: yalnız bu blok yeniden çizilir (diğerleri
+    /// yalnız konumlanır); `None` = hepsi çizilir.
     fn place(&mut self, only: Option<usize>) {
         MOVED.store(false, Ordering::Relaxed);
         if self.blocks.iter().all(|b| b.grid.is_none()) {
@@ -463,41 +479,31 @@ impl Bar {
             }
             only = None; // yeni pencereler: hepsi çizilir
         }
-        // SAFETY: tutamaçlar alive() ile doğrulandı; yapılar yerel.
-        unsafe {
-            let mut cr: RECT = std::mem::zeroed();
-            GetClientRect(self.taskbar, &mut cr);
-            let (cw, ch) = (cr.right, cr.bottom);
-            if ch <= 0 || ch > cw {
-                for b in &self.blocks {
-                    ShowWindow(b.hwnd, SW_HIDE); // dikey taskbar desteklenmiyor (C++ ile aynı)
+        let mut docks: Vec<Dock> = Vec::new();
+        for i in 0..self.blocks.len() {
+            let (tb, notify) = (self.blocks[i].taskbar, self.blocks[i].notify);
+            let d = match docks.iter().position(|d| d.taskbar == tb) {
+                Some(d) => d,
+                None => {
+                    docks.push(self.dock(tb, notify));
+                    docks.len() - 1
                 }
-                return;
-            }
-            let dpi = GetDpiForWindow(self.taskbar).max(96);
-            let mut nr: RECT = std::mem::zeroed();
-            let notify_left = (!self.notify.is_null()
-                && IsWindowVisible(self.notify) != 0
-                && GetWindowRect(self.notify, &mut nr) != 0)
-                .then(|| {
-                    let mut p = POINT {
-                        x: nr.left,
-                        y: nr.top,
-                    };
-                    ScreenToClient(self.taskbar, &mut p);
-                    p.x
-                });
-            let gap = scale(self.cfg.gap_px, dpi);
-            let mut right = anchor(cw, notify_left, gap, scale(self.cfg.reserved_px, dpi));
-            for i in 0..self.blocks.len() {
-                let b = &mut self.blocks[i];
+            };
+            let dock = &mut docks[d];
+            let b = &mut self.blocks[i];
+            // SAFETY: tutamaçlar alive() ile doğrulandı; yapılar yerel.
+            unsafe {
+                if dock.ch <= 0 {
+                    ShowWindow(b.hwnd, SW_HIDE); // dikey taskbar desteklenmiyor (C++ ile aynı)
+                    continue;
+                }
                 let Some(grid) = &b.grid else { continue };
-                if only.is_none_or(|o| o == i) || b.dpi != dpi || b.w == 0 {
-                    if b.dpi != dpi {
+                if only.is_none_or(|o| o == i) || b.dpi != dock.dpi || b.w == 0 {
+                    if b.dpi != dock.dpi {
                         b.cols.clear();
-                        b.dpi = dpi;
+                        b.dpi = dock.dpi;
                     }
-                    let Some(img) = draw(grid, ch, dpi, &self.cfg, &mut b.cols) else {
+                    let Some(img) = draw(grid, dock.ch, dock.dpi, &self.cfg, &mut b.cols) else {
                         continue;
                     };
                     let size = SIZE {
@@ -528,14 +534,45 @@ impl Bar {
                 SetWindowPos(
                     b.hwnd,
                     HWND_TOP,
-                    right - b.w,
+                    dock.right - b.w,
                     0,
                     0,
                     0,
                     SWP_NOSIZE | SWP_NOACTIVATE,
                 );
                 ShowWindow(b.hwnd, SW_SHOWNA);
-                right -= b.w + gap;
+                dock.right -= b.w + dock.gap;
+            }
+        }
+    }
+
+    /// Taskbar ölçüleri; `ch == 0` → dikey / geçersiz (bloklar gizlenir).
+    fn dock(&self, taskbar: HWND, notify: HWND) -> Dock {
+        // SAFETY: taskbar alive() ile doğrulandı; yapılar yerel.
+        unsafe {
+            let mut cr: RECT = std::mem::zeroed();
+            GetClientRect(taskbar, &mut cr);
+            let (cw, ch) = (cr.right, cr.bottom);
+            let dpi = GetDpiForWindow(taskbar).max(96);
+            let mut nr: RECT = std::mem::zeroed();
+            let notify_left = (!notify.is_null()
+                && IsWindowVisible(notify) != 0
+                && GetWindowRect(notify, &mut nr) != 0)
+                .then(|| {
+                    let mut p = POINT {
+                        x: nr.left,
+                        y: nr.top,
+                    };
+                    ScreenToClient(taskbar, &mut p);
+                    p.x
+                });
+            let gap = scale(self.cfg.gap_px, dpi);
+            Dock {
+                taskbar,
+                ch: if ch > cw { 0 } else { ch },
+                dpi,
+                gap,
+                right: anchor(cw, notify_left, gap, scale(self.cfg.reserved_px, dpi)),
             }
         }
     }
@@ -543,23 +580,28 @@ impl Bar {
     fn alive(&self) -> bool {
         // SAFETY: IsWindow geçersiz tutamaçta 0 döner.
         unsafe {
-            IsWindow(self.taskbar) != 0
-                && self
-                    .blocks
-                    .iter()
-                    .all(|b| !b.hwnd.is_null() && IsWindow(b.hwnd) != 0)
+            self.blocks
+                .iter()
+                .all(|b| !b.hwnd.is_null() && IsWindow(b.hwnd) != 0 && IsWindow(b.taskbar) != 0)
         }
     }
 
     fn attach(&mut self) -> bool {
-        let tb = find_taskbar(&self.cfg);
-        if tb.is_null() {
-            return false;
-        }
         let class = wide(CLASS);
-        // SAFETY: tb geçerli üst düzey pencere; oluşturulan pencereler/kanca detach'te bırakılır.
+        let base = self.cfg.monitor;
+        let mut tids: Vec<u32> = Vec::new();
+        let mut watch: Vec<usize> = Vec::new();
+        // SAFETY: taskbar'lar geçerli üst düzey pencereler; oluşturulan pencereler/kancalar detach'te bırakılır.
         unsafe {
             for (i, b) in self.blocks.iter_mut().enumerate() {
+                // Bloğun monitöründe taskbar yoksa (tek monitör, "tüm ekranlarda göster" kapalı) ortak monitör
+                let mut tb = find_taskbar(b.mon.unwrap_or(base), base);
+                if tb.is_null() {
+                    tb = find_taskbar(base, base);
+                }
+                if tb.is_null() {
+                    return false; // yarım kalanları sonraki `place` → detach temizler
+                }
                 b.hwnd = CreateWindowExW(
                     WS_EX_LAYERED | WS_EX_NOACTIVATE,
                     class.as_ptr(),
@@ -575,47 +617,57 @@ impl Bar {
                     null(),
                 );
                 if b.hwnd.is_null() {
-                    return false; // yarım kalanları sonraki `place` → detach temizler
+                    return false;
                 }
                 SetWindowLongPtrW(b.hwnd, GWLP_USERDATA, i as isize);
+                b.taskbar = tb;
+                b.notify = FindWindowExW(tb, null_mut(), wide("TrayNotifyWnd").as_ptr(), null());
                 b.w = 0;
+                for h in [b.taskbar as usize, b.notify as usize] {
+                    if h != 0 && !watch.contains(&h) {
+                        watch.push(h);
+                    }
+                }
+                let mut pid = 0;
+                let tid = GetWindowThreadProcessId(tb, &mut pid);
+                if !tids.contains(&tid) {
+                    tids.push(tid);
+                    self.hooks.push(SetWinEventHook(
+                        EVENT_OBJECT_LOCATIONCHANGE,
+                        EVENT_OBJECT_LOCATIONCHANGE,
+                        null_mut(),
+                        Some(on_event),
+                        pid,
+                        tid,
+                        WINEVENT_OUTOFCONTEXT,
+                    ));
+                }
             }
-            let notify = FindWindowExW(tb, null_mut(), wide("TrayNotifyWnd").as_ptr(), null());
-            let mut pid = 0;
-            let tid = GetWindowThreadProcessId(tb, &mut pid);
-            self.hook = SetWinEventHook(
-                EVENT_OBJECT_LOCATIONCHANGE,
-                EVENT_OBJECT_LOCATIONCHANGE,
-                null_mut(),
-                Some(on_event),
-                pid,
-                tid,
-                WINEVENT_OUTOFCONTEXT,
-            );
-            WATCH[0].store(tb as usize, Ordering::Relaxed);
-            WATCH[1].store(notify as usize, Ordering::Relaxed);
-            (self.taskbar, self.notify) = (tb, notify);
+        }
+        for (slot, h) in WATCH.iter().zip(watch.iter().chain(std::iter::repeat(&0))) {
+            slot.store(*h, Ordering::Relaxed);
         }
         true
     }
 
     fn detach(&mut self) {
-        // SAFETY: kendi kancamız/pencerelerimiz; explorer gittiyse DestroyWindow yalnız başarısız döner.
+        // SAFETY: kendi kancalarımız/pencerelerimiz; explorer gittiyse DestroyWindow yalnız başarısız döner.
         unsafe {
-            if !self.hook.is_null() {
-                UnhookWinEvent(self.hook);
+            for h in self.hooks.drain(..) {
+                if !h.is_null() {
+                    UnhookWinEvent(h);
+                }
             }
             for b in &mut self.blocks {
                 if !b.hwnd.is_null() {
                     DestroyWindow(b.hwnd);
                 }
-                b.hwnd = null_mut();
+                (b.hwnd, b.taskbar, b.notify) = (null_mut(), null_mut(), null_mut());
             }
         }
         for w in &WATCH {
             w.store(0, Ordering::Relaxed);
         }
-        (self.taskbar, self.notify, self.hook) = (null_mut(), null_mut(), null_mut());
     }
 }
 

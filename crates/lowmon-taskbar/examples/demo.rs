@@ -1,7 +1,7 @@
 //! Elle deneme: `cargo run -p lowmon-taskbar --example demo [saniye] [gap_px]` (varsayılan 30, 8).
-//! Taskbar'a iki blok koyar (sağda 2×4 örnek ızgara, solunda iki satır); sağ tık ya da süre dolunca çıkar.
+//! Taskbar'a iki blok koyar (2×4 örnek ızgara ikinci monitör varsa orada, yoksa sağda; iki satır ortak monitörde); sağ tık ya da süre dolunca çıkar.
 //! Sol tık soldaki bloğun rengini / metnini değiştirir.
-use lowmon_taskbar::{Bar, Config, EV_LEFT, EV_MOVED, EV_RIGHT, Grid, Line};
+use lowmon_taskbar::{Bar, Config, EV_LEFT, EV_MOVED, EV_RIGHT, Grid, Line, Monitor};
 use std::cell::RefCell;
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::{
@@ -92,7 +92,7 @@ fn main() {
         if let Some(g) = std::env::args().nth(2).and_then(|s| s.parse().ok()) {
             cfg.gap_px = g;
         }
-        let mut bar = Bar::new(owner, WM_BAR, cfg, 2);
+        let mut bar = Bar::new(owner, WM_BAR, cfg, &[Some(Monitor::Other), None]);
         let row = |cells: [&str; 4]| -> Vec<Line> {
             cells
                 .iter()
