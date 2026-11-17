@@ -4,7 +4,7 @@ use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
 use windows::Win32::System::Threading::{CreateEventW, CreateMutexW, SetEvent};
 use windows::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, SW_RESTORE, SetForegroundWindow, ShowWindow,
+    FindWindowW, PostMessageW, SW_RESTORE, SetForegroundWindow, ShowWindow, WM_APP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -27,6 +27,24 @@ pub fn on_show_ai(f: impl Fn() + Send + 'static) {
 }
 
 /// İkinci kopya mevcut pencereyi öne getirip çıkar (tray "Arayüzü aç" tekrar tıklanınca).
+/// Ayarlar kaydedildi → tray yeniden yükler (`lowmon-tray` `WM_RELOAD`). bit 0 = ai + taskbar, bit 1 = deck.
+/// Tray kapalıysa `false` (ayar sonraki açılışta okunur).
+pub fn tray_reload(bits: usize) -> bool {
+    // SAFETY: sınıf adı sabit; pencere bulunmazsa çağrı yapılmaz.
+    unsafe {
+        match FindWindowW(w!("LowMonitorTray"), None) {
+            Ok(h) => PostMessageW(
+                Some(h),
+                WM_APP + 6,
+                windows::Win32::Foundation::WPARAM(bits),
+                windows::Win32::Foundation::LPARAM(0),
+            )
+            .is_ok(),
+            Err(_) => false,
+        }
+    }
+}
+
 pub fn single_instance(ai: bool) -> bool {
     // SAFETY: isimli mutex süreç ömrü boyunca açık kalır (handle bilerek kapatılmaz); dizgeler sabit.
     unsafe {

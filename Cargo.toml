@@ -18,6 +18,7 @@ sha2 = { version = "0.11.1", default-features = false }
 getrandom = "0.4.3"
 serde = { version = "1.0.229", default-features = false, features = ["derive", "std"] }
 toml = { version = "1.2.1", default-features = false, features = ["parse", "serde", "std"] }
+toml_edit = { version = "0.25.19", default-features = false, features = ["parse", "display"] }
 proptest = "1.12.0"  # yalnızca dev-dependency
 postcard = { version = "1.1.3", default-features = false, features = ["alloc"] }
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }  # lowmon-net (spek §16.1)

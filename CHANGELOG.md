@@ -2,6 +2,8 @@
 Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
+### Eklendi
+- `lowmon-ui` Ayarlar sekmesi: `ai.toml`, `taskbar.toml`, `deck.toml` formu; yalnız değişen anahtar yazılır (yorumlar korunur), değerler doğrulanır, kaydedince tray yeniden yükler. Servis ayarları sonraki partide
 ### Değişti
 - `lowmon-ui` grafikleri: fareyle üzerine gelince dikey çizgi + kutucuk; Canlı'da saat + değer(ler), Geçmiş'te kova aralığı (dakikadan kısa kovada saniyeli, 7 g'de tarihli) + ort/max, RAM, R/W, ↓/↑
 - Taskbar AI göstergesine sol tık artık raporu açar (önceden: şimdi yenile; menüde duruyor)

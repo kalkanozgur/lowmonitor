@@ -2623,8 +2623,11 @@ dependencies = [
  "lowdeck-proto",
  "lowmon-ai",
  "lowmon-deck",
+ "lowmon-taskbar",
  "slint",
  "slint-build",
+ "toml",
+ "toml_edit",
  "windows",
 ]
 
