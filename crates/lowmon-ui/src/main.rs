@@ -1331,6 +1331,14 @@ fn fmt_time(ts_ms: u64, offset_s: i64) -> String {
 mod tests {
     use super::*;
 
+    /// Dil süreç genelinde: dile bağlı testler paralel koşarken birbirinin dilini değiştirmesin.
+    fn with_lang(l: lowmon_ai::text::Lang) -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        lowmon_ai::text::set_lang(l);
+        g
+    }
+
     #[test]
     fn event_desc_maps_system_and_alarm() {
         let ev = |kind, name: &str, value| EventItem {
@@ -1339,7 +1347,7 @@ mod tests {
             name: name.into(),
             value,
         };
-        lowmon_ai::text::set_lang(lowmon_ai::text::Lang::En);
+        let _l = with_lang(lowmon_ai::text::Lang::En);
         assert_eq!(event_desc(&ev(2, "control_reload", 1)), "Settings reloaded");
         assert!(event_desc(&ev(2, "control_reload", 0)).contains("failed"));
         assert_eq!(event_desc(&ev(2, "bilinmeyen", 0)), "");
@@ -1355,6 +1363,7 @@ mod tests {
 
     #[test]
     fn ai_line_format() {
+        let _l = with_lang(lowmon_ai::text::Lang::Tr);
         let w = Some(AiWindow {
             pct: 334,
             resets_at: 1_000 + 4 * 3600 + 16 * 60,

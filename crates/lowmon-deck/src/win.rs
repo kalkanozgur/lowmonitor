@@ -98,6 +98,24 @@ impl Backend for WinBackend {
             .map_or(0, |d| d.as_secs() as i64);
         crate::report::ai_report(view, now, utc_offset_s())
     }
+    fn ai_config(&self) -> (lowdeck_proto::AiConfig, String) {
+        crate::aicfg::read(&lowmon_ai::config_path())
+    }
+    fn set_ai_config(&self, cfg: &lowdeck_proto::AiConfig) -> (lowdeck_proto::AiConfig, String) {
+        crate::aicfg::set(&lowmon_ai::config_path(), cfg, tray_reload_ai)
+    }
+}
+
+/// Tray `WM_RELOAD` (bit 0 = ai + taskbar), lowmon-ui Ayarlar ile aynı mesaj. Deck tray sürecinde: kendi penceresine post.
+fn tray_reload_ai() {
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW, WM_APP};
+    // SAFETY: sınıf adı sabit; pencere bulunmazsa çağrı yapılmaz.
+    unsafe {
+        if let Ok(h) = FindWindowW(windows::core::w!("LowMonitorTray"), None) {
+            let _ = PostMessageW(Some(h), WM_APP + 6, WPARAM(1), LPARAM(0));
+        }
+    }
 }
 
 /// `GetTimeZoneInformation` dönüşü (winnt.h); windows crate'inde sabit yok.

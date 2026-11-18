@@ -22,8 +22,10 @@ use std::time::Duration;
 
 #[macro_use]
 pub mod log;
+mod aicfg;
 pub mod procs;
 mod report;
+pub mod tomlw;
 /// Tray AI yayını için (ADR-0032).
 pub use lowdeck_proto::{AI_TEXT_MAX, AiUsage, AiWindow, Sensors};
 mod lowmon;
@@ -485,6 +487,13 @@ pub trait Backend: Send + Sync {
     fn ai_report(&self, _view: u8) -> AiReport {
         AiReport::default()
     }
+    /// PC `ai.toml` (ADR-0010): (ayar, hata).
+    fn ai_config(&self) -> (AiConfig, String) {
+        (AiConfig::default(), "unsupported".into())
+    }
+    fn set_ai_config(&self, _cfg: &AiConfig) -> (AiConfig, String) {
+        (AiConfig::default(), "unsupported".into())
+    }
 }
 
 // ---------------- Bağlantı ----------------
@@ -632,6 +641,22 @@ fn session(
                 ); // bitti
             }
             C2S::QueryAiReport { view } => hub.reply(id, &S2C::AiReport(backend.ai_report(view))),
+            C2S::QueryAiConfig => {
+                let (cfg, error) = backend.ai_config();
+                hub.reply(id, &S2C::AiConfig { cfg, error });
+            }
+            C2S::SetAiConfig(new) => {
+                let (cfg, error) = backend.set_ai_config(&new);
+                log!(
+                    "ai.toml telefondan: {}",
+                    if error.is_empty() {
+                        "kaydedildi"
+                    } else {
+                        &error
+                    }
+                );
+                hub.reply(id, &S2C::AiConfig { cfg, error });
+            }
             C2S::Hello { .. } => hub.reply(id, &S2C::Error(ErrorCode::Unsupported)),
         }
     })();

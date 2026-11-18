@@ -3,11 +3,15 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
 ### Eklendi
+- `lowmon-deck`: telefondan PC AI ayarı (LowDeck ADR-0010): `QueryAiConfig` / `SetAiConfig` → `ai.toml` (dil, sorgu aralığı, kimlik, CSV, rapor oturumu); yalnız değişen anahtar yazılır, tray yeniden yükler. `toml_edit` yazma çekirdeği `lowmon-ui`'dan deck'e taşındı (`tomlw`)
 - `lowmon-deck` telefona lowmon-ui verileri (LowDeck ADR-0009, proto v4 içinde): süreç listesi (`TOPIC_PROCS`, ilk 50, sıralama/süzgeç sunucuda, abone yokken tarama yok), süreç sonlandırma (`Kill`, CreationTime + korumalı liste; yetki = token, UAC yok), sıcaklık/GPU geçmişi (`QueryTempHistory`, `sensors.bin`), AI raporu (`QueryAiReport`, 100 kova + ilk 8 grup + 20 oturum). Süreç tarama/sonlandırma kodu `lowmon-ui`'dan deck'e taşındı, arayüz aynı kodu kullanır
 - `lowmon-ui` Geçmiş: CPU kartında °C çizgisi, yeni GPU kartı (% + °C), disk başlığında aralığın en yüksek °C'si; hover ort + max gösterir. Tray sensör iş parçacığı dakikalık ort + max'ı `%LOCALAPPDATA%\LowMonitor\sensors.bin`'e yazar (7 g sabit halka, 197 KiB; ADR-0035)
 - `lowmon-ui` Canlı: CPU kartında sıcaklık çizgisi (°C), yeni GPU kartı (% + °C), disk kartı başlığında en sıcak disk °C. Kaynak tray sensörleri; deck yeni `TOPIC_SENSORS` konusuyla yayınlar (telefon da abone olabilir). Tray sensör iş parçacığı taskbar ızgarası kapalıyken de abone varsa çalışır (ADR-0033 Faz 4a, LowDeck #30)
 - `lowmon-ui` Ayarlar sekmesi: `ai.toml`, `taskbar.toml`, `deck.toml` formu; yalnız değişen anahtar yazılır (yorumlar korunur), değerler doğrulanır, kaydedince tray yeniden yükler. Servis ayarları sonraki partide
 - `lowmon-ui` servis ayarları: Ayarlar ▸ "Servis ayarlarını düzenle (yönetici)" → UAC → `lowmon-ui --service-settings`; örnekleme (`interval_ms`, `topn_every`, `topn_count`) ve saklama (`raw_days`, `total_days`) `config.toml`'a yerinde yazılır, servis `ReloadConfig` ile yeniden başlamadan uygular. `lowmon-elev` planı kaldırıldı (ADR-0030 eki)
+### Düzeltildi
+- Ayarlar: değişen anahtarın üstündeki yorum satırı siliniyordu (`toml_edit` `insert` anahtar süsünü atıyor → yerinde değiştirme)
+- `lowmon-ui` testleri: dil süreç genelinde; paralel testler birbirinin dilini değiştirip ara sıra düşüyordu (kilit)
 ### Değişti
 - `lowmon-ui` üst çubuk: Ayarlar sekmesi yerine sağ üstte ⚙; "Connected" yazısı yalnız sorun varken (ya da noktanın üzerine gelince) görünür. Olaylar her satırda okunur açıklama gösterir; Geçmiş'te aralık seçici grafiklerin altına taşındı
 - `lowmon-ui` grafikleri: fareyle üzerine gelince dikey çizgi + kutucuk; Canlı'da saat + değer(ler), Geçmiş'te kova aralığı (dakikadan kısa kovada saniyeli, 7 g'de tarihli) + ort/max, RAM, R/W, ↓/↑
