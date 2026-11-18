@@ -54,7 +54,7 @@ export struct SettingsForm {
 
 export struct TopRow { name: string, cpu: string, ws: string }
 export struct EventRow { time: string, kind: int, name: string, value: string, desc: string }
-export struct GroupRow { name: string, pct: string, tokens: string, fill: float }
+export struct GroupRow { name: string, pct: string, tokens: string, fill: float, active: bool }
 export struct SessRow { end: string, project: string, requests: string, tokens: string, top: string }
 export struct ProcRow { pid: int, name: string, cpu: string, ws: string, protected: bool, selected: bool }
 
@@ -670,6 +670,7 @@ export component MainWindow inherits Window {
                 b: root.ai-chart-s;
                 cb: Theme.accent;
                 vb: 1000;
+                kind: 20;
                 vertical-stretch: 0;
                 height: 150px;
             }
@@ -680,7 +681,7 @@ export component MainWindow inherits Window {
                     spacing: 10px;
                     padding-top: 2px;
                     padding-bottom: 2px;
-                    Text { text: g.name; color: Theme.text; font-size: 14px; width: 170px; overflow: elide; vertical-alignment: center; }
+                    Text { text: g.name; color: g.active ? Theme.text : Theme.dim; font-size: 14px; width: 170px; overflow: elide; vertical-alignment: center; }
                     Rectangle {
                         horizontal-stretch: 1;
                         height: 18px;

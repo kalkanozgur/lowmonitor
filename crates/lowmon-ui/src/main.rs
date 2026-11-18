@@ -1148,9 +1148,12 @@ fn bump_hover(ui: &MainWindow) {
 }
 
 /// Grafik hover kutucuğu: saat + o andaki seriler. `kind`: 0–3 Canlı (CPU, RAM, disk, ağ),
-/// 10–13 Geçmiş (aynı sıra). Veri yoksa "" (kutucuk gizlenir).
+/// 10–14 Geçmiş (aynı sıra + GPU), 20 AI limit grafiği. Veri yoksa "" (kutucuk gizlenir).
 fn hover_text(kind: i32, frac: f32, offset: i64) -> String {
     let pct = |v: f32| format!("{:.0} %", v * 100.0);
+    if kind == 20 {
+        return aitab::hover_text(frac, offset);
+    }
     if kind < 10 {
         return HIST.with(|h| {
             let h = h.borrow();

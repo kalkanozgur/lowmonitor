@@ -13,6 +13,7 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 - Ayarlar: değişen anahtarın üstündeki yorum satırı siliniyordu (`toml_edit` `insert` anahtar süsünü atıyor → yerinde değiştirme)
 - `lowmon-ui` testleri: dil süreç genelinde; paralel testler birbirinin dilini değiştirip ara sıra düşüyordu (kilit)
 ### Değişti
+- `lowmon-ui` AI sekmesi: seçili görünümde kullanılmayan gruplar listeden kaybolmaz, gri kalır; LİMİT grafiğinde fareyle tarih-saat + oturum / hafta %
 - `lowmon-ui` üst çubuk: Ayarlar sekmesi yerine sağ üstte ⚙; "Connected" yazısı yalnız sorun varken (ya da noktanın üzerine gelince) görünür. Olaylar her satırda okunur açıklama gösterir; Geçmiş'te aralık seçici grafiklerin altına taşındı
 - `lowmon-ui` grafikleri: fareyle üzerine gelince dikey çizgi + kutucuk; Canlı'da saat + değer(ler), Geçmiş'te kova aralığı (dakikadan kısa kovada saniyeli, 7 g'de tarihli) + ort/max, RAM, R/W, ↓/↑
 - Taskbar AI göstergesine sol tık artık raporu açar (önceden: şimdi yenile; menüde duruyor)
