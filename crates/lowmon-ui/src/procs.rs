@@ -56,7 +56,9 @@ mod tests {
 
     #[test]
     fn texts() {
-        assert!(exit::text(exit::GONE, "a").contains("artık yok"));
+        // Dil başka testte (main.rs) paralel değişebilir: metne değil biçime bak
+        assert!(exit::text(exit::GONE, "a").starts_with("a: "));
+        assert_ne!(exit::text(exit::GONE, "a"), exit::text(exit::DENIED, "a"));
         assert_eq!(fmt_cpu(0), "");
         assert_eq!(fmt_cpu(4), "");
         assert_eq!(fmt_cpu(5), "0.1%");
