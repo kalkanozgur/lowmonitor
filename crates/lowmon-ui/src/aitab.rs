@@ -9,6 +9,8 @@ use std::cell::{Cell, RefCell};
 thread_local! {
     static DATA: RefCell<Option<Data>> = const { RefCell::new(None) };
     static BUSY: Cell<bool> = const { Cell::new(false) };
+    /// Son çizilen grafik aralığı (unix s); hover bunu kullanır.
+    static RANGE: Cell<(i64, i64)> = const { Cell::new((0, 0)) };
 }
 
 pub fn init(ui: &MainWindow, offset: i64) {
@@ -63,6 +65,7 @@ fn render(ui: &MainWindow, offset: i64) {
             [View::LastSession, View::Today, View::Week][ui.get_ai_view().clamp(0, 2) as usize];
         let from = report::range_from(view, d.now, offset);
         let to = d.now.max(from + 60);
+        RANGE.set((from, to));
         // viewbox genişliği report::CHART_W = main.slint'teki vb: 1000
         ui.set_ai_chart_s(report::chart_path(&d.samples, from, to, |s| s.session_pct).into());
         ui.set_ai_chart_w(report::chart_path(&d.samples, from, to, |s| s.week_pct).into());
@@ -70,16 +73,39 @@ fn render(ui: &MainWindow, offset: i64) {
         let sessions = report::sessions_in(&d.sessions, view, from);
         let total = report::merge(&sessions);
         let top = total.groups.first().map_or(1.0, |g| g.effective);
-        let groups: Vec<GroupRow> = total
+        let row = |name: &str, active: bool| GroupRow {
+            name: lowmon_ai::breakdown::group_label(lang(), name).into(),
+            pct: String::new().into(),
+            tokens: String::new().into(),
+            fill: 0.0,
+            active,
+        };
+        let mut groups: Vec<GroupRow> = total
             .groups
             .iter()
+            .filter(|g| g.effective > 0.0)
             .map(|g| GroupRow {
-                name: lowmon_ai::breakdown::group_label(lang(), &g.name).into(),
                 pct: pct1(g.share).into(),
                 tokens: format_tokens(g.effective, lang()).into(),
                 fill: (g.effective / top) as f32,
+                ..row(&g.name, true)
             })
             .collect();
+        // Bu görünümde kullanılmayan ama yüklü raporda geçen gruplar: kaybolmasın, gri kalsın
+        let mut idle: Vec<&str> = d
+            .sessions
+            .iter()
+            .flat_map(|s| s.groups.iter().map(|g| g.name.as_str()))
+            .filter(|n| {
+                !total
+                    .groups
+                    .iter()
+                    .any(|g| g.name == *n && g.effective > 0.0)
+            })
+            .collect();
+        idle.sort_unstable();
+        idle.dedup();
+        groups.extend(idle.into_iter().map(|n| row(n, false)));
         let rows: Vec<SessRow> = sessions
             .iter()
             .map(|s| SessRow {
@@ -134,4 +160,31 @@ fn render(ui: &MainWindow, offset: i64) {
         ui.set_ai_groups(ModelRc::new(VecModel::from(groups)));
         ui.set_ai_sessions(ModelRc::new(VecModel::from(rows)));
     });
+}
+
+/// Limit grafiği hover kutucuğu: imlece en yakın örneğin tarih-saati + oturum / hafta %.
+pub fn hover_text(frac: f32, offset: i64) -> String {
+    let (from, to) = RANGE.get();
+    DATA.with_borrow(|d| {
+        let Some(d) = d else { return String::new() };
+        let t = from + ((to - from) as f64 * frac.clamp(0.0, 1.0) as f64) as i64;
+        let Some(s) = d
+            .samples
+            .iter()
+            .filter(|s| s.ts >= from && s.ts <= to)
+            .min_by_key(|s| (s.ts - t).abs())
+        else {
+            return String::new();
+        };
+        let p = |v: Option<f64>| v.map_or("—".into(), |v| format!("{v:.0} %"));
+        format!(
+            "{}
+{} {}  {} {}",
+            &fmt_time(s.ts as u64 * 1000, offset)[5..16],
+            tr("oturum", "session"),
+            p(s.session_pct),
+            tr("hafta", "week"),
+            p(s.week_pct)
+        )
+    })
 }
