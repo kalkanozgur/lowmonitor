@@ -3,6 +3,7 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
 ### Eklendi
+- `lowmon-deck` telefona lowmon-ui verileri (LowDeck ADR-0009, proto v4 içinde): süreç listesi (`TOPIC_PROCS`, ilk 50, sıralama/süzgeç sunucuda, abone yokken tarama yok), süreç sonlandırma (`Kill`, CreationTime + korumalı liste; yetki = token, UAC yok), sıcaklık/GPU geçmişi (`QueryTempHistory`, `sensors.bin`), AI raporu (`QueryAiReport`, 100 kova + ilk 8 grup + 20 oturum). Süreç tarama/sonlandırma kodu `lowmon-ui`'dan deck'e taşındı, arayüz aynı kodu kullanır
 - `lowmon-ui` Geçmiş: CPU kartında °C çizgisi, yeni GPU kartı (% + °C), disk başlığında aralığın en yüksek °C'si; hover ort + max gösterir. Tray sensör iş parçacığı dakikalık ort + max'ı `%LOCALAPPDATA%\LowMonitor\sensors.bin`'e yazar (7 g sabit halka, 197 KiB; ADR-0035)
 - `lowmon-ui` Canlı: CPU kartında sıcaklık çizgisi (°C), yeni GPU kartı (% + °C), disk kartı başlığında en sıcak disk °C. Kaynak tray sensörleri; deck yeni `TOPIC_SENSORS` konusuyla yayınlar (telefon da abone olabilir). Tray sensör iş parçacığı taskbar ızgarası kapalıyken de abone varsa çalışır (ADR-0033 Faz 4a, LowDeck #30)
 - `lowmon-ui` Ayarlar sekmesi: `ai.toml`, `taskbar.toml`, `deck.toml` formu; yalnız değişen anahtar yazılır (yorumlar korunur), değerler doğrulanır, kaydedince tray yeniden yükler. Servis ayarları sonraki partide

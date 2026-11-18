@@ -2494,7 +2494,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 [[package]]
 name = "lowdeck-client"
 version = "0.1.0"
-source = "git+https://github.com/kalkanozgur/lowdeck?rev=62b79c5#62b79c5620b6e722d014f02b27917db1b523ad58"
+source = "git+https://github.com/kalkanozgur/lowdeck?rev=93ad386#93ad3865da8c79205152e89912251fbd2450c000"
 dependencies = [
  "lowdeck-proto",
 ]
@@ -2502,7 +2502,7 @@ dependencies = [
 [[package]]
 name = "lowdeck-proto"
 version = "0.1.0"
-source = "git+https://github.com/kalkanozgur/lowdeck?rev=62b79c5#62b79c5620b6e722d014f02b27917db1b523ad58"
+source = "git+https://github.com/kalkanozgur/lowdeck?rev=93ad386#93ad3865da8c79205152e89912251fbd2450c000"
 dependencies = [
  "postcard",
  "serde",
@@ -2539,7 +2539,9 @@ name = "lowmon-deck"
 version = "0.1.0"
 dependencies = [
  "lowdeck-proto",
+ "lowmon-ai",
  "lowmon-proto",
+ "lowmon-sensors",
  "serde",
  "toml",
  "windows",
