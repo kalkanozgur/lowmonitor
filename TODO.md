@@ -1,6 +1,11 @@
 # TODO
 ## Şimdi
 - [x] v1.0.0 (2026-11-19): sürüm numarası, CHANGELOG, README EN + TR; LowDeck v1.0.0 ile birlikte
+- [ ] **Sonraki sürüm (kullanıcı, 2026-11-19): tek exe kurulum.** `install.ps1` + elle build yerine tek kurulum exe'si (GitHub Release'e eklenir):
+  - Modül listesi, her biri kısa açıklamalı ve **varsayılan seçili**: servis (`lowmon-svc`), arayüz (`lowmon-ui`), LAN API (`lowmon-net`), Claude Code hook (`lowmon-hook`), `lwm-dump`, telefon firewall kuralı (TCP deck + UDP 47811)
+  - **Tray + taskbar zorunlu** (seçimden çıkarılamaz, gri işaretli)
+  - Mevcut `install.ps1` davranışı korunur: süreçleri kapat, `Program Files\LowMonitor`'a kopyala, servis kur/başlat, firewall, tray autostart, eski LowDeck / ai-usage-bar izleri, `%ProgramData%` verisi korunur
+  - Açık kararlar (ADR gerekir): araç (Inno Setup / WiX / kendi Rust kurucusu), UAC tek sefer, kaldırma (uninstall) ve güncelleme yolu, MSIX AppData sanallaştırma tuzağı (HKCU yazmaları yükseltilmemiş bağlamda)
 - [ ] v1 sonrası canlı doğrulama: tray taskbar aç-kapa menüsü (#68), tray çalışırken IP değişimi (#67), sıcaklık alarmı (#69; eşiği geçici düşürerek), telefon perdesinin alarmla / arada açılması (LowDeck #40)
 - [ ] Sıcaklık alarmları servis olay deposuna yazılmıyor (Geçmiş'te yok); gerekirse servis tarafı sensör kuralı (yeni ADR)
 - [x] Rust toolchain kur (rustup, 1.100.0-msvc)
