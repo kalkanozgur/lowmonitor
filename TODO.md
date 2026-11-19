@@ -6,6 +6,7 @@
   - **Tray + taskbar zorunlu** (seçimden çıkarılamaz, gri işaretli)
   - Mevcut `install.ps1` davranışı korunur: süreçleri kapat, `Program Files\LowMonitor`'a kopyala, servis kur/başlat, firewall, tray autostart, eski LowDeck / ai-usage-bar izleri, `%ProgramData%` verisi korunur
   - Açık kararlar (ADR gerekir): araç (Inno Setup / WiX / kendi Rust kurucusu), UAC tek sefer, kaldırma (uninstall) ve güncelleme yolu, MSIX AppData sanallaştırma tuzağı (HKCU yazmaları yükseltilmemiş bağlamda)
+- [ ] **Sonraki sürüm (kullanıcı, 2026-11-19): çoklu telefon.** `lowmon-deck` tek LAN yuvası (`SLOT_LAN`) yeni geleni alıp eskisini düşürüyor; iki telefon (M21 + Mi Note) 1 s'lik yeniden bağlanmayla birbirini sürekli atıyor (`deck.log`'da `+ bağlandı` / `- koptu` döngüsü). Hedef: birden çok LAN istemcisi aynı anda bağlı, her birinin kendi aboneliği; komutlar (ses/medya/kill) herhangi birinden. ADR gerekir: üst sınır, aynı telefonun yeniden bağlanışı (ad/adres ile eski oturumu kapat), push'ların istemci başına kopyası, `phone_wants_events` → herhangi biri. Telefon tarafı muhtemelen değişmez; telefon adı sabit `toco` (LowDeck TODO) ayırt etmeyi zorlaştırır
 - [ ] v1 sonrası canlı doğrulama: tray taskbar aç-kapa menüsü (#68), tray çalışırken IP değişimi (#67), sıcaklık alarmı (#69; eşiği geçici düşürerek), telefon perdesinin alarmla / arada açılması (LowDeck #40)
 - [ ] Sıcaklık alarmları servis olay deposuna yazılmıyor (Geçmiş'te yok); gerekirse servis tarafı sensör kuralı (yeni ADR)
 - [x] Rust toolchain kur (rustup, 1.100.0-msvc)
