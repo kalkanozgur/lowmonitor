@@ -2510,7 +2510,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-ai"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "lowmon-core",
  "serde",
@@ -2521,7 +2521,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
  "getrandom 0.4.3",
@@ -2536,7 +2536,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-deck"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "lowdeck-proto",
  "lowmon-ai",
@@ -2551,14 +2551,14 @@ dependencies = [
 
 [[package]]
 name = "lowmon-hook"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "lowmon-net"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "getrandom 0.4.3",
  "httparse",
@@ -2574,7 +2574,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-proto"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "postcard",
  "serde",
@@ -2582,14 +2582,14 @@ dependencies = [
 
 [[package]]
 name = "lowmon-sensors"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "lowmon-svc"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "getrandom 0.4.3",
  "lowmon-core",
@@ -2599,7 +2599,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-taskbar"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "serde",
  "toml",
@@ -2608,7 +2608,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-tray"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "lowmon-ai",
  "lowmon-core",
@@ -2620,7 +2620,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-ui"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "lowdeck-client",
  "lowdeck-proto",
@@ -2638,7 +2638,7 @@ dependencies = [
 
 [[package]]
 name = "lwm-dump"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "lowmon-core",
 ]

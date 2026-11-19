@@ -2,7 +2,14 @@
 Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-11-19
+İlk sürüm: servis, tray, `lowmon-ui`, `lowmon-net`, telefon sunucusu (LowDeck v1.0.0 ile), taskbar göstergeleri, Claude kullanımı. Nihai 24 saat kabul soak'u bu sürümden sonra (TODO.md).
 ### Eklendi
+- Tray sıcaklık alarmı: CPU/GPU `temp_warn_c`, disk `disk_warn_c` aşılınca deck'e `Temp.CPU|GPU|Disk` olayı, 3 °C altında temizlenir; telefon olaylara aboneyken sensörler okunur (LowDeck perdesi bu olaylarla açılır) (#69)
+- Tray menüsü: "Taskbar: sistem göstergesi" / "Taskbar: AI göstergesi" aç-kapa (`taskbar.toml` `[sys|ai] enabled`, yorumlar korunur) (#68)
+- Tray IP değişimini izler (`NotifyUnicastIpAddressChange`): `deck.toml` `bind` IP'si kaybolunca telefon dinleyicisi şu anki LAN IP'sine geçer, eski IP geri gelince ona döner (#67)
+- README İngilizce + `README.tr.md`
 - `lowmon-deck`: telefondan PC AI ayarı (LowDeck ADR-0010): `QueryAiConfig` / `SetAiConfig` → `ai.toml` (dil, sorgu aralığı, kimlik, CSV, rapor oturumu); yalnız değişen anahtar yazılır, tray yeniden yükler. `toml_edit` yazma çekirdeği `lowmon-ui`'dan deck'e taşındı (`tomlw`)
 - `lowmon-deck` telefona lowmon-ui verileri (LowDeck ADR-0009, proto v4 içinde): süreç listesi (`TOPIC_PROCS`, ilk 50, sıralama/süzgeç sunucuda, abone yokken tarama yok), süreç sonlandırma (`Kill`, CreationTime + korumalı liste; yetki = token, UAC yok), sıcaklık/GPU geçmişi (`QueryTempHistory`, `sensors.bin`), AI raporu (`QueryAiReport`, 100 kova + ilk 8 grup + 20 oturum). Süreç tarama/sonlandırma kodu `lowmon-ui`'dan deck'e taşındı, arayüz aynı kodu kullanır
 - `lowmon-ui` Geçmiş: CPU kartında °C çizgisi, yeni GPU kartı (% + °C), disk başlığında aralığın en yüksek °C'si; hover ort + max gösterir. Tray sensör iş parçacığı dakikalık ort + max'ı `%LOCALAPPDATA%\LowMonitor\sensors.bin`'e yazar (7 g sabit halka, 197 KiB; ADR-0035)

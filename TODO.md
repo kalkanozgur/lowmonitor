@@ -1,5 +1,8 @@
 # TODO
 ## Şimdi
+- [x] v1.0.0 (2026-11-19): sürüm numarası, CHANGELOG, README EN + TR; LowDeck v1.0.0 ile birlikte
+- [ ] v1 sonrası canlı doğrulama: tray taskbar aç-kapa menüsü (#68), tray çalışırken IP değişimi (#67), sıcaklık alarmı (#69; eşiği geçici düşürerek), telefon perdesinin alarmla / arada açılması (LowDeck #40)
+- [ ] Sıcaklık alarmları servis olay deposuna yazılmıyor (Geçmiş'te yok); gerekirse servis tarafı sensör kuralı (yeni ADR)
 - [x] Rust toolchain kur (rustup, 1.100.0-msvc)
 - [x] M0: workspace, toolchain, crt-static, boş servis (install/start/stop/uninstall)
 
