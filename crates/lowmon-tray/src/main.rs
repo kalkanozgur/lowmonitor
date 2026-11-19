@@ -64,6 +64,8 @@ const WM_TRAY: u32 = WM_APP + 1;
 const WM_DATA: u32 = WM_APP + 2;
 /// `lowmon-ui` Ayarlar kaydetti (`lowmon-ui/src/win.rs` ile aynı): wParam bit 0 = ai + taskbar, bit 1 = deck.
 const WM_RELOAD: u32 = WM_APP + 6;
+/// IPv4 adresi eklendi/silindi (`NotifyUnicastIpAddressChange`): telefon dinleyicisi yeni IP'ye geçsin mi?
+const WM_NETCHANGE: u32 = WM_APP + 7;
 /// Monitör değişiminden sonra taskbar bloklarını bir kez daha kuran tek seferlik zamanlayıcı
 const TIMER_DISPLAY: usize = 0xA2;
 const ID_UI: usize = 1;
@@ -526,6 +528,32 @@ fn deck_reload(show: bool) {
     DECK_ERR.replace(err);
 }
 
+/// IPv4 adres değişimlerine abone olur (olay tabanlı, polling yok); geri çağrı sistem thread'inde → UI thread'ine mesaj.
+/// Tutamaç süreç boyunca yaşar (kapatılmaz). Abonelik olmazsa yalnız açılıştaki düşme (`listen`) kalır.
+fn watch_ip() {
+    use windows_sys::Win32::{
+        Foundation::HANDLE,
+        NetworkManagement::IpHelper::{
+            MIB_NOTIFICATION_TYPE, MIB_UNICASTIPADDRESS_ROW, NotifyUnicastIpAddressChange,
+        },
+        Networking::WinSock::AF_INET,
+    };
+    unsafe extern "system" fn cb(
+        _: *const std::ffi::c_void,
+        _: *const MIB_UNICASTIPADDRESS_ROW,
+        _: MIB_NOTIFICATION_TYPE,
+    ) {
+        // SAFETY: PostMessageW thread güvenli; pencere yoksa çağrı sessizce düşer.
+        unsafe { PostMessageW(HWND_.load(Ordering::Relaxed) as HWND, WM_NETCHANGE, 0, 0) };
+    }
+    let mut h: HANDLE = ptr::null_mut();
+    // SAFETY: geri çağrı 'static fonksiyon, bağlam yok; h çıkış parametresi.
+    let r = unsafe { NotifyUnicastIpAddressChange(AF_INET, Some(cb), ptr::null(), false, &mut h) };
+    if r != 0 {
+        lowmon_deck::log::write(&format!("IP değişimi izlenemiyor: {r}"));
+    }
+}
+
 /// WM_SETTINGCHANGE lParam'ı (NUL sonlu UTF-16 ya da NULL) `name` mi?
 fn setting_is(lp: LPARAM, name: &str) -> bool {
     if lp == 0 {
@@ -550,6 +578,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         sys::WM_SYS if LATEST.lock().unwrap_or_else(|e| e.into_inner()).is_none() => sys::render(),
         WM_TRAY if lp as u32 == WM_RBUTTONUP => menu(hwnd),
         ai::WM_AI => ai::render(),
+        // Adres değişimi birkaç bildirim üretir (eski sil + yeni ekle); bind hâlâ doğruysa iş yok.
+        WM_NETCHANGE if DECK.with_borrow(|d| d.as_ref().is_some_and(|d| d.bind_stale())) => {
+            lowmon_deck::log::write("IP değişti, telefon dinleyicisi yeniden açılıyor");
+            deck_reload(false);
+            notify(hwnd, NIM_MODIFY);
+        }
         WM_RELOAD => {
             if wp & 1 != 0 {
                 ai::start(hwnd);
@@ -788,6 +822,7 @@ fn main() {
         let _ = DECK_HUB.set(deck.hub.clone());
         DECK.set(Some(deck));
         deck_reload(false);
+        watch_ip();
         notify(hwnd, NIM_ADD);
         ai::start(hwnd);
         let _ = thread::Builder::new()

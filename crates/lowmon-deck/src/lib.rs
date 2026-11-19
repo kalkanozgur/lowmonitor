@@ -770,6 +770,11 @@ fn lan_ip() -> String {
         .unwrap_or_else(|_| "127.0.0.1".into())
 }
 
+/// Adres bu PC'nin mi? Yerel olmayan adrese bind 10049 ile düşer.
+fn is_local(ip: &str) -> bool {
+    UdpSocket::bind((ip, 0)).is_ok()
+}
+
 /// shortcut: std RandomState (işletim sistemi rastgelesiyle tohumlanır) → 64 bit; eşleştirme gelince 256-bit CSPRNG.
 fn random_token() -> String {
     use std::hash::{BuildHasher, Hasher};
@@ -816,6 +821,19 @@ impl Running {
         self.listeners.as_ref().map(|l| &l.cfg)
     }
 
+    /// IP değişimi sonrası: dinlenen adres artık istenen adres değil mi (DHCP yeni IP verdi / eski IP geri geldi)?
+    /// İstenen = `deck.toml` `bind` bu PC'deyse o, değilse `lan_ip()`. Dinleme yoksa `false` (reload hatası menüde).
+    pub fn bind_stale(&self) -> bool {
+        self.listeners.as_ref().is_some_and(|l| {
+            let want = if is_local(&l.requested) {
+                l.requested.clone()
+            } else {
+                lan_ip()
+            };
+            want != l.cfg.bind
+        })
+    }
+
     /// Dinlemeyi (yeniden) aç. "Ayarı yeniden yükle": eskiyi durdur, istemcileri düşür, yeniyi aç; olmazsa eskiye dön.
     pub fn reload(&mut self, new: Config) -> Result<(), String> {
         let old = self.listeners.take().map(|r| {
@@ -857,6 +875,8 @@ impl Running {
 /// Çalışan dinleyiciler (LAN + loopback). `stop` ile kapatılır (yeniden yükleme).
 struct Listeners {
     cfg: Config,
+    /// `deck.toml` `bind`'i (düşmeden önce); `cfg.bind` dinlenen adres.
+    requested: String,
     /// İlki `bind` (LAN), varsa ikincisi loopback.
     addrs: Vec<std::net::SocketAddr>,
     /// Keşif soketi açıksa: `stop`'ta uyandırmak için kendine datagram.
@@ -888,6 +908,7 @@ fn listen(
     hub: &Arc<Hub>,
     backend: &Arc<dyn Backend>,
 ) -> std::io::Result<Listeners> {
+    let requested = cfg.bind.clone();
     let lan = match TcpListener::bind((cfg.bind.as_str(), cfg.port)) {
         // DHCP adresi değiştirdi (10049): şu anki LAN IP'sine düş; keşif telefona yeni adresi bildirir. cfg dosyası değişmez.
         Err(e) if e.kind() == std::io::ErrorKind::AddrNotAvailable => {
@@ -951,6 +972,7 @@ fn listen(
     );
     Ok(Listeners {
         cfg,
+        requested,
         addrs,
         udp_wake,
         stop,
@@ -1046,6 +1068,13 @@ fn accept_loop(
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    #[test]
+    fn is_local_detects_foreign_ip() {
+        assert!(is_local("127.0.0.1"));
+        assert!(is_local(&lan_ip()));
+        assert!(!is_local("192.0.2.55")); // TEST-NET, hiçbir PC'de yok
+    }
 
     struct Null;
     impl Backend for Null {
