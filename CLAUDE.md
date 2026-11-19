@@ -1,7 +1,7 @@
 # Proje kuralları — LowMonitor
 
 ## Genel
-- Dil: Türkçe doküman, kodda İngilizce tanımlayıcı + Türkçe yorum serbest.
+- Dil: Türkçe doküman, kodda İngilizce tanımlayıcı + Türkçe yorum serbest. README İngilizce (`README.md`) + Türkçe (`README.tr.md`); biri değişince diğeri de güncellenir.
 - Tarih formatı ISO: YYYY-MM-DD. Dosya adları küçük harf, kebab-case.
 - Tek doğruluk kaynağı: `docs/spesifikasyon.md`. Spekten sapan karar → önce ADR, sonra spek güncellemesi.
 - Her anlamlı değişiklikten sonra: devlog girdisi + gerekiyorsa CHANGELOG.
