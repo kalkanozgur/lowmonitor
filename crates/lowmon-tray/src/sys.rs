@@ -8,7 +8,7 @@ use lowmon_sensors::{Reading, Sensors, Sources, log};
 use lowmon_taskbar::{Grid, Line, Sys};
 use std::cell::Cell;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::time::Duration;
 use windows_sys::Win32::{
     Foundation::HWND,
@@ -30,6 +30,13 @@ static RUNNING: AtomicBool = AtomicBool::new(false);
 static GRID: AtomicBool = AtomicBool::new(false);
 /// `[sys] cpu_temp` (PDH +4 MiB); ızgara ayarı yüklenmeden abone gelirse varsayılan açık.
 static CPU_TEMP: AtomicBool = AtomicBool::new(true);
+/// Sıcaklık alarmı eşikleri (`[sys] temp_warn_c` / `disk_warn_c`); ızgara kapalıyken de geçerli.
+static TEMP_WARN: AtomicI32 = AtomicI32::new(80);
+static DISK_WARN: AtomicI32 = AtomicI32::new(60);
+/// Alarm eşiğin bu kadar altına inince temizlenir (eşikte titreşim olmasın).
+const HYST_C: i32 = 3;
+/// Deck olay adları (alarm kuralı id'si yerine); sıra `temp_edges` ile aynı.
+const TEMP_NAMES: [&str; 3] = ["Temp.CPU", "Temp.GPU", "Temp.Disk"];
 
 thread_local! {
     static CFG: Cell<Option<Sys>> = const { Cell::new(None) };
@@ -41,6 +48,8 @@ thread_local! {
 pub fn start(hwnd: HWND, cfg: Sys) {
     stop();
     CPU_TEMP.store(cfg.cpu_temp, Ordering::Relaxed);
+    TEMP_WARN.store(cfg.temp_warn_c, Ordering::Relaxed);
+    DISK_WARN.store(cfg.disk_warn_c, Ordering::Relaxed);
     if cfg.enabled {
         CFG.set(Some(cfg));
         GRID.store(true, Ordering::Relaxed);
@@ -57,9 +66,58 @@ pub fn start(hwnd: HWND, cfg: Sys) {
     sync(hwnd);
 }
 
-/// İş parçacığı gerekli mi: ızgara açık ya da deck'te sensör abonesi var.
+/// İş parçacığı gerekli mi: ızgara açık, deck'te sensör abonesi var ya da telefon olay bekliyor (sıcaklık alarmı).
 fn wanted() -> bool {
-    GRID.load(Ordering::Relaxed) || crate::DECK_HUB.get().is_some_and(|h| h.wants_sensors())
+    GRID.load(Ordering::Relaxed)
+        || crate::DECK_HUB
+            .get()
+            .is_some_and(|h| h.wants_sensors() || h.phone_wants_events())
+}
+
+/// Sıcaklık alarmı kenarları: `(sıra, kalktı mı, °C)`. Eşikte kalkar, `HYST_C` altında iner; sensör yoksa durum korunur.
+fn temp_edges(
+    on: &mut [bool; 3],
+    r: &Reading,
+    warn: i32,
+    disk_warn: i32,
+) -> Vec<(usize, bool, i32)> {
+    let vals = [(r.cpu_c, warn), (r.gpu_c, warn), (r.disk_c, disk_warn)];
+    let mut out = Vec::new();
+    for (i, (v, w)) in vals.into_iter().enumerate() {
+        let Some(v) = v else { continue };
+        let next = if on[i] { v > w - HYST_C } else { v >= w };
+        if next != on[i] {
+            on[i] = next;
+            out.push((i, next, v));
+        }
+    }
+    out
+}
+
+/// Kenarları deck'e olay olarak iter (telefon perdesi alarmda açılır; LM UI alarm bandı da görür).
+/// shortcut: olaylar servis olay deposuna yazılmaz (geçmişte yok); gerekirse servise sensör alarmı kuralı.
+fn push_temp(edges: &[(usize, bool, i32)]) {
+    let Some(h) = crate::DECK_HUB.get() else {
+        return;
+    };
+    let ts_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    for &(i, raise, c) in edges {
+        h.push_event(lowmon_deck::EventItem {
+            ts_ms,
+            kind: if raise { 0 } else { 1 },
+            name: TEMP_NAMES[i].into(),
+            value: i64::from(c) * 100,
+        });
+    }
+}
+
+/// İş parçacığı biterken açık alarmları temizle: okunmayan sıcaklık için alarm asılı kalmasın.
+fn clear_temp(on: &mut [bool; 3]) {
+    let edges: Vec<_> = (0..3).filter(|&i| on[i]).map(|i| (i, false, 0)).collect();
+    *on = [false; 3];
+    push_temp(&edges);
 }
 
 /// Gerekliyse ve çalışmıyorsa iş parçacığını başlatır (deck abonelik değişince de çağrılır).
@@ -81,15 +139,23 @@ pub fn sync(hwnd: HWND) {
             let mut s = Sensors::open(src);
             // Sıcaklık geçmişi (ADR-0035): dakika bitince bir kayıt
             let (mut minute, log_path) = (log::Minute::default(), log::path());
+            let mut hot = [false; 3];
             while GEN.load(Ordering::Relaxed) == generation {
                 if !wanted() {
                     // Çıkmadan önce bayrağı bırak, sonra yeniden bak: arada abone geldiyse sync bizi görmedi
                     RUNNING.store(false, Ordering::Release);
                     if !wanted() || RUNNING.swap(true, Ordering::AcqRel) {
+                        clear_temp(&mut hot);
                         return;
                     }
                 }
                 let r = s.read();
+                push_temp(&temp_edges(
+                    &mut hot,
+                    &r,
+                    TEMP_WARN.load(Ordering::Relaxed),
+                    DISK_WARN.load(Ordering::Relaxed),
+                ));
                 *READING.lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
                 let now_s = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -106,6 +172,7 @@ pub fn sync(hwnd: HWND) {
                 unsafe { PostMessageW(owner as HWND, WM_SYS, 0, 0) };
                 std::thread::sleep(PERIOD);
             }
+            clear_temp(&mut hot);
             // Kuşak değişti (stop/start): yeni iş parçacığı RUNNING'i zaten aldı ya da alacak
         });
     if let Err(e) = spawned {
@@ -247,6 +314,25 @@ mod tests {
         assert_eq!(rate(1_024_000), "0.98 MB/s");
         assert_eq!(rate(1_300_234), "1.24 MB/s");
         assert_eq!(rate(3 * 1024 * 1024 * 1024), "3.00 GB/s");
+    }
+
+    #[test]
+    fn temp_alarm_hysteresis() {
+        let mut on = [false; 3];
+        let r = |cpu, disk| Reading {
+            cpu_c: Some(cpu),
+            disk_c: disk,
+            ..Reading::default()
+        };
+        assert!(temp_edges(&mut on, &r(94, None), 95, 60).is_empty());
+        assert_eq!(
+            temp_edges(&mut on, &r(95, Some(61)), 95, 60),
+            [(0, true, 95), (2, true, 61)]
+        );
+        // eşik - 3 üstünde kalır; sensör kaybolunca disk alarmı korunur
+        assert!(temp_edges(&mut on, &r(93, None), 95, 60).is_empty());
+        assert_eq!(temp_edges(&mut on, &r(92, None), 95, 60), [(0, false, 92)]);
+        assert_eq!(on, [false, false, true]);
     }
 
     #[test]
