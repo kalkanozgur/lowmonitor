@@ -15,11 +15,13 @@ v1.0.0 yayında (LowDeck v1.0.0 ile birlikte). Rust workspace: svc, tray, ui, ne
 - Canlı doğrulanmadı: sıcaklık alarmı (eşik aşılmadı), telefon perdesinin alarmla / arada açılması, tray çalışırken IP değişimi, taskbar aç-kapa menüsü
 - CPU: servis 1,45–2,26 ms/s, toplayıcılar ~0,5 ms/s → ~1 ms/s fark açık
 - Sıcaklık olayları servis olay deposuna yazılmaz (Geçmiş'te yok)
+- İki telefon açıkken tek LAN yuvasında birbirini düşürür (M21 + Mi Note, 2026-11-19); geçici çözüm: birinde LowDeck'i kapat
 
 ## Sıradaki adımlar (sırayla)
-1. Nihai kabul soak'u: yönetici pwsh ile `scripts/soak.ps1` (CPU < %0,05 toplam, ADR-0026; Private < 3 MB; sızıntı yok) → `docs/olcumler/`
-2. Canlı doğrulama turu: taskbar menüsü, IP değişimi (DHCP yenile), sıcaklık alarmı (eşiği geçici düşürerek), telefon perdesi
-3. Rafta karar: `lowmon-ui` veriyi doğrudan servisten alsın (yeni ADR)
+1. Sonraki sürüm (kullanıcı, 2026-11-19): **çoklu telefon** (`lowmon-deck` LAN yuvası, ADR) ve **tek exe kurulum** (modüller açıklamalı, varsayılan seçili; tray + taskbar zorunlu; ADR) — ayrıntı `TODO.md`
+2. Nihai kabul soak'u: yönetici pwsh ile `scripts/soak.ps1` (CPU < %0,05 toplam, ADR-0026; Private < 3 MB; sızıntı yok) → `docs/olcumler/`
+3. Canlı doğrulama turu: taskbar menüsü, IP değişimi (DHCP yenile), sıcaklık alarmı (eşiği geçici düşürerek), telefon perdesi
+4. Rafta karar: `lowmon-ui` veriyi doğrudan servisten alsın (yeni ADR)
 
 ## Dokunma
 - `docs/spesifikasyon.md` — tek doğruluk kaynağı; spekten sapma önce ADR
