@@ -76,6 +76,9 @@ const ID_CFG: usize = 5;
 const ID_RELOAD: usize = 6;
 const ID_LOG: usize = 7;
 const ID_FIREWALL: usize = 8;
+/// Taskbar blokları (`taskbar.toml` `[sys] enabled` / `[ai] enabled`)
+const ID_TB_SYS: usize = 9;
+const ID_TB_AI: usize = 10;
 const RATE_MS: u32 = 2_000;
 const RETRY: Duration = Duration::from_secs(10);
 const MUTE_MS: u64 = 3_600_000;
@@ -346,6 +349,21 @@ fn menu(hwnd: HWND) {
             ai::menu() as usize,
             wide(tr("AI kullanımı", "AI usage")).as_ptr(),
         );
+        // Dosyadan: menü her açılışta gerçek ayarı gösterir (bozuksa varsayılan = açık)
+        let tb = lowmon_taskbar::Config::load(&lowmon_taskbar::config_path()).unwrap_or_default();
+        let check = |on: bool| if on { MF_CHECKED } else { 0 };
+        AppendMenuW(
+            m,
+            MF_STRING | check(tb.sys.enabled),
+            ID_TB_SYS,
+            wide(tr("Taskbar: sistem göstergesi", "Taskbar: system meter")).as_ptr(),
+        );
+        AppendMenuW(
+            m,
+            MF_STRING | check(tb.ai.enabled),
+            ID_TB_AI,
+            wide(tr("Taskbar: AI göstergesi", "Taskbar: AI meter")).as_ptr(),
+        );
         let checked = if autostart::enabled() { MF_CHECKED } else { 0 };
         AppendMenuW(
             m,
@@ -418,6 +436,8 @@ fn menu(hwnd: HWND) {
                     );
                 }
             }
+            ID_TB_SYS => taskbar_toggle(hwnd, "sys", !tb.sys.enabled),
+            ID_TB_AI => taskbar_toggle(hwnd, "ai", !tb.ai.enabled),
             ID_AUTO => {
                 // shortcut: kayıt hatası sessiz; menü bir sonraki açılışta gerçek durumu gösterir
                 let cmd = (!autostart::enabled()).then(autostart::this_exe);
@@ -428,6 +448,31 @@ fn menu(hwnd: HWND) {
                 };
             }
             _ => {}
+        }
+    }
+}
+
+/// `taskbar.toml` `[block] enabled`'ı yazar (yorumlar korunur) ve göstergeleri yeniden kurar.
+fn taskbar_toggle(hwnd: HWND, block: &str, on: bool) {
+    use lowmon_deck::tomlw::{Val, write};
+    let r = write(
+        &lowmon_taskbar::config_path(),
+        &[(&[block, "enabled"], Val::Bool(on))],
+        |s| lowmon_taskbar::Config::parse(s).map(|_| ()),
+    );
+    match r {
+        Ok(()) => ai::start(hwnd),
+        Err(e) => {
+            lowmon_deck::log::write(&format!("taskbar.toml yazılamadı: {e}"));
+            // SAFETY: NUL sonlu dizgeler; sahipsiz modal kutu.
+            unsafe {
+                MessageBoxW(
+                    ptr::null_mut(),
+                    wide(&e).as_ptr(),
+                    wide("taskbar.toml").as_ptr(),
+                    MB_ICONERROR,
+                )
+            };
         }
     }
 }
