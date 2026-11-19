@@ -27,7 +27,7 @@ pub mod procs;
 mod report;
 pub mod tomlw;
 /// Tray AI yayını için (ADR-0032).
-pub use lowdeck_proto::{AI_TEXT_MAX, AiUsage, AiWindow, Sensors};
+pub use lowdeck_proto::{AI_TEXT_MAX, AiUsage, AiWindow, EventItem, Sensors};
 mod lowmon;
 #[cfg(windows)]
 mod win;
@@ -344,6 +344,14 @@ impl Hub {
     }
 
     /// Tray için: bağlı telefonun adı (LAN yuvası; PC arayüzü sayılmaz).
+    /// Telefon (LAN yuvası) olaylara abone mi: perde inikken sıcaklık alarmı için tray sensörleri okumaya devam eder.
+    /// PC arayüzü sayılmaz (açık kaldıkça sensör iş parçacığı uyanık kalmasın).
+    pub fn phone_wants_events(&self) -> bool {
+        self.lock().clients[SLOT_LAN]
+            .as_ref()
+            .is_some_and(|c| c.events)
+    }
+
     pub fn phone_name(&self) -> Option<String> {
         self.lock().clients[SLOT_LAN]
             .as_ref()
