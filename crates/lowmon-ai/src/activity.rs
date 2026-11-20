@@ -14,7 +14,7 @@ const WAITING_STALE_SEC: i64 = 60 * 60;
 const MAX_SESSIONS: usize = 16;
 const LABEL_MAX: usize = 24;
 /// Balonun ayrıntı satırı en fazla bu kadar karakter.
-const DETAIL_MAX: usize = 60;
+const DETAIL_MAX: usize = 32;
 
 /// Öncelik sırası: küçük olan önce gösterilir.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -87,6 +87,14 @@ fn cut(s: &str, max: usize) -> String {
         s.chars().take(max - 1).chain(['…']).collect()
     } else {
         s
+    }
+}
+
+/// Proje adının ilk 2 kelimesi: `lowmonitor-event-notification-3dcb4a` → `lowmonitor-event`.
+fn short_project(p: &str) -> &str {
+    match p.match_indices(['-', '_', ' ', '.']).nth(1) {
+        Some((i, _)) => &p[..i],
+        None => p,
     }
 }
 
@@ -210,30 +218,27 @@ impl Activity {
         self.top().map(|s| (s.kind, &s.label))
     }
 
-    /// Balon metni (2–3 satır): `proje · durum` / ayrıntı / `+N oturum` (bitenler sayılmaz).
+    /// Balon metni (kullanıcı, 2026-11-20): `proje (ilk 2 kelime)[ · +N]` / durum / kısa ayrıntı;
+    /// boş satırlar atlanır, bitenler sayılmaz.
     pub fn lines(&self, lang: Lang) -> Option<(Kind, String)> {
         let s = self.top()?;
-        let head = text(&s.label, lang);
-        let mut t = if s.project.is_empty() {
-            head
-        } else {
-            format!("{} · {head}", s.project)
-        };
-        if !s.detail.is_empty() {
-            t.push('\n');
-            t.push_str(&s.detail);
-        }
         let others = self
             .sessions
             .iter()
             .filter(|o| o.id != s.id && o.kind != Kind::Done)
             .count();
+        let mut head = short_project(&s.project).to_string();
         if others > 0 {
-            t.push_str(&format!(
-                "\n+{others} {}",
-                pick(lang, "oturum", "session(s)")
-            ));
+            if !head.is_empty() {
+                head.push_str(" · ");
+            }
+            head.push_str(&format!("+{others} {}", pick(lang, "oturum", "session(s)")));
         }
+        let t = [head, text(&s.label, lang), s.detail.clone()]
+            .into_iter()
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
         Some((s.kind, t))
     }
 
@@ -261,12 +266,15 @@ mod tests {
     fn lines_show_project_detail_and_others() {
         let mut a = Activity::default();
         let mut e = ev("a", Hook::PreToolUse, "Bash");
-        e.project = "lowmonitor".into();
+        e.project = "lowmonitor-event-notification-3dcb4a".into();
         e.detail = "Release build al".into();
         a.apply(&e, 10);
         assert_eq!(
             a.lines(Lang::Tr),
-            Some((Kind::Working, "lowmonitor · Bash…\nRelease build al".into()))
+            Some((
+                Kind::Working,
+                "lowmonitor-event\nBash…\nRelease build al".into()
+            ))
         );
         a.apply(&ev("b", Hook::UserPromptSubmit, ""), 11);
         assert!(!a.any_waiting());
@@ -275,13 +283,13 @@ mod tests {
         // bekleyen öne geçer, diğer oturum sayılır; PostToolUse ayrıntıyı siler
         assert_eq!(
             a.lines(Lang::En),
-            Some((Kind::Waiting, "Waiting for answer\n+1 session(s)".into()))
+            Some((Kind::Waiting, "+1 session(s)\nWaiting for answer".into()))
         );
         a.apply(&ev("a", Hook::PostToolUse, "Bash"), 13);
         a.apply(&ev("b", Hook::Stop, ""), 14);
         assert_eq!(
             a.lines(Lang::Tr),
-            Some((Kind::Working, "lowmonitor · Düşünüyor…".into()))
+            Some((Kind::Working, "lowmonitor-event\nDüşünüyor…".into()))
         );
     }
 
