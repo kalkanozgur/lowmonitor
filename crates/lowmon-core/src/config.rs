@@ -16,7 +16,7 @@ topn_count  = 5
 raw_days    = 7
 total_days  = 30
 
-# UAC istemi (consent.exe) açılınca "uac" alarmı (ETW, ADR-0037); varsayılan kapalı
+# Güvenlik istemleri: UAC (consent.exe) → "uac", güvenlik duvarı izni (PickerHost.exe) → "firewall" alarmı (ETW, ADR-0037); varsayılan kapalı
 [events]
 uac = false
 

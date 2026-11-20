@@ -839,7 +839,7 @@ export component MainWindow inherits Window {
                         LineEdit { width: 100px; text <=> root.svc.total-days; }
                     }
                     CheckBox {
-                        text: Lang.t("UAC istemi açılınca bildir (telefon, tray; ETW)", "Notify when a UAC prompt opens (phone, tray; ETW)");
+                        text: Lang.t("Güvenlik istemlerini bildir: UAC, güvenlik duvarı (telefon, tray; ETW)", "Notify security prompts: UAC, firewall (phone, tray; ETW)");
                         checked <=> root.svc.uac;
                     }
                     HorizontalLayout {

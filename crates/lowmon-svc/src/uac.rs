@@ -1,5 +1,5 @@
-//! UAC istemi algılama (ADR-0037): ETW `Microsoft-Windows-Kernel-Process` gerçek zamanlı oturumu,
-//! `consent.exe` başla/bitir. Polling yok: thread `ProcessTrace`'te bloklu, yalnız süreç başla/bitir olaylarında uyanır.
+//! Güvenlik istemi algılama (ADR-0037): ETW `Microsoft-Windows-Kernel-Process` gerçek zamanlı oturumu,
+//! `consent.exe` (UAC) ve `PickerHost.exe` (güvenlik duvarı izni penceresi) başla/bitir. Polling yok: thread `ProcessTrace`'te bloklu, yalnız süreç başla/bitir olaylarında uyanır.
 //! Config `[events] uac = false` iken hiç başlatılmaz.
 use std::{
     mem::size_of,
@@ -21,15 +21,23 @@ const SESSION: &str = "LowMonitor-UAC";
 
 /// Çalışan oturum; düşünce oturum durur, thread biter.
 pub struct Uac {
-    /// `true`: en az bir UAC istemi açık; `false`: hepsi kapandı. Yalnız kenarlarda gelir.
-    pub rx: Receiver<bool>,
+    /// (alarm adı, açık mı): o türden ilk istem açılınca `true`, sonuncusu kapanınca `false`.
+    pub rx: Receiver<(&'static str, bool)>,
     thread: Option<JoinHandle<()>>,
 }
 
-/// Callback durumu: açık `consent.exe` PID'leri.
+/// İzlenen görüntü adı (UTF-16 aranır, NUL sonlu) → alarm adı.
+/// shortcut: PickerHost başka sistem seçicilerini de (Store dosya seçici) barındırır; ETW olayında komut satırı
+/// (`FirewallNotificationDialogServer`) yok → nadiren yanlış `firewall` alarmı. Gerekirse tray komut satırını doğrular.
+const WATCH: [(&[u8], &str); 2] = [
+    (b"\\consent.exe\0", "uac"),
+    (b"\\pickerhost.exe\0", "firewall"),
+];
+
+/// Callback durumu: açık istemlerin (PID, alarm adı).
 struct State {
-    tx: Sender<bool>,
-    pids: Vec<u32>,
+    tx: Sender<(&'static str, bool)>,
+    open: Vec<(u32, &'static str)>,
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -131,7 +139,7 @@ pub fn start() -> Result<Uac, u32> {
     let (tx, rx) = channel();
     let state = Box::into_raw(Box::new(State {
         tx,
-        pids: Vec::new(),
+        open: Vec::new(),
     })) as usize;
     let thread = std::thread::Builder::new()
         .name("uac".into())
@@ -188,21 +196,34 @@ unsafe extern "system" fn on_event(e: *mut EVENT_RECORD) {
     else {
         return;
     };
-    let was = !st.pids.is_empty();
-    match id {
-        ID_START if is_consent(data) => st.pids.push(pid),
-        ID_STOP => st.pids.retain(|&p| p != pid),
+    let (name, opened) = match id {
+        ID_START => match watched(data) {
+            Some(n) => {
+                st.open.push((pid, n));
+                (n, true)
+            }
+            None => return,
+        },
+        ID_STOP => match st.open.iter().position(|o| o.0 == pid) {
+            Some(i) => (st.open.remove(i).1, false),
+            None => return,
+        },
         _ => return,
-    }
-    if was != !st.pids.is_empty() {
-        let _ = st.tx.send(!was);
+    };
+    // Yalnız kenar: o türden ilk açılış / son kapanış.
+    if st.open.iter().filter(|o| o.1 == name).count() == usize::from(opened) {
+        let _ = st.tx.send((name, opened));
     }
 }
 
-/// Başlangıç olayında görüntü adı `...\consent.exe` mi (UTF-16 LE, NUL sonlu, büyük/küçük harf duyarsız).
+/// Başlangıç olayında izlenen görüntü adı varsa alarm adı.
+fn watched(data: &[u8]) -> Option<&'static str> {
+    WATCH.iter().find(|w| has_image(data, w.0)).map(|w| w.1)
+}
+
+/// Veride `...\<ad>.exe\0` var mı (UTF-16 LE, büyük/küçük harf duyarsız).
 /// shortcut: TDH ile alan ayrıştırmak yerine veri içinde arar; olay sürümleri arası alan sırası değişse de çalışır.
-fn is_consent(data: &[u8]) -> bool {
-    const PAT: &[u8] = b"\\consent.exe\0";
+fn has_image(data: &[u8], pat: &[u8]) -> bool {
     // Alan sırası bilinmediğinden iki hizalama da denenir (pratikte çift ofset).
     [data, data.get(1..).unwrap_or_default()]
         .into_iter()
@@ -213,9 +234,9 @@ fn is_consent(data: &[u8]) -> bool {
                 .iter()
                 .map(|c| u16::from_le_bytes(*c))
                 .collect();
-            u.windows(PAT.len()).any(|w| {
+            u.windows(pat.len()).any(|w| {
                 w.iter()
-                    .zip(PAT)
+                    .zip(pat)
                     .all(|(&c, &p)| c < 128 && (c as u8).to_ascii_lowercase() == p)
             })
         })
@@ -240,22 +261,33 @@ mod tests {
         v
     }
 
+    fn is_uac(d: &[u8]) -> bool {
+        watched(d) == Some("uac")
+    }
+
+    #[test]
+    fn detects_firewall_dialog() {
+        let d = utf16(
+            r"\Device\HarddiskVolume3\Windows\System32\PickerHost.exe",
+            7,
+        );
+        assert_eq!(watched(&d), Some("firewall"));
+        assert_eq!(watched(&utf16(r"\Device\X\notepad.exe", 1)), None);
+    }
+
     #[test]
     fn detects_consent_only() {
-        assert!(is_consent(&utf16(
+        assert!(is_uac(&utf16(
             r"\Device\HarddiskVolume3\Windows\System32\consent.exe",
             20
         )));
-        assert!(is_consent(&utf16(
-            r"\DEVICE\X\WINDOWS\SYSTEM32\CONSENT.EXE",
-            3
-        )));
-        assert!(!is_consent(&utf16(r"\Device\X\myconsent.exe", 3)));
-        assert!(!is_consent(&utf16(r"\Device\X\consent.exe.bak", 3)));
-        assert!(!is_consent(&utf16(r"\Device\X\notepad.exe", 3)));
-        assert!(!is_consent(&[]));
+        assert!(is_uac(&utf16(r"\DEVICE\X\WINDOWS\SYSTEM32\CONSENT.EXE", 3)));
+        assert!(!is_uac(&utf16(r"\Device\X\myconsent.exe", 3)));
+        assert!(!is_uac(&utf16(r"\Device\X\consent.exe.bak", 3)));
+        assert!(!is_uac(&utf16(r"\Device\X\notepad.exe", 3)));
+        assert!(!is_uac(&[]));
         let mut odd = vec![0u8];
         odd.extend(utf16(r"\Device\X\consent.exe", 2));
-        assert!(is_consent(&odd), "tek ofset");
+        assert!(is_uac(&odd), "tek ofset");
     }
 }
