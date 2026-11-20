@@ -230,6 +230,7 @@ pub fn svc_load(path: &std::path::Path) -> Result<SvcForm, String> {
         topn_count: s(&c.sampling.topn_count),
         raw_days: s(&c.retention.raw_days),
         total_days: s(&c.retention.total_days),
+        uac: c.events.uac,
     })
 }
 
@@ -249,6 +250,9 @@ pub fn svc_diff(old: &SvcForm, new: &SvcForm) -> Result<Changes, String> {
     ch!(topn_count, &["sampling", "topn_count"], 0, 50);
     ch!(raw_days, &["retention", "raw_days"], 1, 3650);
     ch!(total_days, &["retention", "total_days"], 1, 3650);
+    if old.uac != new.uac {
+        c.push((&["events", "uac"], Val::Bool(new.uac)));
+    }
     Ok(c)
 }
 
@@ -369,6 +373,25 @@ interval_ms = 1000 # yorum
         assert_eq!(svc_load(&path).unwrap().interval, "2000");
         // Değişiklik yok → yazılmaz
         assert!(!svc_save(&path, &new, &new).unwrap());
+        // UAC aç/kapa: [events] tablosu yoksa oluşturulur
+        let mut on = new.clone();
+        on.uac = true;
+        assert!(svc_save(&path, &new, &on).unwrap());
+        assert!(svc_load(&path).unwrap().uac);
+        on.uac = false;
+        assert!(
+            svc_save(
+                &path,
+                &{
+                    let mut o = on.clone();
+                    o.uac = true;
+                    o
+                },
+                &on
+            )
+            .unwrap()
+        );
+        let text = std::fs::read_to_string(&path).unwrap();
         // Alan sınırı
         let mut bad = new.clone();
         bad.topn_count = "51".into();
