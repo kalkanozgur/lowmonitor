@@ -2,6 +2,8 @@
 Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
+### Eklendi
+- Çoklu telefon: `lowmon-deck` LAN yuvası ≤ 4 telefonu aynı anda tutar; aynı IP'den yeniden bağlanan eski oturumunu kapatır, 5. reddedilir. Tray menüsünde bağlı telefon adları virgülle (ADR-0036)
 
 ## [1.0.0] - 2026-11-19
 İlk sürüm: servis, tray, `lowmon-ui`, `lowmon-net`, telefon sunucusu (LowDeck v1.0.0 ile), taskbar göstergeleri, Claude kullanımı. Nihai 24 saat kabul soak'u bu sürümden sonra (TODO.md).
