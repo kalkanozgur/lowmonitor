@@ -25,3 +25,9 @@ Kullanıcı PC başında değilken bir UAC istemi açıldığında telefondan ha
 - (−) Açıkken sistemdeki her süreç başla/bitir olayında thread uyanır (kısa tarama); ölçüm canlı kurulumda.
 - (−) Canlı doğrulanmadı: LocalService yetkisi, gecikme, güvenli masaüstü kapalıyken davranış (consent.exe yine başlar, algılanmalı).
 - Spek: §7 config örneği + olay listesi.
+
+## Ek (2026-11-20): güvenlik duvarı izni penceresi
+- **Tespit:** "Allow public and private networks…" penceresini `PickerHost.exe FirewallNotificationDialogServer -Embedding` açar (DcomLaunch svchost'tan), pencere kapanınca biter. Deneme exe'siyle (0.0.0.0 dinleme) iki kez gözlendi.
+- **Karar (kullanıcı):** aynı ETW oturumunda görüntü adı `\PickerHost.exe` → `firewall` alarmı; ayar ayrı değil, `[events] uac` ikisini birlikte açar (anahtar adı geriye uyum için aynı). Arayüz etiketi "Güvenlik istemlerini bildir: UAC, güvenlik duvarı".
+- **Sınır (`shortcut:`):** ETW Kernel-Process başlangıç olayında komut satırı yok; PickerHost Store uygulamalarının dosya seçicisini de barındırır → nadiren yanlış `firewall` alarmı. Gerekirse tray (kullanıcı olarak) komut satırını doğrular.
+- Kanal `(ad, açık mı)`; servis açık alarm adlarını listede tutar, ReloadConfig'te kapatılınca hepsini temizler.

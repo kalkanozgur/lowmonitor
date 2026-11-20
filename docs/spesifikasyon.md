@@ -280,7 +280,7 @@ raw_days    = 7
 total_days  = 30
 
 [events]
-uac = false   # UAC istemi → "uac" alarmı (ETW, ADR-0037)
+uac = false   # güvenlik istemleri: UAC → "uac", güvenlik duvarı izni → "firewall" alarmı (ETW, ADR-0037)
 
 [[alarm]]
 id       = "cpu_high"
@@ -298,7 +298,7 @@ clear    = { below = 85.0, for_s = 30 }
 - Değerlendirme her tick'te, histerezis + süre sayacı (durum makinesi: `Normal → Pending → Raised → Clearing → Normal`); süre örnek ts'iyle ölçülür, tick sayılmaz.
 - Metrikler, `device` seçimi (disk no / arayüz takma adı), gap/pause ve ReloadConfig davranışı, Event kapsamı (alarm + sistem olayları): [ADR-0028](kararlar/ADR-0028-alarm-ve-event.md).
 - Raise/Clear → `Event` kaydı + pipe üzerinden tray'e push.
-- `[events] uac = true`: `consent.exe` açıkken `uac` alarmı (Raise/Clear, aktif listede); ETW Kernel-Process, polling yok, kapalıyken oturum açılmaz; `ReloadConfig` ile açılıp kapanır, `lowmon-ui` servis ayarlarında onay kutusu; açılamazsa `uac_unavailable` sistem olayı ([ADR-0037](kararlar/ADR-0037-uac-istemi-etw.md)). Yalnız bildirim, telefondan onay yok.
+- `[events] uac = true`: `consent.exe` açıkken `uac`, `PickerHost.exe` (güvenlik duvarı izni penceresi) açıkken `firewall` alarmı (Raise/Clear, aktif listede); ETW Kernel-Process, polling yok, kapalıyken oturum açılmaz; `ReloadConfig` ile açılıp kapanır, `lowmon-ui` servis ayarlarında onay kutusu; açılamazsa `uac_unavailable` sistem olayı ([ADR-0037](kararlar/ADR-0037-uac-istemi-etw.md)). Yalnız bildirim, telefondan onay yok.
 - Servis session 0'da → bildirimi **tray** gösterir: `Shell_NotifyIconW(NIM_MODIFY, NIF_INFO)` (Win10/11'de toast olarak görünür, WinRT gerekmez).
 
 ---

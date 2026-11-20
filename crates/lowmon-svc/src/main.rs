@@ -458,12 +458,10 @@ fn collect_loop(
     } else {
         None
     };
-    let mut uac_open = false;
-    let active = |e: &Engine, open: bool| {
+    let mut open: Vec<&'static str> = Vec::new(); // açık güvenlik istemi alarmları (uac, firewall)
+    let active = |e: &Engine, open: &[&str]| {
         let mut v = e.active();
-        if open {
-            v.push("uac".into());
-        }
+        v.extend(open.iter().map(|n| n.to_string()));
         v
     };
     let retention = |sys: &mut SysEvents, r: Option<std::io::Result<retention::Report>>| match r {
@@ -509,11 +507,11 @@ fn collect_loop(
                         if new.events.uac {
                             uac = start_uac(&mut sys);
                         }
-                        if std::mem::take(&mut uac_open) {
-                            emit(writer, publ, s.ts_unix_ms, EventKind::AlarmClear, "uac", 0);
+                        for n in std::mem::take(&mut open) {
+                            emit(writer, publ, s.ts_unix_ms, EventKind::AlarmClear, n, 0);
                         }
                     }
-                    publ.set_alarms(active(&engine, uac_open));
+                    publ.set_alarms(active(&engine, &open));
                     cfg = new;
                     Ok(())
                 }),
@@ -555,18 +553,21 @@ fn collect_loop(
                 }
             }
             let mut uac_changed = false;
-            while let Some(open) = uac.as_ref().and_then(|u| u.rx.try_recv().ok()) {
-                let kind = if open {
+            while let Some((name, on)) = uac.as_ref().and_then(|u| u.rx.try_recv().ok()) {
+                let kind = if on {
                     EventKind::AlarmRaise
                 } else {
                     EventKind::AlarmClear
                 };
-                emit(writer, publ, s.ts_unix_ms, kind, "uac", 0);
-                uac_open = open;
+                emit(writer, publ, s.ts_unix_ms, kind, name, 0);
+                open.retain(|n| *n != name);
+                if on {
+                    open.push(name);
+                }
                 uac_changed = true;
             }
             if !fired.is_empty() || uac_changed {
-                publ.set_alarms(active(&engine, uac_open));
+                publ.set_alarms(active(&engine, &open));
             }
             sys.drain(writer, publ, s.ts_unix_ms);
         }
