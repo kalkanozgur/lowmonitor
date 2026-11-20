@@ -15,8 +15,8 @@ v1.0.0 yayında (LowDeck v1.0.0 ile birlikte). Rust workspace: svc, tray, ui, ne
 - Canlı doğrulanmadı: sıcaklık alarmı (eşik aşılmadı), telefon perdesinin alarmla / arada açılması, tray çalışırken IP değişimi, taskbar aç-kapa menüsü
 - CPU: servis 1,45–2,26 ms/s, toplayıcılar ~0,5 ms/s → ~1 ms/s fark açık
 - Sıcaklık olayları servis olay deposuna yazılmaz (Geçmiş'te yok)
-- UAC istemi bildirimi canlı doğrulandı (ADR-0037, 2026-11-20); kullanıcı makinesinde açık. Açıkken CPU ölçülmedi
-- Çoklu telefon canlı doğrulandı (ADR-0036, 2026-11-20); kurulu build = main `2452faa`
+- UAC + güvenlik duvarı istemi bildirimi canlı doğrulandı (ADR-0037 + eki, 2026-11-20); kullanıcı makinesinde açık. Açıkken CPU ölçülmedi
+- Çoklu telefon canlı doğrulandı (ADR-0036, 2026-11-20); kurulu build = main `bc4b0ce`
 
 ## Sıradaki adımlar (sırayla)
 1. Sonraki sürüm: **tek exe kurulum** (modüller açıklamalı, varsayılan seçili; tray + taskbar zorunlu; ADR) — ayrıntı `TODO.md`
