@@ -30,6 +30,7 @@ English: [README.md](README.md)
 - Alarm kuralları → olaylar, tray balonları, telefonda alarm bandı; opsiyonel UAC / güvenlik duvarı istemi alarmları (`[events] uac = true`, ETW, yalnız bildirim); `taskbar.toml` eşiklerinden tray sıcaklık alarmları (`Temp.CPU/GPU/Disk`)
 - Taskbar: sistem ızgarası (CPU / GPU / MEM / ↑, °C / ↓) ve Claude kullanım göstergesi; ikisi de tray menüsünden açılıp kapanır
 - AI göstergesinin üstünde Claude Code etkinlik balonu (hook'lar tray menüsünden kurulur)
+- Claude Code etkinlik balonu: proje, güvenli özet (Bash açıklaması, dosya adı), Claude girdi bekleyince `Claude.Input` alarmı
 - Telefon (LowDeck): keşif, PC IP'si değişince otomatik yeniden bağlanma, alarmda açılan siyah perde
 - Tray IP değişimini (DHCP) izler, telefon dinleyicisini kendiliğinden yeni IP'ye bağlar
 - İngilizce / Türkçe arayüz (`ai.toml` `language`)

@@ -3,6 +3,8 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
 ### Eklendi
+- Claude Code balonu 2–3 satır: proje adı (`cwd`), güvenli özet (Bash açıklaması, dosya adı, desen; komut ve tam yol yok), diğer oturum sayısı (ADR-0034 eki)
+- Claude girdi bekleyince (izin istemi, soru) `Claude.Input` alarmı: telefon alarm bandı + perde, LM UI alarm bandı
 - Güvenlik duvarı izni penceresi bildirimi: aynı ayar (`[events] uac`) açıkken `PickerHost.exe` → `firewall` alarmı (telefon, tray, Geçmiş). Ayarlar etiketi "Güvenlik istemlerini bildir" (ADR-0037 eki)
 - UAC istemi bildirimi: `config.toml` `[events] uac = true` iken servis ETW (Kernel-Process) ile `consent.exe`'yi izler; istem açıkken `uac` alarmı (Geçmiş, tray balonu, telefon alarm bandı / perde). Varsayılan kapalı; yalnız bildirim. `lowmon-ui` Ayarlar ▸ servis ayarlarında onay kutusu, servis yeniden başlamadan uygular (ADR-0037)
 - Çoklu telefon: `lowmon-deck` LAN yuvası ≤ 4 telefonu aynı anda tutar; aynı IP'den yeniden bağlanan eski oturumunu kapatır, 5. reddedilir. Tray menüsünde bağlı telefon adları virgülle (ADR-0036)

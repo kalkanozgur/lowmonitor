@@ -1,6 +1,6 @@
 //! Claude Code etkinlik durumu (ADR-0034): hook olayları → "çalışıyor / bekliyor / bitti".
-//! Saf kod: hook JSON'undan yalnız `hook_event_name`, `session_id`, `tool_name` okunur; araç girdisi,
-//! komut, dosya yolu, ileti metni okunmaz. Zamanlayıcı / G/Ç yok; çağıran (`lowmon-tray`) olay
+//! Saf kod: hook JSON'undan yalnız `hook_event_name`, `session_id`, `tool_name`, `project`, `detail` okunur
+//! (`lowmon-hook` güvenli özeti, ADR-0034 eki); komut, tam yol, ileti metni hook'tan hiç gelmez. Zamanlayıcı / G/Ç yok; çağıran (`lowmon-tray`) olay
 //! geldikçe `apply`, mevcut 30 s'lik turunda `prune` çağırır. Claude kapalıyken olay gelmez → iş yok.
 use crate::json;
 use crate::text::{Lang, pick};
@@ -13,6 +13,8 @@ const WORKING_STALE_SEC: i64 = 10 * 60;
 const WAITING_STALE_SEC: i64 = 60 * 60;
 const MAX_SESSIONS: usize = 16;
 const LABEL_MAX: usize = 24;
+/// Balonun ayrıntı satırı en fazla bu kadar karakter.
+const DETAIL_MAX: usize = 60;
 
 /// Öncelik sırası: küçük olan önce gösterilir.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -48,6 +50,10 @@ pub struct Event {
     pub hook: Hook,
     /// `PreToolUse` / `PostToolUse` için araç adı; diğerlerinde boş
     pub tool: String,
+    /// Proje klasörünün adı (`cwd` son parçası); yoksa boş
+    pub project: String,
+    /// Güvenli özet (Bash açıklaması, dosya adı, desen); yoksa boş
+    pub detail: String,
 }
 
 /// Hook'un stdin JSON'u. Bilinmeyen olay ya da `session_id` yoksa `None` (yok sayılır).
@@ -67,17 +73,26 @@ pub fn parse_hook(doc: &[u8]) -> Option<Event> {
         session: field("session_id").filter(|s| !s.is_empty())?,
         hook,
         tool: field("tool_name").unwrap_or_default(),
+        project: field("project").unwrap_or_default(),
+        detail: field("detail")
+            .map(|d| cut(&d, DETAIL_MAX))
+            .unwrap_or_default(),
     })
+}
+
+/// `max` karakterden uzunsa `…` ile keser; satır sonu boşluğa döner (balon satırı bölünmesin).
+fn cut(s: &str, max: usize) -> String {
+    let s = s.replace(['\n', '\r'], " ");
+    if s.chars().count() > max {
+        s.chars().take(max - 1).chain(['…']).collect()
+    } else {
+        s
+    }
 }
 
 /// "mcp__sunucu__arac" → "arac"; uzun adlar `LABEL_MAX` karakterde kesilir.
 pub fn tool_label(name: &str) -> String {
-    let short = name.rsplit("__").next().unwrap_or(name);
-    if short.chars().count() > LABEL_MAX {
-        short.chars().take(LABEL_MAX - 1).chain(['…']).collect()
-    } else {
-        short.to_string()
-    }
+    cut(name.rsplit("__").next().unwrap_or(name), LABEL_MAX)
 }
 
 /// Balon metni.
@@ -94,6 +109,9 @@ pub fn text(label: &Label, lang: Lang) -> String {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Session {
     id: String,
+    project: String,
+    /// Yalnız araç çalışırken dolu
+    detail: String,
     kind: Kind,
     label: Label,
     /// Son olayın zamanı (Unix s)
@@ -134,10 +152,18 @@ impl Activity {
             }
             Hook::Stop => (Kind::Done, Label::Done),
         };
+        let detail = if matches!(label, Label::Tool(_)) {
+            ev.detail.clone()
+        } else {
+            String::new()
+        };
         match pos {
             Some(i) => {
                 let s = &mut self.sessions[i];
-                (s.kind, s.label, s.at) = (kind, label, now);
+                (s.kind, s.label, s.at, s.detail) = (kind, label, now, detail);
+                if !ev.project.is_empty() {
+                    s.project = ev.project.clone();
+                }
             }
             None => {
                 if self.sessions.len() >= MAX_SESSIONS {
@@ -148,6 +174,8 @@ impl Activity {
                 }
                 self.sessions.push(Session {
                     id: ev.session.clone(),
+                    project: ev.project.clone(),
+                    detail,
                     kind,
                     label,
                     at: now,
@@ -171,12 +199,47 @@ impl Activity {
         self.sessions.len() != before
     }
 
-    /// Gösterilecek durum: `bekliyor > çalışıyor > bitti`, eşitlikte en yeni olay.
-    pub fn current(&self) -> Option<(Kind, &Label)> {
+    fn top(&self) -> Option<&Session> {
         self.sessions
             .iter()
             .min_by_key(|s| (s.kind, std::cmp::Reverse(s.at)))
-            .map(|s| (s.kind, &s.label))
+    }
+
+    /// Gösterilecek durum: `bekliyor > çalışıyor > bitti`, eşitlikte en yeni olay.
+    pub fn current(&self) -> Option<(Kind, &Label)> {
+        self.top().map(|s| (s.kind, &s.label))
+    }
+
+    /// Balon metni (2–3 satır): `proje · durum` / ayrıntı / `+N oturum` (bitenler sayılmaz).
+    pub fn lines(&self, lang: Lang) -> Option<(Kind, String)> {
+        let s = self.top()?;
+        let head = text(&s.label, lang);
+        let mut t = if s.project.is_empty() {
+            head
+        } else {
+            format!("{} · {head}", s.project)
+        };
+        if !s.detail.is_empty() {
+            t.push('\n');
+            t.push_str(&s.detail);
+        }
+        let others = self
+            .sessions
+            .iter()
+            .filter(|o| o.id != s.id && o.kind != Kind::Done)
+            .count();
+        if others > 0 {
+            t.push_str(&format!(
+                "\n+{others} {}",
+                pick(lang, "oturum", "session(s)")
+            ));
+        }
+        Some((s.kind, t))
+    }
+
+    /// En az bir oturum kullanıcıdan girdi bekliyor mu (telefon / LM alarmı).
+    pub fn any_waiting(&self) -> bool {
+        self.sessions.iter().any(|s| s.kind == Kind::Waiting)
     }
 }
 
@@ -189,13 +252,46 @@ mod tests {
             session: session.into(),
             hook,
             tool: tool.into(),
+            project: String::new(),
+            detail: String::new(),
         }
+    }
+
+    #[test]
+    fn lines_show_project_detail_and_others() {
+        let mut a = Activity::default();
+        let mut e = ev("a", Hook::PreToolUse, "Bash");
+        e.project = "lowmonitor".into();
+        e.detail = "Release build al".into();
+        a.apply(&e, 10);
+        assert_eq!(
+            a.lines(Lang::Tr),
+            Some((Kind::Working, "lowmonitor · Bash…\nRelease build al".into()))
+        );
+        a.apply(&ev("b", Hook::UserPromptSubmit, ""), 11);
+        assert!(!a.any_waiting());
+        a.apply(&ev("b", Hook::PreToolUse, "AskUserQuestion"), 12);
+        assert!(a.any_waiting());
+        // bekleyen öne geçer, diğer oturum sayılır; PostToolUse ayrıntıyı siler
+        assert_eq!(
+            a.lines(Lang::En),
+            Some((Kind::Waiting, "Waiting for answer\n+1 session(s)".into()))
+        );
+        a.apply(&ev("a", Hook::PostToolUse, "Bash"), 13);
+        a.apply(&ev("b", Hook::Stop, ""), 14);
+        assert_eq!(
+            a.lines(Lang::Tr),
+            Some((Kind::Working, "lowmonitor · Düşünüyor…".into()))
+        );
     }
 
     #[test]
     fn parses_hook_json() {
         let doc = br#"{"session_id":"abc","transcript_path":"C:\\x.jsonl","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo sk-ant-secret"}}"#;
         assert_eq!(parse_hook(doc), Some(ev("abc", Hook::PreToolUse, "Bash")));
+        let doc = br#"{"hook_event_name":"PreToolUse","session_id":"s","project":"lm","tool_name":"Edit","detail":"main.rs"}"#;
+        let e = parse_hook(doc).unwrap();
+        assert_eq!((e.project.as_str(), e.detail.as_str()), ("lm", "main.rs"));
         let doc = br#"{"hook_event_name":"Stop","session_id":"s"}"#;
         assert_eq!(parse_hook(doc), Some(ev("s", Hook::Stop, "")));
         // bilinmeyen olay, eksik / boş oturum, bozuk JSON → yok sayılır

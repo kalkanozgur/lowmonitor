@@ -173,12 +173,18 @@ pub fn on_hook(lp: isize) -> bool {
 
 /// Etkinlik durumunu değiştirir; gösterilecek durum değiştiyse balonu günceller.
 fn activity_changed(f: impl FnOnce(&mut lowmon_ai::activity::Activity)) {
-    let done = ACTIVITY.with_borrow_mut(|a| {
-        let before = a.current().map(|(k, l)| (k, l.clone()));
+    let (done, wait) = ACTIVITY.with_borrow_mut(|a| {
+        let (before, waited) = (a.lines(text::lang()), a.any_waiting());
         f(a);
-        let after = a.current().map(|(k, l)| (k, l.clone()));
-        (before != after).then_some(matches!(after, Some((lowmon_ai::activity::Kind::Done, _))))
+        let after = a.lines(text::lang());
+        let wait = (a.any_waiting() != waited).then_some(!waited);
+        let done = (before != after)
+            .then_some(matches!(after, Some((lowmon_ai::activity::Kind::Done, _))));
+        (done, wait)
     });
+    if let Some(raise) = wait {
+        input_alarm(raise); // kilit dışında: deck geri çağrısı ACTIVITY'ye dokunabilir
+    }
     let Some(done) = done else { return };
     show_activity();
     if done {
@@ -189,11 +195,25 @@ fn activity_changed(f: impl FnOnce(&mut lowmon_ai::activity::Activity)) {
     }
 }
 
+/// Claude girdi bekliyor (izin istemi / soru): deck'e alarm olayı → telefon alarm bandı + perde, LM UI bandı.
+/// shortcut: servis olay deposuna yazılmaz (sıcaklık alarmı gibi, `sys.rs` `push_temp`).
+fn input_alarm(raise: bool) {
+    let Some(h) = crate::DECK_HUB.get() else {
+        return;
+    };
+    h.push_event(lowmon_deck::EventItem {
+        ts_ms: now() as u64 * 1000,
+        kind: if raise { 0 } else { 1 },
+        name: "Claude.Input".into(),
+        value: 0,
+    });
+}
+
 /// Güncel etkinliği AI bloğunun üstündeki balona yazar (etkinlik yoksa / `[ai] bubble = false` → gizler).
 fn show_activity() {
-    use lowmon_ai::activity::{Kind, text as label};
+    use lowmon_ai::activity::Kind;
     let line = ACTIVITY
-        .with_borrow(|a| a.current().map(|(k, l)| (k, label(l, text::lang()))))
+        .with_borrow(|a| a.lines(text::lang()))
         .filter(|_| BUBBLE.get())
         .map(|(kind, text)| Line {
             text,

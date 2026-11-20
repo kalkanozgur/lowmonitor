@@ -1,5 +1,5 @@
 # HANDOFF — LowMonitor
-**Güncelleme:** 2026-11-20 · **Güncelleyen:** Claude Code · **Kaynak durumu:** v1.0.0 + Unreleased (çoklu telefon, UAC bildirimi)
+**Güncelleme:** 2026-11-20 (akşam) · **Güncelleyen:** Claude Code · **Kaynak durumu:** v1.0.0 + Unreleased (çoklu telefon, UAC bildirimi)
 
 ## Durum
 v1.0.0 yayında (LowDeck v1.0.0 ile birlikte). Rust workspace: svc, tray, ui, net, deck, taskbar, ai, sensors, core, proto + lwm-dump, lowmon-hook. Kod M0–M6 kapsamında; **nihai 24 saat kabul soak'u henüz yok**. Kurulu build = main `7bfd931` (2026-11-19 15:40; sürüm numarası öncesi, içerik v1.0.0 ile aynı).
@@ -18,12 +18,11 @@ v1.0.0 yayında (LowDeck v1.0.0 ile birlikte). Rust workspace: svc, tray, ui, ne
 - UAC + güvenlik duvarı istemi bildirimi canlı doğrulandı (ADR-0037 + eki, 2026-11-20); kullanıcı makinesinde açık. Açıkken CPU ölçülmedi
 - Çoklu telefon canlı doğrulandı (ADR-0036, 2026-11-20); kurulu build = main `bc4b0ce`
 
-## Sıradaki adımlar (sırayla)
-1. Sonraki sürüm: **tek exe kurulum** (modüller açıklamalı, varsayılan seçili; tray + taskbar zorunlu; ADR) — ayrıntı `TODO.md`
-2. Nihai kabul soak'u: yönetici pwsh ile `scripts/soak.ps1` (CPU < %0,05 toplam, ADR-0026; Private < 3 MB; sızıntı yok) → `docs/olcumler/`
-3. Canlı doğrulama turu: taskbar menüsü, IP değişimi (DHCP yenile), sıcaklık alarmı (eşiği geçici düşürerek), telefon perdesi
-4. Sonra: **Home Assistant olay bildirimi** (kapsam + ön analiz `TODO.md`'de; önce plan + onay)
-5. Rafta karar: `lowmon-ui` veriyi doğrudan servisten alsın (yeni ADR)
+## Sıradaki adımlar (sırayla; kullanıcı onaylı plan, 2026-11-20)
+1. **Inno Setup kurucusu (ADR-0038 yaz):** `installer/lowmonitor.iss` — bileşenler açıklamalı + varsayılan seçili: tray+taskbar `fixed` (zorunlu, gri), servis (`lowmon-svc install/start`, kaldırmada `uninstall`, `%ProgramData%` korunur), `lowmon-ui` (release-ui), `lowmon-net` (+firewall), `lowmon-hook`, `lwm-dump`, telefon firewall (TCP deck portu + UDP 47811, private+localsubnet). Önce süreçleri kapat + eski LowDeck/ai-usage-bar izleri (`scripts/install.ps1` 19–48). Tray autostart `[Run]` `runasoriginaluser` (HKCU doğru kullanıcı). Kaldırma: süreçler, servis, firewall, autostart. Lokal Inno kurulumu indirme ister → **önce kullanıcı onayı + UAC haberi**; CI: `windows-latest`'te `iscc`, `release.yml`'e `LowMonitor-Setup-<sürüm>.exe`. `install.ps1` geliştirici yolu kalır.
+2. **v1.1.0:** workspace sürümü, CHANGELOG `[1.1.0]`, README EN+TR (setup exe), PR → merge → `v1.1.0` tag (önce haber) → release.
+3. **Temiz kurulum:** kullanıcı çalıştırır (UAC; Claude oturumundan çalışınca HKCU/AppData sanallaşır): eski kurulumu kaldır → setup exe. Sonra doğrula: servis, tray, deck, balon 2–3 satır, `Claude.Input` telefonda, UAC/firewall alarmları (`[events] uac` config'te kalır).
+4. Ayrı oturum: LowDeck telefonda Claude etkinlik listesi (TODO). Sonra HA bildirimi, soak.
 
 ## Not (kullanıcı)
 - UAC / güvenlik duvarı penceresi açabilecek her adımdan önce chatte haber ver (deck testleri LAN'a bağlanır → firewall istemi). Bu pencerelere asla kendin tıklama.
