@@ -1,5 +1,5 @@
 # HANDOFF — LowMonitor
-**Güncelleme:** 2026-11-20 · **Güncelleyen:** Claude Code · **Kaynak durumu:** v1.0.0 (main, tag sonrası)
+**Güncelleme:** 2026-11-20 · **Güncelleyen:** Claude Code · **Kaynak durumu:** v1.0.0 + Unreleased (çoklu telefon, UAC bildirimi)
 
 ## Durum
 v1.0.0 yayında (LowDeck v1.0.0 ile birlikte). Rust workspace: svc, tray, ui, net, deck, taskbar, ai, sensors, core, proto + lwm-dump, lowmon-hook. Kod M0–M6 kapsamında; **nihai 24 saat kabul soak'u henüz yok**. Kurulu build = main `7bfd931` (2026-11-19 15:40; sürüm numarası öncesi, içerik v1.0.0 ile aynı).
@@ -15,15 +15,18 @@ v1.0.0 yayında (LowDeck v1.0.0 ile birlikte). Rust workspace: svc, tray, ui, ne
 - Canlı doğrulanmadı: sıcaklık alarmı (eşik aşılmadı), telefon perdesinin alarmla / arada açılması, tray çalışırken IP değişimi, taskbar aç-kapa menüsü
 - CPU: servis 1,45–2,26 ms/s, toplayıcılar ~0,5 ms/s → ~1 ms/s fark açık
 - Sıcaklık olayları servis olay deposuna yazılmaz (Geçmiş'te yok)
-- UAC istemi bildirimi kodu hazır (ADR-0037, `[events] uac`, varsayılan kapalı); canlı doğrulanmadı
-- Çoklu telefon kodu hazır (ADR-0036, 2026-11-20) ama iki gerçek telefonla canlı doğrulanmadı; kurulu build eski (tek yuva)
+- UAC istemi bildirimi canlı doğrulandı (ADR-0037, 2026-11-20); kullanıcı makinesinde açık. Açıkken CPU ölçülmedi
+- Çoklu telefon canlı doğrulandı (ADR-0036, 2026-11-20); kurulu build = main `2452faa`
 
 ## Sıradaki adımlar (sırayla)
-1. Canlı doğrulama (build + kurulum; UAC ister, kullanıcıya önce haber ver): çoklu telefon (M21 + Mi Note) ve UAC bildirimi (`config.toml` `[events] uac = true`, servis yeniden başlat, `uac_unavailable` olmamalı). Sonraki sürüm: **tek exe kurulum** (modüller açıklamalı, varsayılan seçili; tray + taskbar zorunlu; ADR) — ayrıntı `TODO.md`
+1. Sonraki sürüm: **tek exe kurulum** (modüller açıklamalı, varsayılan seçili; tray + taskbar zorunlu; ADR) — ayrıntı `TODO.md`
 2. Nihai kabul soak'u: yönetici pwsh ile `scripts/soak.ps1` (CPU < %0,05 toplam, ADR-0026; Private < 3 MB; sızıntı yok) → `docs/olcumler/`
 3. Canlı doğrulama turu: taskbar menüsü, IP değişimi (DHCP yenile), sıcaklık alarmı (eşiği geçici düşürerek), telefon perdesi
 4. Sonra: **Home Assistant olay bildirimi** (kapsam + ön analiz `TODO.md`'de; önce plan + onay)
 5. Rafta karar: `lowmon-ui` veriyi doğrudan servisten alsın (yeni ADR)
+
+## Not (kullanıcı)
+- UAC / güvenlik duvarı penceresi açabilecek her adımdan önce chatte haber ver (deck testleri LAN'a bağlanır → firewall istemi). Bu pencerelere asla kendin tıklama.
 
 ## Dokunma
 - `docs/spesifikasyon.md` — tek doğruluk kaynağı; spekten sapma önce ADR
