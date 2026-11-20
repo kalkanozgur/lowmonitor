@@ -16,6 +16,10 @@ topn_count  = 5
 raw_days    = 7
 total_days  = 30
 
+# UAC istemi (consent.exe) açılınca "uac" alarmı (ETW, ADR-0037); varsayılan kapalı
+[events]
+uac = false
+
 [[alarm]]
 id       = "cpu_high"
 metric   = "cpu.total"
@@ -34,6 +38,7 @@ clear    = { below = 85.0, for_s = 30 }
 pub struct Config {
     pub sampling: Sampling,
     pub retention: Retention,
+    pub events: Events,
     /// `[[alarm]]` tabloları; dosya yoksa boş.
     pub alarm: Vec<AlarmRule>,
 }
@@ -148,6 +153,13 @@ pub struct Retention {
     pub total_days: u32,
 }
 
+/// Opsiyonel olay kaynakları; hepsi kapalı başlar (kapalıyken thread/oturum açılmaz).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Events {
+    pub uac: bool,
+}
+
 impl Default for Sampling {
     fn default() -> Self {
         Self {
@@ -220,6 +232,17 @@ mod tests {
         let ids: Vec<_> = c.alarm.iter().map(|a| a.id.as_str()).collect();
         assert_eq!(ids, ["cpu_high", "ram_high"]);
         assert!(Config::default().alarm.is_empty()); // dosya yoksa alarm yok
+        assert!(!c.events.uac && !Config::default().events.uac);
+        assert!(
+            Config::parse(
+                "[events]
+uac = true
+"
+            )
+            .unwrap()
+            .events
+            .uac
+        );
     }
 
     fn alarm(body: &str) -> Result<Config, String> {

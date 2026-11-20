@@ -3,6 +3,7 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
 ### Eklendi
+- UAC istemi bildirimi: `config.toml` `[events] uac = true` iken servis ETW (Kernel-Process) ile `consent.exe`'yi izler; istem açıkken `uac` alarmı (Geçmiş, tray balonu, telefon alarm bandı / perde). Varsayılan kapalı; yalnız bildirim (ADR-0037)
 - Çoklu telefon: `lowmon-deck` LAN yuvası ≤ 4 telefonu aynı anda tutar; aynı IP'den yeniden bağlanan eski oturumunu kapatır, 5. reddedilir. Tray menüsünde bağlı telefon adları virgülle (ADR-0036)
 
 ## [1.0.0] - 2026-11-19

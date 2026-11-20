@@ -27,7 +27,7 @@ Türkçe: [README.tr.md](README.tr.md)
 
 ## Features
 - Live and historical graphs (CPU, RAM, disk, network, GPU, temperatures), Top-N processes, process kill
-- Alarm rules → events, tray balloons, phone alarm band; tray temperature alarms (`Temp.CPU/GPU/Disk`) from `taskbar.toml` thresholds
+- Alarm rules → events, tray balloons, phone alarm band; optional UAC prompt alarm (`[events] uac = true`, ETW, notification only); tray temperature alarms (`Temp.CPU/GPU/Disk`) from `taskbar.toml` thresholds
 - Taskbar: system grid (CPU / GPU / MEM / ↑, °C / ↓) and Claude usage meter; each can be toggled from the tray menu
 - Claude Code activity bubble over the AI meter (hooks installed from the tray menu)
 - Phone (LowDeck): discovery, auto-reconnect when the PC IP changes, screen blackout that wakes on alarms
