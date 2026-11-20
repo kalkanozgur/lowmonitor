@@ -9,6 +9,7 @@ mod query;
 mod retention;
 mod security;
 mod ticker;
+mod uac;
 mod writer;
 
 use alarm::{Engine, Transition};
@@ -446,6 +447,19 @@ fn collect_loop(
     if writer.integrity {
         sys.push("integrity", 0, now_ms());
     }
+    // UAC istemi (ADR-0037): config kapalıysa oturum/thread yok. Değişiklik servis yeniden başlayınca.
+    let uac = cfg.events.uac.then(uac::start).and_then(|r| {
+        r.map_err(|code| sys.push("uac_unavailable", i64::from(code), now_ms()))
+            .ok()
+    });
+    let mut uac_open = false;
+    let active = |e: &Engine, open: bool| {
+        let mut v = e.active();
+        if open {
+            v.push("uac".into());
+        }
+        v
+    };
     let retention = |sys: &mut SysEvents, r: Option<std::io::Result<retention::Report>>| match r {
         Some(Ok(rep)) => sys.push("retention_ok", rep.deleted as i64, now_ms()),
         Some(Err(_)) => sys.push("retention_error", 0, now_ms()),
@@ -484,7 +498,7 @@ fn collect_loop(
                         // kaldırılan/değişen Raised kural
                         emit(writer, publ, s.ts_unix_ms, EventKind::AlarmClear, &id, 0);
                     }
-                    publ.set_alarms(engine.active());
+                    publ.set_alarms(active(&engine, uac_open));
                     cfg = new;
                     Ok(())
                 }),
@@ -525,8 +539,19 @@ fn collect_loop(
                     eprintln!("alarm {kind:?} {id} = {v:.2}");
                 }
             }
-            if !fired.is_empty() {
-                publ.set_alarms(engine.active());
+            let mut uac_changed = false;
+            while let Some(open) = uac.as_ref().and_then(|u| u.rx.try_recv().ok()) {
+                let kind = if open {
+                    EventKind::AlarmRaise
+                } else {
+                    EventKind::AlarmClear
+                };
+                emit(writer, publ, s.ts_unix_ms, kind, "uac", 0);
+                uac_open = open;
+                uac_changed = true;
+            }
+            if !fired.is_empty() || uac_changed {
+                publ.set_alarms(active(&engine, uac_open));
             }
             sys.drain(writer, publ, s.ts_unix_ms);
         }

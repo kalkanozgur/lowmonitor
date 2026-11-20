@@ -15,10 +15,11 @@ v1.0.0 yayında (LowDeck v1.0.0 ile birlikte). Rust workspace: svc, tray, ui, ne
 - Canlı doğrulanmadı: sıcaklık alarmı (eşik aşılmadı), telefon perdesinin alarmla / arada açılması, tray çalışırken IP değişimi, taskbar aç-kapa menüsü
 - CPU: servis 1,45–2,26 ms/s, toplayıcılar ~0,5 ms/s → ~1 ms/s fark açık
 - Sıcaklık olayları servis olay deposuna yazılmaz (Geçmiş'te yok)
+- UAC istemi bildirimi kodu hazır (ADR-0037, `[events] uac`, varsayılan kapalı); canlı doğrulanmadı
 - Çoklu telefon kodu hazır (ADR-0036, 2026-11-20) ama iki gerçek telefonla canlı doğrulanmadı; kurulu build eski (tek yuva)
 
 ## Sıradaki adımlar (sırayla)
-1. Çoklu telefon canlı doğrulama (build + kurulum, M21 + Mi Note aynı anda). Sonraki sürüm: **tek exe kurulum** (modüller açıklamalı, varsayılan seçili; tray + taskbar zorunlu; ADR) — ayrıntı `TODO.md`
+1. Canlı doğrulama (build + kurulum; UAC ister, kullanıcıya önce haber ver): çoklu telefon (M21 + Mi Note) ve UAC bildirimi (`config.toml` `[events] uac = true`, servis yeniden başlat, `uac_unavailable` olmamalı). Sonraki sürüm: **tek exe kurulum** (modüller açıklamalı, varsayılan seçili; tray + taskbar zorunlu; ADR) — ayrıntı `TODO.md`
 2. Nihai kabul soak'u: yönetici pwsh ile `scripts/soak.ps1` (CPU < %0,05 toplam, ADR-0026; Private < 3 MB; sızıntı yok) → `docs/olcumler/`
 3. Canlı doğrulama turu: taskbar menüsü, IP değişimi (DHCP yenile), sıcaklık alarmı (eşiği geçici düşürerek), telefon perdesi
 4. Sonra: **Home Assistant olay bildirimi** (kapsam + ön analiz `TODO.md`'de; önce plan + onay)
@@ -32,7 +33,7 @@ v1.0.0 yayında (LowDeck v1.0.0 ile birlikte). Rust workspace: svc, tray, ui, ne
 
 ## Kritik dosyalar
 - `CLAUDE.md` — kurallar · `TODO.md` — milestone durumu · `docs/spesifikasyon.md` — spek
-- `docs/devlog/2026-11.md` — gelişim günlüğü · `docs/kararlar/ADR-*.md` — kararlar (son: ADR-0036)
+- `docs/devlog/2026-11.md` — gelişim günlüğü · `docs/kararlar/ADR-*.md` — kararlar (son: ADR-0037)
 - `crates/lowmon-proto/src/proto.rs` — pipe protokolü (`PROTO` sürümü) · `lowdeck-proto` (LowDeck repo, git `rev`) — telefon protokolü
 - `crates/lowmon-tray/src/main.rs` (menü, IP izleme), `crates/lowmon-tray/src/sys.rs` (sensörler, sıcaklık alarmı), `crates/lowmon-deck/src/lib.rs` (hub, dinleyiciler, keşif)
 

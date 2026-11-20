@@ -27,7 +27,7 @@ English: [README.md](README.md)
 
 ## Özellikler
 - Canlı ve geçmiş grafikler (CPU, RAM, disk, ağ, GPU, sıcaklıklar), Top-N süreçler, süreç sonlandırma
-- Alarm kuralları → olaylar, tray balonları, telefonda alarm bandı; `taskbar.toml` eşiklerinden tray sıcaklık alarmları (`Temp.CPU/GPU/Disk`)
+- Alarm kuralları → olaylar, tray balonları, telefonda alarm bandı; opsiyonel UAC istemi alarmı (`[events] uac = true`, ETW, yalnız bildirim); `taskbar.toml` eşiklerinden tray sıcaklık alarmları (`Temp.CPU/GPU/Disk`)
 - Taskbar: sistem ızgarası (CPU / GPU / MEM / ↑, °C / ↓) ve Claude kullanım göstergesi; ikisi de tray menüsünden açılıp kapanır
 - AI göstergesinin üstünde Claude Code etkinlik balonu (hook'lar tray menüsünden kurulur)
 - Telefon (LowDeck): keşif, PC IP'si değişince otomatik yeniden bağlanma, alarmda açılan siyah perde
