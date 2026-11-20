@@ -10,7 +10,7 @@ Kullanıcı PC başında değilken bir UAC istemi açıldığında telefondan ha
 1. **Kaynak:** ETW `Microsoft-Windows-Kernel-Process` ({22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716}), anahtar kelime `0x10` (process), olay kimliği süzgeci 1 (başla) + 2 (bitir). Özel gerçek zamanlı oturum `LowMonitor-UAC`, `FlushTimer = 1 s`.
 2. **Yer:** `lowmon-svc` (`uac.rs`), ayrı thread `ProcessTrace`'te bloklu. Görüntü adı `\consent.exe` olan başlangıçların PID'i tutulur; açık istem 0 → 1 olunca `true`, 1 → 0 olunca `false` kanala gider.
 3. **Çıkış:** mevcut alarm yolu (ADR-0028): `AlarmRaise` / `AlarmClear` `name = "uac"`, aktif alarm listesine `uac` eklenir → `.lwm` olay kaydı (Geçmiş), pipe `Event` → tray balonu, deck → telefon (alarm bandı, perde). HA webhook / MQTT ayrı adım.
-4. **Bayrak:** `config.toml` `[events] uac = false` (varsayılan). Kapalıyken oturum ve thread açılmaz → idle tüketim değişmez. Değişiklik servis yeniden başlayınca geçerli (ReloadConfig açıp kapamaz).
+4. **Bayrak:** `config.toml` `[events] uac = false` (varsayılan). Kapalıyken oturum ve thread açılmaz → idle tüketim değişmez. `ReloadConfig` açar/kapatır (kapanırken açık `uac` alarmı temizlenir). Arayüz: `lowmon-ui` Ayarlar ▸ servis ayarları onay kutusu (yükseltilmiş kopya, ADR-0030 eki).
 5. **Yetki:** LocalService gerçek zamanlı oturum açabilir/tüketebilir (Microsoft StartTrace / OpenTrace belgeleri); grup üyeliği eklenmedi. Açılamazsa bir kez `uac_unavailable` sistem olayı (değer = Win32 hata kodu).
 
 ## Tasarım ayrıntıları

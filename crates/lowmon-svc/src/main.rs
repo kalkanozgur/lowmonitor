@@ -447,11 +447,17 @@ fn collect_loop(
     if writer.integrity {
         sys.push("integrity", 0, now_ms());
     }
-    // UAC istemi (ADR-0037): config kapalıysa oturum/thread yok. Değişiklik servis yeniden başlayınca.
-    let uac = cfg.events.uac.then(uac::start).and_then(|r| {
-        r.map_err(|code| sys.push("uac_unavailable", i64::from(code), now_ms()))
+    // UAC istemi (ADR-0037): config kapalıysa oturum/thread yok; ReloadConfig açar/kapatır.
+    let start_uac = |sys: &mut SysEvents| {
+        uac::start()
+            .map_err(|code| sys.push("uac_unavailable", i64::from(code), now_ms()))
             .ok()
-    });
+    };
+    let mut uac = if cfg.events.uac {
+        start_uac(&mut sys)
+    } else {
+        None
+    };
     let mut uac_open = false;
     let active = |e: &Engine, open: bool| {
         let mut v = e.active();
@@ -497,6 +503,15 @@ fn collect_loop(
                     for id in engine.reload(&new.alarm) {
                         // kaldırılan/değişen Raised kural
                         emit(writer, publ, s.ts_unix_ms, EventKind::AlarmClear, &id, 0);
+                    }
+                    if new.events.uac != cfg.events.uac {
+                        uac = None; // eski oturum durur (Drop)
+                        if new.events.uac {
+                            uac = start_uac(&mut sys);
+                        }
+                        if std::mem::take(&mut uac_open) {
+                            emit(writer, publ, s.ts_unix_ms, EventKind::AlarmClear, "uac", 0);
+                        }
                     }
                     publ.set_alarms(active(&engine, uac_open));
                     cfg = new;

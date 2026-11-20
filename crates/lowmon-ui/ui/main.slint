@@ -41,6 +41,7 @@ export struct SvcForm {
     topn-count: string,
     raw-days: string,
     total-days: string,
+    uac: bool,
 }
 
 export struct SettingsForm {
@@ -836,6 +837,10 @@ export component MainWindow inherits Window {
                     Field {
                         label: Lang.t("Toplam saklama (gün, ≤ 3650)", "Total retention (days, ≤ 3650)");
                         LineEdit { width: 100px; text <=> root.svc.total-days; }
+                    }
+                    CheckBox {
+                        text: Lang.t("UAC istemi açılınca bildir (telefon, tray; ETW)", "Notify when a UAC prompt opens (phone, tray; ETW)");
+                        checked <=> root.svc.uac;
                     }
                     HorizontalLayout {
                         spacing: 8px;
