@@ -2,6 +2,8 @@
 Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
+### Değişti
+- Claude balonu 3 satır: proje adının ilk 2 kelimesi / durum / kısa ayrıntı (≤ 32 karakter); tek satırdaki uzun proje adı balonu taşırıyordu
 
 ## [1.1.0] - 2026-11-20
 Çoklu telefon, güvenlik istemi bildirimleri (UAC, güvenlik duvarı), Claude etkinlik ayrıntısı ve tek setup exe.

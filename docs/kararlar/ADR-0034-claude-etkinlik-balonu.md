@@ -101,6 +101,6 @@ Claude Code çalışırken ne yaptığı ("düşünüyor", "Bash çalışıyor",
 ## Ek (2026-11-20): proje + güvenli özet, girdi alarmı
 - **İstek (kullanıcı):** balon hangi oturumdan, ne yapıldığını göstersin; Claude girdi bekleyince telefona ve LM'ye alarm.
 - **Hook:** `lowmon-hook` ek olarak `cwd` son parçasını (`project`) ve **güvenli özeti** (`detail`) iletir: Bash/Agent/Task → `tool_input.description` (Claude'un yazdığı açıklama, komut değil); Read/Edit/Write/MultiEdit/NotebookEdit → dosya adı (yol değil); Grep/Glob → desen. Diğer araçlar boş; ham değer > 300 B ise gönderilmez. Komut metni, tam yol, ileti, araç çıktısı hook'tan çıkmaz.
-- **Balon:** 2–3 satır: `proje · durum` / ayrıntı (≤ 60 karakter) / `+N oturum` (bitenler hariç). GDI+ `\n`'i satır sonu sayar.
+- **Balon** (kullanıcı düzeltmesi, 2026-11-20, v1.1.0 sonrası): 3 satır: proje adının ilk 2 kelimesi (`lowmonitor-event`, diğer oturum varsa ` · +N oturum`) / durum (Bash…, Düşünüyor…, Yanıt bekliyor) / kısa ayrıntı (≤ 32 karakter). Boş satır atlanır.
 - **Girdi alarmı:** herhangi bir oturum "bekliyor"a geçince tray deck'e `Claude.Input` alarm olayı (kalk / in) iter → telefon alarm bandı + perde, LM UI alarm bandı. Servis olay deposuna yazılmaz (`shortcut:`, sıcaklık alarmı gibi).
 - **Telefon listesi** (proje + ayrıntı LowDeck'te): ayrı oturum, LowDeck proto `TOPIC_ACTIVITY` (TODO).
