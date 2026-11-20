@@ -2,7 +2,11 @@
 Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
+
+## [1.1.0] - 2026-11-20
+Çoklu telefon, güvenlik istemi bildirimleri (UAC, güvenlik duvarı), Claude etkinlik ayrıntısı ve tek setup exe.
 ### Eklendi
+- Tek setup exe (Inno Setup): `LowMonitor-Setup-<sürüm>.exe`, bileşenler açıklamalı ve varsayılan seçili, tray + taskbar zorunlu; kaldırma Windows "Uygulamalar"dan, `%ProgramData%` verisi korunur (ADR-0038)
 - Claude Code balonu 2–3 satır: proje adı (`cwd`), güvenli özet (Bash açıklaması, dosya adı, desen; komut ve tam yol yok), diğer oturum sayısı (ADR-0034 eki)
 - Claude girdi bekleyince (izin istemi, soru) `Claude.Input` alarmı: telefon alarm bandı + perde, LM UI alarm bandı
 - Güvenlik duvarı izni penceresi bildirimi: aynı ayar (`[events] uac`) açıkken `PickerHost.exe` → `firewall` alarmı (telefon, tray, Geçmiş). Ayarlar etiketi "Güvenlik istemlerini bildir" (ADR-0037 eki)
