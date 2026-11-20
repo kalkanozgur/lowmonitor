@@ -17,10 +17,18 @@ jobs:
           cargo build --release --workspace --locked
           cargo build --profile release-ui -p lowmon-ui --locked
           Copy-Item target/release-ui/lowmon-ui.exe target/release/ -Force
+      - name: Setup exe (Inno Setup, ADR-0038)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          & $iscc /Q "/DMyVersion=$v" installer/lowmonitor.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC $LASTEXITCODE" }
       - name: GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $exes = (Get-ChildItem target/release/*.exe).FullName
+          $exes = (Get-ChildItem target/release/*.exe, target/setup/*.exe).FullName
           gh release create $env:GITHUB_REF_NAME $exes --generate-notes

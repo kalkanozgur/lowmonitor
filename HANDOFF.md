@@ -19,8 +19,8 @@ v1.0.0 yayında (LowDeck v1.0.0 ile birlikte). Rust workspace: svc, tray, ui, ne
 - Çoklu telefon canlı doğrulandı (ADR-0036, 2026-11-20); kurulu build = main `bc4b0ce`
 
 ## Sıradaki adımlar (sırayla; kullanıcı onaylı plan, 2026-11-20)
-1. **Inno Setup kurucusu (ADR-0038 yaz):** `installer/lowmonitor.iss` — bileşenler açıklamalı + varsayılan seçili: tray+taskbar `fixed` (zorunlu, gri), servis (`lowmon-svc install/start`, kaldırmada `uninstall`, `%ProgramData%` korunur), `lowmon-ui` (release-ui), `lowmon-net` (+firewall), `lowmon-hook`, `lwm-dump`, telefon firewall (TCP deck portu + UDP 47811, private+localsubnet). Önce süreçleri kapat + eski LowDeck/ai-usage-bar izleri (`scripts/install.ps1` 19–48). Tray autostart `[Run]` `runasoriginaluser` (HKCU doğru kullanıcı). Kaldırma: süreçler, servis, firewall, autostart. Lokal Inno kurulumu indirme ister → **önce kullanıcı onayı + UAC haberi**; CI: `windows-latest`'te `iscc`, `release.yml`'e `LowMonitor-Setup-<sürüm>.exe`. `install.ps1` geliştirici yolu kalır.
-2. **v1.1.0:** workspace sürümü, CHANGELOG `[1.1.0]`, README EN+TR (setup exe), PR → merge → `v1.1.0` tag (önce haber) → release.
+1. ✅ **Inno Setup kurucusu** (ADR-0038, `installer/lowmonitor.iss`, release CI ISCC). Lokal derleme: release + release-ui build, sonra `ISCC /DMyVersion=1.1.0 installer\lowmonitor.iss` → `target\setup\`.
+2. **v1.1.0:** sürüm + CHANGELOG `[1.1.0]` ✅ (PR feat/inno-setup). Kalan: merge → `v1.1.0` tag (önce haber) → release CI.
 3. **Temiz kurulum:** kullanıcı çalıştırır (UAC; Claude oturumundan çalışınca HKCU/AppData sanallaşır): eski kurulumu kaldır → setup exe. Sonra doğrula: servis, tray, deck, balon 2–3 satır, `Claude.Input` telefonda, UAC/firewall alarmları (`[events] uac` config'te kalır).
 4. Ayrı oturum: LowDeck telefonda Claude etkinlik listesi (TODO). Sonra HA bildirimi, soak.
 

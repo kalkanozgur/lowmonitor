@@ -63,6 +63,8 @@ Kurulum / güncelleme **yönetici PowerShell**'inden (`C:\Program Files\LowMonit
 ```powershell
 pwsh -File scripts\install.ps1 -Src target\release -UiSrc target\release-ui
 ```
+Kurulum: GitHub Releases'tan `LowMonitor-Setup-<sürüm>.exe` (bileşenler seçilebilir; tray + taskbar zorunlu). Geliştirici yolu: `scripts\install.ps1`.
+
 Kullanıcı ayarları: `%APPDATA%\LowMonitor\` (`deck.toml`, `taskbar.toml`, `ai.toml`, `net.toml`); servis ayarları: `%ProgramData%\LowMonitor\config.toml`.
 
 ## Geliştirme akışı

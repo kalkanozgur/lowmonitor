@@ -63,6 +63,8 @@ Install / update from an **administrator PowerShell** (copies to `C:\Program Fil
 ```powershell
 pwsh -File scripts\install.ps1 -Src target\release -UiSrc target\release-ui
 ```
+Install: download `LowMonitor-Setup-<version>.exe` from GitHub Releases (components selectable; tray + taskbar required). Developer path: `scripts\install.ps1`.
+
 User settings: `%APPDATA%\LowMonitor\` (`deck.toml`, `taskbar.toml`, `ai.toml`, `net.toml`); service settings: `%ProgramData%\LowMonitor\config.toml`.
 
 ## Development flow
