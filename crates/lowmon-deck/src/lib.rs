@@ -2,7 +2,7 @@
 //! Tray'den bağımsız: `start(cfg) -> Running`; menü/ikon tray'in işi (`Hub::on_client`).
 //!
 //! Thread modeli (async yok, polling yok):
-//! - accept: yeni bağlantı eskisinin yerine geçer (telefon tek istemci).
+//! - accept: loopback'te yeni bağlantı eskisinin yerine geçer; LAN'da ≤ 4 telefon, aynı IP eskisinin yerine (ADR-0036).
 //! - client: telefondan okur, komutları audio/media thread'lerine kanalla iletir.
 //! - audio / media (`win.rs`): COM/WinRT nesnelerinin sahibi, `recv`'de bloklu;
 //!   Windows olayları (volume callback, SMTC event) kanala mesaj bırakır.
@@ -15,7 +15,7 @@
 
 use lowdeck_proto::*;
 use std::io::{BufReader, BufWriter};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -99,6 +99,9 @@ impl Want {
 
 struct Client {
     id: u64,
+    slot: usize,
+    /// Uzak adres: aynı IP'den yeni LAN bağlantısı = aynı telefonun yeniden bağlanışı (ADR-0036).
+    ip: Option<IpAddr>,
     name: String,
     w: BufWriter<TcpStream>,
     metrics: bool,
@@ -114,13 +117,15 @@ struct Client {
 /// Yuva = dinleyici (ADR-0003): LAN (telefon) ve loopback (PC arayüzü) birbirini düşürmez.
 pub const SLOT_LAN: usize = 0;
 pub const SLOT_LOCAL: usize = 1;
+/// LAN yuvasında aynı anda en çok bu kadar telefon (ADR-0036; `lowmon-net` `max_clients` ile aynı).
+const MAX_PHONES: usize = 4;
 
 #[derive(Default)]
 struct HubInner {
     audio: AudioState,
     media: MediaState,
     next_id: u64,
-    clients: [Option<Client>; 2],
+    clients: Vec<Client>,
     /// LowMonitor aktif alarm listesi (pipe `Alarms` + olaylar); yeni olay abonesine ilk çerçeve.
     alarms: Vec<String>,
     /// Son AI kullanımı (tray `lowmon-ai`, ADR-0032); yeni `TOPIC_AI` abonesine ilk çerçeve.
@@ -160,21 +165,23 @@ fn procs_frame(rows: &[procs::Row], sort: procs::SortBy, filter: &str) -> S2C {
 impl HubInner {
     /// `pick` uyan istemcilere yazar; false: en az biri yazma hatasıyla düşürüldü.
     fn send_to(&mut self, msg: &S2C, pick: impl Fn(&Client) -> bool) -> bool {
-        let mut ok = true;
-        for slot in &mut self.clients {
-            if let Some(c) = slot.as_mut().filter(|c| pick(c))
-                && write_frame(&mut c.w, msg).is_err()
-            {
+        let n = self.clients.len();
+        self.clients.retain_mut(|c| {
+            let bad = pick(c) && write_frame(&mut c.w, msg).is_err();
+            if bad {
                 let _ = c.w.get_ref().shutdown(Shutdown::Both);
-                *slot = None;
-                ok = false;
             }
-        }
-        ok
+            !bad
+        });
+        self.clients.len() == n
     }
 
     fn by_id(&mut self, id: u64) -> Option<&mut Client> {
-        self.clients.iter_mut().flatten().find(|c| c.id == id)
+        self.clients.iter_mut().find(|c| c.id == id)
+    }
+
+    fn phones(&self) -> impl Iterator<Item = &Client> {
+        self.clients.iter().filter(|c| c.slot == SLOT_LAN)
     }
 }
 
@@ -187,8 +194,8 @@ impl Hub {
     /// İstemci ya da aboneliği değişti: tray + lowmon'a bildir. Kilit dışında çağrılır.
     fn changed(&self) {
         let g = self.lock();
-        let want = g.clients.iter().flatten().any(|c| c.metrics || c.events);
-        let want_procs = g.clients.iter().flatten().any(|c| c.procs);
+        let want = g.clients.iter().any(|c| c.metrics || c.events);
+        let want_procs = g.clients.iter().any(|c| c.procs);
         drop(g);
         self.want.set(want);
         self.want_procs.set(want_procs);
@@ -262,16 +269,16 @@ impl Hub {
     /// Süreç tarama thread'i: önbellek + her abonenin görünümüyle.
     pub fn push_procs(&self, rows: Vec<procs::Row>) {
         let mut g = self.lock();
-        let mut ok = true;
-        for slot in &mut g.clients {
-            if let Some(c) = slot.as_mut().filter(|c| c.procs)
-                && write_frame(&mut c.w, &procs_frame(&rows, c.sort, &c.filter)).is_err()
-            {
+        let n = g.clients.len();
+        g.clients.retain_mut(|c| {
+            let bad =
+                c.procs && write_frame(&mut c.w, &procs_frame(&rows, c.sort, &c.filter)).is_err();
+            if bad {
                 let _ = c.w.get_ref().shutdown(Shutdown::Both);
-                *slot = None;
-                ok = false;
             }
-        }
+            !bad
+        });
+        let ok = g.clients.len() == n;
         g.rows = rows;
         drop(g);
         if !ok {
@@ -340,22 +347,19 @@ impl Hub {
 
     /// En az bir istemci sensörlere abone mi (tray sensör iş parçacığını buna göre açar).
     pub fn wants_sensors(&self) -> bool {
-        self.lock().clients.iter().flatten().any(|c| c.sensors)
+        self.lock().clients.iter().any(|c| c.sensors)
     }
 
-    /// Tray için: bağlı telefonun adı (LAN yuvası; PC arayüzü sayılmaz).
-    /// Telefon (LAN yuvası) olaylara abone mi: perde inikken sıcaklık alarmı için tray sensörleri okumaya devam eder.
+    /// Herhangi bir telefon (LAN yuvası) olaylara abone mi: perde inikken sıcaklık alarmı için tray sensörleri okumaya devam eder.
     /// PC arayüzü sayılmaz (açık kaldıkça sensör iş parçacığı uyanık kalmasın).
     pub fn phone_wants_events(&self) -> bool {
-        self.lock().clients[SLOT_LAN]
-            .as_ref()
-            .is_some_and(|c| c.events)
+        self.lock().phones().any(|c| c.events)
     }
 
+    /// Tray için: bağlı telefonların adları `", "` ile (LAN yuvası; PC arayüzü sayılmaz).
     pub fn phone_name(&self) -> Option<String> {
-        self.lock().clients[SLOT_LAN]
-            .as_ref()
-            .map(|c| c.name.clone())
+        let names: Vec<String> = self.lock().phones().map(|c| c.name.clone()).collect();
+        (!names.is_empty()).then(|| names.join(", "))
     }
 
     fn push(&self, msg: S2C) {
@@ -394,9 +398,21 @@ impl Hub {
     }
 
     /// Welcome + tam durumu kilit altında yazar: arada push kaçmaz/araya girmez.
-    /// Aynı yuvadaki önceki istemci kapatılır. Dönen id ile `reply`/`detach` yapılır.
-    fn attach(&self, slot: usize, name: String, mut w: BufWriter<TcpStream>) -> Option<u64> {
+    /// Kapatılan önceki istemci: loopback'te yuvadaki, LAN'da aynı IP'li (ADR-0036).
+    /// LAN dolu (`MAX_PHONES`) → `None`, bağlantı kapanır. Dönen id ile `reply`/`detach` yapılır.
+    fn attach(
+        &self,
+        slot: usize,
+        ip: Option<IpAddr>,
+        name: String,
+        mut w: BufWriter<TcpStream>,
+    ) -> Option<u64> {
         let mut g = self.lock();
+        let same = |c: &Client| c.slot == slot && (slot != SLOT_LAN || c.ip == ip);
+        if slot == SLOT_LAN && g.phones().filter(|c| !same(c)).count() >= MAX_PHONES {
+            log!("- LAN dolu ({MAX_PHONES} telefon): {ip:?} reddedildi");
+            return None;
+        }
         let hello = [
             S2C::Welcome {
                 proto: PROTO_VERSION,
@@ -408,13 +424,18 @@ impl Hub {
         for m in &hello {
             write_frame(&mut w, m).ok()?;
         }
-        if let Some(old) = g.clients[slot].take() {
-            let _ = old.w.get_ref().shutdown(Shutdown::Both);
-        }
+        g.clients.retain(|c| {
+            if same(c) {
+                let _ = c.w.get_ref().shutdown(Shutdown::Both);
+            }
+            !same(c)
+        });
         g.next_id += 1;
         let id = g.next_id;
-        g.clients[slot] = Some(Client {
+        g.clients.push(Client {
             id,
+            slot,
+            ip,
             name,
             w,
             metrics: false,
@@ -438,27 +459,20 @@ impl Hub {
 
     /// Bağlı istemcileri düşürür (ayar yeniden yüklendi).
     fn kick(&self) {
-        let mut g = self.lock();
-        let mut any = false;
-        for c in g.clients.iter_mut().filter_map(Option::take) {
+        let old = std::mem::take(&mut self.lock().clients);
+        for c in &old {
             let _ = c.w.get_ref().shutdown(Shutdown::Both);
-            any = true;
         }
-        drop(g);
-        if any {
+        if !old.is_empty() {
             self.changed();
         }
     }
 
     fn detach(&self, id: u64) {
         let mut g = self.lock();
-        let mut found = false;
-        for slot in &mut g.clients {
-            if slot.as_ref().is_some_and(|c| c.id == id) {
-                *slot = None;
-                found = true;
-            }
-        }
+        let n = g.clients.len();
+        g.clients.retain(|c| c.id != id);
+        let found = g.clients.len() != n;
         drop(g);
         if found {
             self.changed();
@@ -559,7 +573,8 @@ fn handle_in(
             }
             log!("+ bağlandı: {name} {peer:?}");
             rd.get_ref().set_read_timeout(Some(READ_TIMEOUT)).ok();
-            let Some(id) = hub.attach(slot, name, BufWriter::new(stream)) else {
+            let ip = peer.map(|p| p.ip());
+            let Some(id) = hub.attach(slot, ip, name, BufWriter::new(stream)) else {
                 return Ok(());
             };
             session(&mut rd, &mut buf, id, hub, backend)
@@ -1279,6 +1294,52 @@ mod tests {
             ),
             "LAN istemcisi düşmemeli"
         );
+    }
+
+    /// ADR-0036: farklı IP'li telefonlar birlikte bağlı kalır, aynı IP eskisini düşürür, `MAX_PHONES` üstü ret.
+    #[test]
+    fn multiple_phones() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        // (hub tarafı yazıcı, telefon tarafı okuyucu)
+        let pair = || {
+            let c = TcpStream::connect(addr).unwrap();
+            let (s, _) = l.accept().unwrap();
+            (BufWriter::new(s), BufReader::new(c))
+        };
+        let ip = |n: u8| Some(IpAddr::from([10, 0, 0, n]));
+        let hub = Hub::default();
+        let mut rds = Vec::new();
+        for n in 1..=MAX_PHONES as u8 {
+            let (w, rd) = pair();
+            assert!(hub.attach(SLOT_LAN, ip(n), "toco".into(), w).is_some());
+            rds.push(rd);
+        }
+        let (w, _) = pair();
+        assert!(
+            hub.attach(SLOT_LAN, ip(9), "toco".into(), w).is_none(),
+            "dolu"
+        );
+        assert_eq!(hub.phone_name().unwrap(), ["toco"; MAX_PHONES].join(", "));
+        let (w, again) = pair();
+        assert!(
+            hub.attach(SLOT_LAN, ip(1), "toco".into(), w).is_some(),
+            "aynı IP yer açar"
+        );
+        hub.set_audio_level(10, false);
+        let mut buf = [0u8; MAX_FRAME];
+        rds.push(again);
+        for (i, rd) in rds.iter_mut().enumerate() {
+            for _ in 0..3 {
+                read_frame::<_, S2C>(rd, &mut buf).unwrap(); // Welcome/Audio/Media
+            }
+            let next = read_frame::<_, S2C>(rd, &mut buf);
+            if i == 0 {
+                assert!(matches!(next, Err(FrameError::Closed | FrameError::Io(_))));
+            } else {
+                assert!(matches!(next, Ok(S2C::Audio(a)) if a.volume == 10), "{i}");
+            }
+        }
     }
 
     /// Olay aboneliği: önce önbellekteki aktif liste, sonra olaylar; liste olaylarla güncellenir.
