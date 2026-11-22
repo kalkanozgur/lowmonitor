@@ -22,6 +22,7 @@ use lowdeck_proto::{
     TOPIC_EVENTS, TOPIC_METRICS, TOPIC_SENSORS, TopItem,
 };
 use lowmon_ai::text::tr;
+use lowmon_core::time::now_ms;
 use slint::{Model, ModelRc, VecModel};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -849,9 +850,7 @@ fn draw_history(ui: &MainWindow, offset: i64) {
 }
 
 fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
+    (now_ms() / 1000) as i64
 }
 
 /// AI bandı (ADR-0032); `None` = tray'de veri yok → band gizli.
@@ -1293,12 +1292,6 @@ fn set_vec<T: Clone + 'static>(cur: ModelRc<T>, v: Vec<T>, set: impl FnOnce(Mode
         Some(m) => m.set_vec(v),
         None => set(ModelRc::new(VecModel::from(v))),
     }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
 }
 
 // shortcut: yerel saat farkı açılışta bir kez alınır; yaz saatine geçişte uygulama yeniden açılana kadar 1 saat kayar

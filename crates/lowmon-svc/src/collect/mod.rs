@@ -6,7 +6,7 @@ mod net;
 mod topn;
 
 use lowmon_core::metrics::{Sample, TopEntry};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 /// Disk / arayüz yeniden keşfi, tick cinsinden (spek §4: penceresiz servis, WM_DEVICECHANGE yok).
 const REDISCOVER_EVERY: u32 = 60;
@@ -71,9 +71,7 @@ impl Collector {
             .last
             .map_or(0, |l| now.duration_since(l).as_millis() as u64);
         self.last = Some(now);
-        s.ts_unix_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64);
+        s.ts_unix_ms = lowmon_core::time::now_ms();
         self.disks.read(dt_ms, &mut s.disk);
         self.nics.read(dt_ms, &mut s.net);
         let cpu_ok = self.cpu.read(s);

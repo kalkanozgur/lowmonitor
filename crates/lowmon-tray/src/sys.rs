@@ -100,9 +100,7 @@ fn push_temp(edges: &[(usize, bool, i32)]) {
     let Some(h) = crate::DECK_HUB.get() else {
         return;
     };
-    let ts_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64);
+    let ts_ms = lowmon_core::time::now_ms();
     for &(i, raise, c) in edges {
         h.push_event(lowmon_deck::EventItem {
             ts_ms,
@@ -157,9 +155,7 @@ pub fn sync(hwnd: HWND) {
                     DISK_WARN.load(Ordering::Relaxed),
                 ));
                 *READING.lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
-                let now_s = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs());
+                let now_s = lowmon_core::time::now_ms() / 1000;
                 if let Some(rec) = minute.add(now_s, &r)
                     && let Err(e) = log::write(&log_path, &rec)
                 {

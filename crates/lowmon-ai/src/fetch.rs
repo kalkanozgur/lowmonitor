@@ -19,9 +19,7 @@ pub enum Source {
 }
 
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+    lowmon_core::time::now_ms() as i64
 }
 
 pub struct Fetcher {

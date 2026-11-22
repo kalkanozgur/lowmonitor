@@ -2,6 +2,13 @@
 
 pub const DAY_MS: u64 = 86_400_000;
 
+/// Şu an, Unix ms (UTC). Saat epoch'tan gerideyse 0.
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
 /// Unix ms → epoch'tan beri UTC gün.
 pub fn day_of(ts_ms: u64) -> u64 {
     ts_ms / DAY_MS
