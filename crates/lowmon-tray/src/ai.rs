@@ -485,9 +485,7 @@ pub fn hooks(hwnd: HWND, install: bool) {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
-        let tmp = path.with_extension("json.lowmon-tmp");
-        std::fs::write(&tmp, out).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+        lowmon_ai::win::write_atomic(&path, out.as_bytes()).map_err(|e| e.to_string())?;
         Ok(true)
     })();
     match r {
