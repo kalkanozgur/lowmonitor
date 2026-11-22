@@ -13,7 +13,7 @@ getrandom.workspace = true
 serde.workspace = true
 toml.workspace = true
 lowmon-proto = { path = "../lowmon-proto" }
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Cryptography", "Wdk_System_SystemInformation", "Win32_System_WindowsProgramming"] }
 
 [dev-dependencies]
 proptest.workspace = true

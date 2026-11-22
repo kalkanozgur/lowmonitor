@@ -2540,6 +2540,7 @@ version = "1.2.0"
 dependencies = [
  "lowdeck-proto",
  "lowmon-ai",
+ "lowmon-core",
  "lowmon-proto",
  "lowmon-sensors",
  "serde",

@@ -8,6 +8,8 @@ repository.workspace = true
 
 [dependencies]
 lowmon-proto = { path = "../lowmon-proto" }
+# Süreç taraması (Top-N ile ortak), tarih hesabı
+lowmon-core = { path = "../lowmon-core" }
 # ADR-0009: AI raporu + sıcaklık geçmişi telefona (lowmon-ui ile aynı veri)
 lowmon-ai = { path = "../lowmon-ai" }
 lowmon-sensors = { path = "../lowmon-sensors" }
@@ -22,7 +24,6 @@ lowdeck-proto = { git = "https://github.com/kalkanozgur/lowdeck", rev = "35cb581
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
     "Foundation",
-    "Wdk_System_SystemInformation", # süreç taraması (ADR-0009)
     "Win32_Foundation",
     "Media_Control",
     "Win32_Devices_FunctionDiscovery",

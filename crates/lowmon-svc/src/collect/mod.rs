@@ -116,7 +116,10 @@ mod bench {
         let disk = t("disk", 500, || d.read(1000, &mut s.disk));
         let net = t("net", 500, || ni.read(1000, &mut s.net));
         let topn = t("topn", 100, || _ = tn.scan(50_000_000, 16, 5, &mut top));
-        t("topn sorgu", 100, || _ = tn.query());
+        let mut pb = Vec::new();
+        t("topn sorgu", 100, || {
+            _ = lowmon_core::procs::snapshot(&mut pb)
+        });
         let red_d = t("disk keşif", 20, || {
             d = disk::Disks::default();
             d.rediscover()
