@@ -2,12 +2,14 @@
 //! Alarm (ADR-0028): `CH_EVENT` abonesi; AlarmRaise → balon (1 saat sessize alınabilir).
 //! Telefon sunucusu (ADR-0031): `lowmon-deck` aynı süreçte; menüde "Telefon ▸", tooltip'te bağlı telefon.
 //! AI kullanımı (ADR-0032): `ai` modülü; taskbar göstergesi + menüde "AI kullanımı ▸".
+//! Taskbar tekerleği → ses (ADR-0039): `volume` modülü (lowvolume lib); menüde "Ses ▸".
 //! Spekten farkı: windows-rs yerine windows-sys (diğer crate'lerle aynı, ADR-0018).
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod ai;
 mod autostart;
 mod sys;
+mod volume;
 
 use lowmon_ai::text::tr;
 
@@ -349,6 +351,12 @@ fn menu(hwnd: HWND) {
             ai::menu() as usize,
             wide(tr("AI kullanımı", "AI usage")).as_ptr(),
         );
+        AppendMenuW(
+            m,
+            MF_STRING | MF_POPUP,
+            volume::menu() as usize,
+            wide(tr("Ses (taskbar tekerleği)", "Volume (taskbar wheel)")).as_ptr(),
+        );
         // Dosyadan: menü her açılışta gerçek ayarı gösterir (bozuksa varsayılan = açık)
         let tb = lowmon_taskbar::Config::load(&lowmon_taskbar::config_path()).unwrap_or_default();
         let check = |on: bool| if on { MF_CHECKED } else { 0 };
@@ -436,6 +444,9 @@ fn menu(hwnd: HWND) {
                     );
                 }
             }
+            volume::ID_ENABLED => volume::toggle(),
+            volume::ID_CFG => open_notepad(hwnd, &lowvolume::Config::path()),
+            volume::ID_RELOAD => volume::reload(),
             ID_TB_SYS => taskbar_toggle(hwnd, "sys", !tb.sys.enabled),
             ID_TB_AI => taskbar_toggle(hwnd, "ai", !tb.ai.enabled),
             ID_AUTO => {
@@ -682,6 +693,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_DESTROY => {
             ai::stop(hwnd);
+            volume::stop();
             // SAFETY: nid yalnızca kimlik alanlarıyla; ikon silinir.
             unsafe {
                 let mut nid: NOTIFYICONDATAW = std::mem::zeroed();
@@ -870,6 +882,7 @@ fn main() {
         watch_ip();
         notify(hwnd, NIM_ADD);
         ai::start(hwnd);
+        volume::start();
         let _ = thread::Builder::new()
             .name("pipe".into())
             .stack_size(64 * 1024)

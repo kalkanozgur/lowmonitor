@@ -2615,6 +2615,7 @@ dependencies = [
  "lowmon-deck",
  "lowmon-sensors",
  "lowmon-taskbar",
+ "lowvolume",
  "windows-sys 0.61.2",
 ]
 
@@ -2634,6 +2635,16 @@ dependencies = [
  "toml",
  "toml_edit",
  "windows",
+]
+
+[[package]]
+name = "lowvolume"
+version = "0.1.0"
+source = "git+https://github.com/kalkanozgur/lowvolume?tag=v0.1.0#ea2defe5cb12a4cd8deac6e0ffe311ebee7eee0d"
+dependencies = [
+ "serde",
+ "toml",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
