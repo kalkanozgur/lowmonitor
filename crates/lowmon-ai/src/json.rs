@@ -201,6 +201,18 @@ pub fn as_number(doc: &[u8], v: Span) -> Option<f64> {
     std::str::from_utf8(&doc[v.begin..v.end]).ok()?.parse().ok()
 }
 
+/// `obj.key` dizgi ise değeri.
+pub fn str_member(doc: &[u8], obj: Span, key: &str) -> Option<String> {
+    as_string(doc, member(doc, obj, key)?)
+}
+
+/// `obj.key` sayı ise değeri; yoksa 0.
+pub fn num_member(doc: &[u8], obj: Span, key: &str) -> f64 {
+    member(doc, obj, key)
+        .and_then(|m| as_number(doc, m))
+        .unwrap_or(0.0)
+}
+
 /// `s`'yi tırnaklı JSON dizgisi olarak kodlar.
 pub fn quote(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
