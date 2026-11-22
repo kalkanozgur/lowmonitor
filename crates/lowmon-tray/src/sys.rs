@@ -12,7 +12,6 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::time::Duration;
 use windows_sys::Win32::{
     Foundation::HWND,
-    System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX},
     UI::WindowsAndMessaging::{PostMessageW, WM_APP},
 };
 
@@ -40,7 +39,6 @@ const TEMP_NAMES: [&str; 3] = ["Temp.CPU", "Temp.GPU", "Temp.Disk"];
 
 thread_local! {
     static CFG: Cell<Option<Sys>> = const { Cell::new(None) };
-    static MEM_TOTAL_KB: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Izgara ayarını uygular ve sensör iş parçacığını yeniden kurar (`[sys] enabled = false` → ızgara yok;
@@ -53,15 +51,6 @@ pub fn start(hwnd: HWND, cfg: Sys) {
     if cfg.enabled {
         CFG.set(Some(cfg));
         GRID.store(true, Ordering::Relaxed);
-        let mut ms = MEMORYSTATUSEX {
-            dwLength: size_of::<MEMORYSTATUSEX>() as u32,
-            // SAFETY: düz veri yapısı; sıfır geçerli başlangıç.
-            ..unsafe { std::mem::zeroed() }
-        };
-        // SAFETY: ms yerel, dwLength dolu.
-        if unsafe { GlobalMemoryStatusEx(&mut ms) } != 0 {
-            MEM_TOTAL_KB.set(ms.ullTotalPhys / 1024);
-        }
     }
     sync(hwnd);
 }
@@ -207,7 +196,7 @@ pub fn render() {
     let g = grid(
         live.as_ref(),
         &reading,
-        MEM_TOTAL_KB.get(),
+        crate::TOTAL_KB.get(),
         &cfg,
         lowmon_taskbar::light_theme(),
     );

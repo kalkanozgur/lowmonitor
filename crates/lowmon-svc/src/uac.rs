@@ -1,6 +1,7 @@
 //! Güvenlik istemi algılama (ADR-0037): ETW `Microsoft-Windows-Kernel-Process` gerçek zamanlı oturumu,
 //! `consent.exe` (UAC) ve `PickerHost.exe` (güvenlik duvarı izni penceresi) başla/bitir. Polling yok: thread `ProcessTrace`'te bloklu, yalnız süreç başla/bitir olaylarında uyanır.
 //! Config `[events] uac = false` iken hiç başlatılmaz.
+use crate::security::wide;
 use std::{
     mem::size_of,
     ptr,
@@ -38,10 +39,6 @@ const WATCH: [(&[u8], &str); 2] = [
 struct State {
     tx: Sender<(&'static str, bool)>,
     open: Vec<(u32, &'static str)>,
-}
-
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain([0]).collect()
 }
 
 /// `EVENT_TRACE_PROPERTIES` + oturum adı tek tamponda (u64: hizalama).
