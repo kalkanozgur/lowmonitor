@@ -2,6 +2,9 @@
 Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
+
+## [1.2.0] - 2026-11-22
+Taskbar tekerleğiyle ses kontrolü (lowvolume) ve Claude balonu düzeni.
 ### Eklendi
 - Taskbar üstünde fare tekerleği → sistem sesi (Windows ses göstergesiyle), tray menüsünde "Ses (taskbar tekerleği) ▸"; `lowvolume` v0.1.0 kütüphanesi tray sürecinde, ayar `lowvolume.toml`. Standalone `lowvolume.exe` çalışıyorsa çakışmaz (ADR-0039)
 ### Değişti
