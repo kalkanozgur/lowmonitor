@@ -28,6 +28,7 @@ windows = "0.62"  # lowmon-deck: Core Audio COM + SMTC WinRT (ADR-0031)
 windows-core = "0.62"
 slint = { version = "1.18.1", default-features = false }  # yalnız lowmon-ui (ADR-0031); Royalty-free 2.0
 slint-build = "1.18.1"
+lowvolume = { git = "https://github.com/kalkanozgur/lowvolume", tag = "v0.1.0" }  # lowmon-tray (ADR-0039)
 
 [profile.release]
 opt-level     = 3        # svc için "s" ile karşılaştırılacak (spek §15)

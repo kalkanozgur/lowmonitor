@@ -2,6 +2,8 @@
 Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
+### Eklendi
+- Taskbar üstünde fare tekerleği → sistem sesi (Windows ses göstergesiyle), tray menüsünde "Ses (taskbar tekerleği) ▸"; `lowvolume` v0.1.0 kütüphanesi tray sürecinde, ayar `lowvolume.toml`. Standalone `lowvolume.exe` çalışıyorsa çakışmaz (ADR-0039)
 ### Değişti
 - Claude balonu 3 satır: proje adının ilk 2 kelimesi / durum / kısa ayrıntı (≤ 32 karakter); tek satırdaki uzun proje adı balonu taşırıyordu
 
