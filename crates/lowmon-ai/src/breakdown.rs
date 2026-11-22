@@ -11,7 +11,7 @@
 //!
 //! Tahmin: metin ≈ bayt / 4 token, görsel ≈ 800 token.
 use crate::api::parse_iso8601;
-use crate::json::{self, Span};
+use crate::json::{self, Span, num_member, str_member};
 use lowmon_core::time::civil;
 use std::collections::HashMap;
 
@@ -129,16 +129,6 @@ pub struct Session {
     pub total_effective: f64,
     /// sıfır olmayan gruplar, büyükten küçüğe
     pub groups: Vec<GroupCost>,
-}
-
-fn str_member(doc: &[u8], obj: Span, key: &str) -> Option<String> {
-    json::as_string(doc, json::member(doc, obj, key)?)
-}
-
-fn num_member(doc: &[u8], obj: Span, key: &str) -> f64 {
-    json::member(doc, obj, key)
-        .and_then(|m| json::as_number(doc, m))
-        .unwrap_or(0.0)
 }
 
 fn text_tokens(s: Span) -> f64 {

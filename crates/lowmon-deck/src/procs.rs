@@ -147,89 +147,25 @@ pub use sys::{kill, scan};
 #[cfg(windows)]
 mod sys {
     use super::{RawProc, exit};
-    use windows::Wdk::System::SystemInformation::{
-        NtQuerySystemInformation, SystemProcessInformation,
-    };
-    use windows::Win32::Foundation::{
-        CloseHandle, ERROR_ACCESS_DENIED, FILETIME, HANDLE, STATUS_INFO_LENGTH_MISMATCH,
-    };
+    use windows::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, FILETIME, HANDLE};
     use windows::Win32::System::Threading::{
         GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
         PROCESS_TERMINATE, QueryFullProcessImageNameW, TerminateProcess,
     };
-    use windows::Win32::System::WindowsProgramming::SYSTEM_PROCESS_INFORMATION as Spi;
 
-    /// `Reserved1` içindeki belgelenmemiş ama sabit alanlar (ntddk; LM `topn.rs` ile aynı).
-    const OFF_PRIVATE_WS: usize = 0;
-    const OFF_CREATE_TIME: usize = 24;
-    const OFF_USER_TIME: usize = 32;
-    const OFF_KERNEL_TIME: usize = 40;
-
-    fn field(r: &[u8; 48], off: usize) -> u64 {
-        u64::from_le_bytes(r[off..off + 8].try_into().unwrap_or_default())
-    }
-
-    /// Tek sistem çağrısıyla tüm süreçler (süreç açmadan). `buf` u64 → 8 bayt hizalı, yeniden kullanılır, ×1.5 büyür.
+    /// Tek sistem çağrısıyla tüm süreçler (`lowmon_core::procs`, LM Top-N ile ortak). `buf` yeniden kullanılır.
     pub fn scan(buf: &mut Vec<u64>) -> Vec<RawProc> {
-        if buf.is_empty() {
-            *buf = vec![0; 512 * 1024 / 8];
-        }
-        loop {
-            let mut len = 0u32;
-            // SAFETY: buf bayt boyutuyla birlikte veriliyor.
-            let st = unsafe {
-                NtQuerySystemInformation(
-                    SystemProcessInformation,
-                    buf.as_mut_ptr().cast(),
-                    (buf.len() * 8) as u32,
-                    &mut len,
-                )
-            };
-            if st == STATUS_INFO_LENGTH_MISMATCH {
-                *buf = vec![0; ((len as usize).max(buf.len() * 8) * 3 / 2).div_ceil(8)];
-                continue;
-            }
-            if st.is_err() {
-                return Vec::new();
-            }
-            break;
-        }
         let mut out = Vec::with_capacity(400);
-        let base = buf.as_ptr().cast::<u8>();
-        let mut off = 0usize;
-        loop {
-            // SAFETY: çekirdek kayıtları 8 bayt hizalı yazar; off NextEntryOffset zinciriyle buffer içinde kalır.
-            let p = unsafe { &*base.add(off).cast::<Spi>() };
-            let pid = p.UniqueProcessId.0 as usize as u32;
-            let name = if p.ImageName.Buffer.is_null() {
-                if pid == 0 {
-                    "Idle".into()
-                } else {
-                    String::new()
-                }
-            } else {
-                // SAFETY: ImageName.Buffer aynı buffer içinde, Length bayt cinsinden.
-                String::from_utf16_lossy(unsafe {
-                    std::slice::from_raw_parts(
-                        p.ImageName.Buffer.0,
-                        p.ImageName.Length as usize / 2,
-                    )
-                })
-            };
-            let r = &p.Reserved1;
-            if pid != 0 {
+        if lowmon_core::procs::snapshot(buf) {
+            lowmon_core::procs::each(buf, |p| {
                 out.push(RawProc {
-                    pid,
-                    ctime: field(r, OFF_CREATE_TIME) as i64,
-                    cpu_100ns: field(r, OFF_USER_TIME) + field(r, OFF_KERNEL_TIME),
-                    ws_bytes: field(r, OFF_PRIVATE_WS),
-                    name,
-                });
-            }
-            if p.NextEntryOffset == 0 {
-                break;
-            }
-            off += p.NextEntryOffset as usize;
+                    pid: p.pid,
+                    ctime: p.ctime,
+                    cpu_100ns: p.cpu_100ns,
+                    ws_bytes: p.ws_bytes,
+                    name: String::from_utf16_lossy(p.name),
+                })
+            });
         }
         out
     }

@@ -126,7 +126,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
  "x11rb",
 ]
 
@@ -1100,7 +1100,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2510,7 +2510,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-ai"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "lowmon-core",
  "serde",
@@ -2521,7 +2521,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-core"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "chacha20poly1305",
  "getrandom 0.4.3",
@@ -2536,10 +2536,11 @@ dependencies = [
 
 [[package]]
 name = "lowmon-deck"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "lowdeck-proto",
  "lowmon-ai",
+ "lowmon-core",
  "lowmon-proto",
  "lowmon-sensors",
  "serde",
@@ -2551,14 +2552,14 @@ dependencies = [
 
 [[package]]
 name = "lowmon-hook"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "lowmon-net"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "getrandom 0.4.3",
  "httparse",
@@ -2574,7 +2575,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-proto"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "postcard",
  "serde",
@@ -2582,14 +2583,14 @@ dependencies = [
 
 [[package]]
 name = "lowmon-sensors"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "lowmon-svc"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "getrandom 0.4.3",
  "lowmon-core",
@@ -2599,7 +2600,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-taskbar"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "serde",
  "toml",
@@ -2608,7 +2609,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-tray"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "lowmon-ai",
  "lowmon-core",
@@ -2621,7 +2622,7 @@ dependencies = [
 
 [[package]]
 name = "lowmon-ui"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "lowdeck-client",
  "lowdeck-proto",
@@ -2639,8 +2640,8 @@ dependencies = [
 
 [[package]]
 name = "lowvolume"
-version = "0.1.0"
-source = "git+https://github.com/kalkanozgur/lowvolume?tag=v0.1.0#ea2defe5cb12a4cd8deac6e0ffe311ebee7eee0d"
+version = "0.1.1"
+source = "git+https://github.com/kalkanozgur/lowvolume?tag=v0.1.1#9683da1602c69b31db275d5db2fb703921cebfa7"
 dependencies = [
  "serde",
  "toml",
@@ -2649,7 +2650,7 @@ dependencies = [
 
 [[package]]
 name = "lwm-dump"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "lowmon-core",
 ]
@@ -3888,7 +3889,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4490,7 +4491,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.6",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5363,7 +5364,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

@@ -14,6 +14,7 @@ mod writer;
 
 use alarm::{Engine, Transition};
 use collect::Collector;
+use lowmon_core::time::now_ms;
 use lowmon_core::{
     config::{Config, DEFAULT_TOML},
     metrics::{EventKind, Sample, TopEntry},
@@ -30,7 +31,7 @@ use std::{
         Arc, OnceLock,
         mpsc::{Receiver, sync_channel},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 use ticker::{StopHandle, Ticker};
 use windows_service::{
@@ -83,12 +84,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn service_root() -> PathBuf {
     let base = std::env::var_os("ProgramData").unwrap_or_else(|| r"C:\ProgramData".into());
     PathBuf::from(base).join(NAME)
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
 }
 
 fn uptime_ms() -> u64 {

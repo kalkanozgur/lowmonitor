@@ -12,6 +12,7 @@ mod sys;
 mod volume;
 
 use lowmon_ai::text::tr;
+use lowmon_ai::win::wide;
 
 use lowmon_core::{
     metrics::{EventKind, Sample},
@@ -107,16 +108,13 @@ static MUTE_UNTIL: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static ICON: Cell<HICON> = const { Cell::new(ptr::null_mut()) };
-    static TOTAL_KB: Cell<u64> = const { Cell::new(0) };
+    /// Toplam RAM, açılışta bir kez (simge + sistem ızgarası).
+    pub(crate) static TOTAL_KB: Cell<u64> = const { Cell::new(0) };
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
     /// Telefon sunucusu; yalnız UI thread'inde (menü, tooltip).
     static DECK: RefCell<Option<lowmon_deck::Running>> = const { RefCell::new(None) };
     /// Son dinleme hatası (port kullanımda vb.); menüde gösterilir.
     static DECK_ERR: RefCell<Option<String>> = const { RefCell::new(None) };
-}
-
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain([0]).collect()
 }
 
 fn pct(part: u64, total: u64) -> f32 {

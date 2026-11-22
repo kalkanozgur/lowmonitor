@@ -20,7 +20,7 @@ use std::{
     ptr,
     sync::{Condvar, Mutex, MutexGuard},
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 use tungstenite::{Message, WebSocket, protocol::WebSocketConfig};
 use windows_sys::Win32::{
@@ -112,12 +112,6 @@ fn ws_config() -> WebSocketConfig {
         .max_write_buffer_size(64 * 1024) // okumayan istemci için tampon sınırı
 }
 
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
-}
-
 struct Pending {
     s: TcpStream,
     ip: IpAddr,
@@ -202,7 +196,7 @@ fn step(p: &mut Pending, ctx: &Ctx, guard: &mut Guard, shared: &Shared, now: Ins
         }
         ("POST", "/v1/pair", _, _) => {
             let body = &p.buf[r.head_len..r.head_len + r.body_len];
-            match http::pair_code(body).map(|c| ctx.store.redeem(&c, now_ms())) {
+            match http::pair_code(body).map(|c| ctx.store.redeem(&c, lowmon_core::time::now_ms())) {
                 Some(Ok(Some(tok))) => {
                     guard.ok(p.ip);
                     send(
@@ -494,7 +488,7 @@ mod tests {
         );
         thread::sleep(Duration::from_millis(1100));
 
-        let code = store.start_pair(now_ms()).unwrap();
+        let code = store.start_pair(lowmon_core::time::now_ms()).unwrap();
         let wrong = if code == "000000" { "000001" } else { "000000" };
         assert!(raw(addr, &pair_req(wrong)).starts_with("HTTP/1.1 401"));
         thread::sleep(Duration::from_millis(1100));

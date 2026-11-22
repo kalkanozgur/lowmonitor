@@ -1,7 +1,7 @@
 //! Claude Code OAuth kimliği (`~/.claude/.credentials.json`):
 //! `{"claudeAiOauth":{"accessToken":"…","refreshToken":"…","expiresAt":1767000000000,…}}`.
 //! Dosya Claude Code'un; geri yazarken diğer her bayt aynen kalmalı (`patch`).
-use crate::json::{self, Span};
+use crate::json::{self, Span, num_member, str_member};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OAuth {
@@ -24,24 +24,12 @@ fn oauth_object(doc: &[u8]) -> Option<Span> {
     json::member(doc, root, "claudeAiOauth").filter(|o| json::is_object(doc, *o))
 }
 
-fn str_member(doc: &[u8], obj: Span, key: &str) -> String {
-    json::member(doc, obj, key)
-        .and_then(|v| json::as_string(doc, v))
-        .unwrap_or_default()
-}
-
-fn num_member(doc: &[u8], obj: Span, key: &str) -> i64 {
-    json::member(doc, obj, key)
-        .and_then(|v| json::as_number(doc, v))
-        .unwrap_or(0.0) as i64
-}
-
 pub fn parse(doc: &[u8]) -> Option<OAuth> {
     let o = oauth_object(doc)?;
     let c = OAuth {
-        access_token: str_member(doc, o, "accessToken"),
-        refresh_token: str_member(doc, o, "refreshToken"),
-        expires_at_ms: num_member(doc, o, "expiresAt"),
+        access_token: str_member(doc, o, "accessToken").unwrap_or_default(),
+        refresh_token: str_member(doc, o, "refreshToken").unwrap_or_default(),
+        expires_at_ms: num_member(doc, o, "expiresAt") as i64,
     };
     (!c.access_token.is_empty()).then_some(c)
 }
@@ -87,12 +75,12 @@ pub fn refresh_request(refresh_token: &str, client_id: &str) -> String {
 
 pub fn parse_refresh(doc: &[u8]) -> Option<Refresh> {
     let root = json::root(doc).filter(|r| json::is_object(doc, *r))?;
-    let access_token = str_member(doc, root, "access_token");
-    let expires_in_s = num_member(doc, root, "expires_in");
+    let access_token = str_member(doc, root, "access_token").unwrap_or_default();
+    let expires_in_s = num_member(doc, root, "expires_in") as i64;
     if access_token.is_empty() || expires_in_s <= 0 {
         return None;
     }
-    let refresh_token = Some(str_member(doc, root, "refresh_token")).filter(|s| !s.is_empty());
+    let refresh_token = str_member(doc, root, "refresh_token").filter(|s| !s.is_empty());
     Some(Refresh {
         access_token,
         refresh_token,

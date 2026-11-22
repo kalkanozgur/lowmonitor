@@ -12,7 +12,6 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::time::Duration;
 use windows_sys::Win32::{
     Foundation::HWND,
-    System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX},
     UI::WindowsAndMessaging::{PostMessageW, WM_APP},
 };
 
@@ -40,7 +39,6 @@ const TEMP_NAMES: [&str; 3] = ["Temp.CPU", "Temp.GPU", "Temp.Disk"];
 
 thread_local! {
     static CFG: Cell<Option<Sys>> = const { Cell::new(None) };
-    static MEM_TOTAL_KB: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Izgara ayarını uygular ve sensör iş parçacığını yeniden kurar (`[sys] enabled = false` → ızgara yok;
@@ -53,15 +51,6 @@ pub fn start(hwnd: HWND, cfg: Sys) {
     if cfg.enabled {
         CFG.set(Some(cfg));
         GRID.store(true, Ordering::Relaxed);
-        let mut ms = MEMORYSTATUSEX {
-            dwLength: size_of::<MEMORYSTATUSEX>() as u32,
-            // SAFETY: düz veri yapısı; sıfır geçerli başlangıç.
-            ..unsafe { std::mem::zeroed() }
-        };
-        // SAFETY: ms yerel, dwLength dolu.
-        if unsafe { GlobalMemoryStatusEx(&mut ms) } != 0 {
-            MEM_TOTAL_KB.set(ms.ullTotalPhys / 1024);
-        }
     }
     sync(hwnd);
 }
@@ -100,9 +89,7 @@ fn push_temp(edges: &[(usize, bool, i32)]) {
     let Some(h) = crate::DECK_HUB.get() else {
         return;
     };
-    let ts_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64);
+    let ts_ms = lowmon_core::time::now_ms();
     for &(i, raise, c) in edges {
         h.push_event(lowmon_deck::EventItem {
             ts_ms,
@@ -157,9 +144,7 @@ pub fn sync(hwnd: HWND) {
                     DISK_WARN.load(Ordering::Relaxed),
                 ));
                 *READING.lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
-                let now_s = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs());
+                let now_s = lowmon_core::time::now_ms() / 1000;
                 if let Some(rec) = minute.add(now_s, &r)
                     && let Err(e) = log::write(&log_path, &rec)
                 {
@@ -211,7 +196,7 @@ pub fn render() {
     let g = grid(
         live.as_ref(),
         &reading,
-        MEM_TOTAL_KB.get(),
+        crate::TOTAL_KB.get(),
         &cfg,
         lowmon_taskbar::light_theme(),
     );

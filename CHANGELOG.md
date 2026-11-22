@@ -3,6 +3,13 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-22
+İkincil taskbar'da ses tekerleği düzeltmesi ve kod temizliği.
+### Düzeltildi
+- Taskbar tekerleği → ses, %100 dışı ölçekli (ör. %125 ikincil) monitörün taskbar'ında çalışmıyordu; `lowvolume` v0.1.1 (hook callback'inde DPI bağlamı)
+### Değişti
+- Tekrar eden kod birleştirildi (davranış aynı): süreç taraması `lowmon_core::procs` (svc Top-N + deck/ui Süreçler), `lowmon_core::time::now_ms`, tarih hesabı `civil`, tek `wide()` / toplam RAM okuması, `json::str_member`/`num_member`, tray `settings.json` yazımı `write_atomic`
+
 ## [1.2.0] - 2026-11-22
 Taskbar tekerleğiyle ses kontrolü (lowvolume) ve Claude balonu düzeni.
 ### Eklendi
