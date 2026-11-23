@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 #[cfg(windows)]
 mod bar;
 #[cfg(windows)]
+mod widget;
+#[cfg(windows)]
 pub use bar::{Bar, light_theme};
 
 /// Sol tık
@@ -210,11 +212,23 @@ pub fn scale(px: i32, dpi: u32) -> i32 {
 }
 
 /// Göstergenin sağ kenarı (taskbar istemci x'i). `notify_left`: bildirim alanının sol kenarı
-/// (istemci x'i); taskbar dışındaysa / yoksa sağdan `reserved` ayrılır.
-pub fn anchor(width: i32, notify_left: Option<i32>, gap: i32, reserved: i32) -> i32 {
+/// (istemci x'i); taskbar dışındaysa / yoksa sağdan `reserved` ayrılır. `widget_left`: Win11
+/// "Widget'lar" düğmesinin sol kenarı; yalnız taskbar'ın sağ yarısında ve bildirim alanının
+/// solundaysa sınır olur (ortalı taskbar'da düğme solda durur, çakışma yok).
+pub fn anchor(
+    width: i32,
+    notify_left: Option<i32>,
+    widget_left: Option<i32>,
+    gap: i32,
+    reserved: i32,
+) -> i32 {
     let edge = match notify_left {
         Some(l) if l > 0 && l < width => l,
         _ => width - reserved,
+    };
+    let edge = match widget_left {
+        Some(w) if w > width / 2 && w < edge => w,
+        _ => edge,
     };
     edge - gap
 }
@@ -249,9 +263,13 @@ mod tests {
 
     #[test]
     fn anchor_and_scale() {
-        assert_eq!(anchor(1920, Some(1700), 8, 110), 1692);
-        assert_eq!(anchor(1920, None, 8, 110), 1802);
-        assert_eq!(anchor(1920, Some(2000), 8, 110), 1802); // taskbar dışı
+        assert_eq!(anchor(1920, Some(1700), None, 8, 110), 1692);
+        assert_eq!(anchor(1920, None, None, 8, 110), 1802);
+        assert_eq!(anchor(1920, Some(2000), None, 8, 110), 1802); // taskbar dışı
+        // widget: bildirim alanının solunda → sınır; solda (ortalı taskbar) / sağında → yok sayılır
+        assert_eq!(anchor(1920, Some(1772), Some(1608), 8, 110), 1600); // arkadaşın PC'si
+        assert_eq!(anchor(1920, Some(1772), Some(40), 8, 110), 1764);
+        assert_eq!(anchor(1920, Some(1772), Some(1800), 8, 110), 1764);
         assert_eq!(scale(8, 144), 12);
         assert_eq!(scale(110, 96), 110);
     }

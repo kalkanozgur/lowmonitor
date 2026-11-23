@@ -3,6 +3,13 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-11-23
+Win11 Widget düğmesiyle taskbar göstergesi çakışması düzeltmesi.
+### Düzeltildi
+- Win11 taskbar sola hizalı + Widget'lar açıkken gösterge hava durumu düğmesinin üstüne biniyordu; düğme UI Automation ile bulunur, gösterge onun soluna yaslanır. Ortalı taskbar, widget kapalı ve Win10'da UIA hiç yüklenmez (ADR-0040)
+### Eklendi
+- `docs/destek/`: uzak PC için salt-okur tanılama betiği `lowmon-diag.ps1` + Claude talimatı
+
 ## [1.2.1] - 2026-11-22
 İkincil taskbar'da ses tekerleği düzeltmesi ve kod temizliği.
 ### Düzeltildi

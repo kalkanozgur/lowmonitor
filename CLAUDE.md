@@ -33,3 +33,9 @@ Conventional Commits, kapsam = crate: `feat(svc): …`, `fix(core): …`, `docs:
 - Oturum sonunda veya "token azalıyor" denince `HANDOFF.md`'yi güncelle (durum, açık sorun, sıradaki 3 adım, dokunma listesi).
 - Başka bir araçtan (Gemini/OpenCode) gelen çıktıyı uygulamadan önce mevcut kodla ve `docs/spesifikasyon.md` ile çelişkileri kontrol et.
 - Değişiklik akışı aynı: dal → PR → squash merge (ADR-0021); HANDOFF.md güncellemesi de bu akışla gider.
+
+## Ajan kullanımı
+- Dosya/referans arama ve doküman okuma: yerleşik `Explore` ajanını kullan; ana context'te büyük grep çıktısı biriktirme.
+- Kodlama ve test: ana oturum yapar, subagent'a devretme.
+- `reviewer`: yalnızca (a) kullanıcı isterse, (b) aynı hata art arda 2 kez çözülemezse, (c) büyük plan/final diff öncesi kullanıcıya önerildikten sonra çağır.
+- Dosya düzenlemeden önce değişikliği diff olarak göster.
