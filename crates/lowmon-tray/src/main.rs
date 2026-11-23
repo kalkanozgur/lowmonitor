@@ -8,6 +8,7 @@
 
 mod ai;
 mod autostart;
+mod prefs;
 mod sys;
 mod volume;
 
@@ -186,6 +187,12 @@ fn snapshot_text(alarms: &[String]) -> Option<String> {
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Alarm balonu gösterilsin mi: kalıcı tercih (`tray.toml`) açık ve 1 saatlik sessize alma yok.
+fn balloons_on() -> bool {
+    static PREFS: std::sync::OnceLock<prefs::Prefs> = std::sync::OnceLock::new();
+    PREFS.get_or_init(prefs::load).balloons && !muted()
 }
 
 fn muted() -> bool {
@@ -772,7 +779,7 @@ fn session(f: &mut File) -> io::Result<()> {
             ServerMsg::Sample(s) => post(Some(summarize(&s))),
             ServerMsg::Alarms(a) => {
                 // Bağlanmadan önce Raise olmuş alarmlar (tray geç açıldı / servis yeniden başladı)
-                if let Some(text) = snapshot_text(&a).filter(|_| !muted()) {
+                if let Some(text) = snapshot_text(&a).filter(|_| balloons_on()) {
                     *lock(&BALLOON) = Some(text);
                 }
                 *lock(&ALARMS) = a;
@@ -783,7 +790,7 @@ fn session(f: &mut File) -> io::Result<()> {
                 kind, name, value, ..
             } => {
                 let text = on_event(&mut lock(&ALARMS), kind, &name, value);
-                if let Some(text) = text.filter(|_| !muted()) {
+                if let Some(text) = text.filter(|_| balloons_on()) {
                     *lock(&BALLOON) = Some(text);
                 }
                 let live = *lock(&LATEST);
@@ -807,10 +814,35 @@ fn pipe_loop() {
     }
 }
 
+/// `--setup lan=on|off balloons=on|off update=on|off`: yeni kurulumda setup seçimlerini yazar
+/// (yoksa oluşturur, var olan dosyaya dokunmaz). `lan=off` → telefon sunucusu yalnız loopback.
+fn setup(opts: &[String]) -> i32 {
+    let mut p = prefs::Prefs::default();
+    let mut lan = true;
+    for o in opts {
+        let Some((k, v @ ("on" | "off"))) = o.split_once('=') else {
+            return 2;
+        };
+        match k {
+            "lan" => lan = v == "on",
+            "balloons" => p.balloons = v == "on",
+            "update" => p.update_check = v == "on",
+            _ => return 2,
+        }
+    }
+    let lan_r = if lan {
+        Ok(())
+    } else {
+        lowmon_deck::create_loopback(&lowmon_deck::config_path(), &lowmon_deck::legacy_path())
+    };
+    i32::from(lan_r.and(prefs::create(&p)).is_err())
+}
+
 /// `--autostart on|off`: kurulum betiği için; pencere açmaz. Çıkış kodu 0 başarı, 1 kayıt hatası, 2 kullanım.
 fn cli(args: &[String]) -> Option<i32> {
     let on = match args {
         [] => return None,
+        [a, rest @ ..] if a == "--setup" => return Some(setup(rest)),
         [a, v] if a == "--autostart" && v == "on" => true,
         [a, v] if a == "--autostart" && v == "off" => false,
         _ => return Some(2),

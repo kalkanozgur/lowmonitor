@@ -784,6 +784,37 @@ pub fn load_or_create(path: &std::path::Path, legacy: &std::path::Path) -> std::
     Ok(c)
 }
 
+/// Yeni kurulum, "telefon sunucusu (LAN)" kapalı: `deck.toml` yoksa `bind = "127.0.0.1"` ile oluşturur
+/// (yalnız loopback dinlenir, keşif ve güvenlik duvarı kuralı yok; PC arayüzü çalışır). Varsa dokunmaz.
+pub fn create_loopback(path: &std::path::Path, legacy: &std::path::Path) -> std::io::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    let c = load_or_create(path, legacy)?;
+    let text = std::fs::read_to_string(path)?;
+    std::fs::write(
+        path,
+        text.replace(&format!("bind = {:?}", c.bind), "bind = \"127.0.0.1\""),
+    )
+}
+
+#[cfg(test)]
+mod loopback_tests {
+    use super::*;
+
+    #[test]
+    fn loopback_setup_creates_once() {
+        let d = std::env::temp_dir().join(format!("lowmon-deck-lb-{}", std::process::id()));
+        let (p, legacy) = (d.join("deck.toml"), d.join("none.cfg"));
+        create_loopback(&p, &legacy).unwrap();
+        let c = load(&p).unwrap();
+        assert_eq!(c.bind, "127.0.0.1");
+        create_loopback(&p, &legacy).unwrap(); // var olana dokunmaz
+        assert_eq!(load(&p).unwrap().token, c.token);
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
 /// Varsayılan rotanın yerel adresi. UDP `connect` paket göndermez; 192.0.2.1 TEST-NET (RFC 5737).
 fn lan_ip() -> String {
     std::net::UdpSocket::bind("0.0.0.0:0")

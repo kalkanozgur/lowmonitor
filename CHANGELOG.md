@@ -2,6 +2,8 @@
 Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
+### Eklendi
+- Setup'ta "Gizlilik ve ağ" görevleri (temiz kurulumda, hepsi varsayılan KAPALI): telefon sunucusu + yerel ağ, alarm balonları, güncelleme kontrolü. LAN kapalıyken deck yalnız loopback dinler, firewall kuralları eklenmez (`lowmon-svc install --no-lan`). Tercihler `%APPDATA%\LowMonitor\tray.toml`; mevcut kurulumlar güncellemede değişmez (ADR-0041)
 
 ## [1.2.2] - 2026-11-23
 Win11 Widget düğmesiyle taskbar göstergesi çakışması düzeltmesi.

@@ -44,6 +44,14 @@ turkish.CDump=lwm-dump: log dökümü / dışa aktarma aracı
 english.CDump=lwm-dump: log dump / export tool
 turkish.CFw=Telefon güvenlik duvarı kuralı (TCP 47810 + UDP 47811, yalnız özel ağ, yerel alt ağ)
 english.CFw=Phone firewall rule (TCP 47810 + UDP 47811, private network, local subnet only)
+turkish.TGroup=Gizlilik ve ağ (hepsi varsayılan KAPALI; sonradan açılabilir):
+english.TGroup=Privacy and network (all OFF by default; can be enabled later):
+turkish.TLan=Telefon sunucusu ve yerel ağ erişimi (LAN API, telefon eşleştirme, güvenlik duvarı kuralları)
+english.TLan=Phone server and local network access (LAN API, phone pairing, firewall rules)
+turkish.TBalloon=Alarm balonları (tray bildirimleri)
+english.TBalloon=Alarm balloons (tray notifications)
+turkish.TUpdate=Güncelleme kontrolü (açılışta ve 24 saatte bir; internete bağlanır)
+english.TUpdate=Update check (at startup and every 24 hours; connects to the internet)
 turkish.CRunTray=LowMonitor tray'i başlat
 english.CRunTray=Start LowMonitor tray
 
@@ -60,6 +68,17 @@ Name: "hook"; Description: "{cm:CHook}"; Types: full
 Name: "dump"; Description: "{cm:CDump}"; Types: full
 Name: "phonefw"; Description: "{cm:CFw}"; Types: full
 
+[Tasks]
+; Yalnız temiz kurulumda sorulur (Check); güncellemede mevcut seçim korunur. İşaretli = özellik AÇIK.
+Name: "lan"; Description: "{cm:TLan}"; GroupDescription: "{cm:TGroup}"; Flags: unchecked; Check: FreshInstall
+Name: "balloons"; Description: "{cm:TBalloon}"; Flags: unchecked; Check: FreshInstall
+Name: "update"; Description: "{cm:TUpdate}"; Flags: unchecked; Check: FreshInstall
+
+[Registry]
+; LAN seçimi (güncellemede lowmon-svc install --no-lan kararı için). Yalnız temiz kurulumda yazılır.
+Root: HKLM; Subkey: "Software\LowMonitor"; ValueType: dword; ValueName: "Lan"; ValueData: "0"; Flags: uninsdeletevalue; Check: FreshInstall and not WizardIsTaskSelected('lan')
+Root: HKLM; Subkey: "Software\LowMonitor"; ValueType: dword; ValueName: "Lan"; ValueData: "1"; Flags: uninsdeletevalue; Check: FreshInstall and WizardIsTaskSelected('lan')
+
 [Files]
 Source: "..\target\release\lowmon-tray.exe"; DestDir: "{app}"; Components: tray; Flags: ignoreversion
 Source: "..\target\release\lowmon-svc.exe"; DestDir: "{app}"; Components: svc; Flags: ignoreversion
@@ -70,13 +89,15 @@ Source: "..\target\release\lwm-dump.exe"; DestDir: "{app}"; Components: dump; Fl
 
 [Run]
 ; Servis: kurar (DACL, LocalService, "LowMonitor net" firewall kuralı) + başlatır.
-Filename: "{app}\lowmon-svc.exe"; Parameters: "install"; Components: svc; Flags: runhidden waituntilterminated
+Filename: "{app}\lowmon-svc.exe"; Parameters: "install"; Components: svc; Flags: runhidden waituntilterminated; Check: LanOn
+Filename: "{app}\lowmon-svc.exe"; Parameters: "install --no-lan"; Components: svc; Flags: runhidden waituntilterminated; Check: not LanOn
 Filename: "{app}\lowmon-svc.exe"; Parameters: "start"; Components: svc; Flags: runhidden waituntilterminated
 ; Telefon (lowmon-deck tray içinde): tray menüsündeki "Firewall kuralı ekle" ile aynı. shortcut: port sabit 47810 (deck.toml'da değiştiyse menüden).
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""LowMonitor deck"""; Components: phonefw; Flags: runhidden waituntilterminated
-Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""LowMonitor deck"" dir=in action=allow protocol=TCP localport=47810 profile=private remoteip=localsubnet program=""{app}\lowmon-tray.exe"""; Components: phonefw; Flags: runhidden waituntilterminated
-Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""LowMonitor deck"" dir=in action=allow protocol=UDP localport=47811 profile=private remoteip=localsubnet program=""{app}\lowmon-tray.exe"""; Components: phonefw; Flags: runhidden waituntilterminated
+Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""LowMonitor deck"" dir=in action=allow protocol=TCP localport=47810 profile=private remoteip=localsubnet program=""{app}\lowmon-tray.exe"""; Components: phonefw; Flags: runhidden waituntilterminated; Check: LanOn
+Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""LowMonitor deck"" dir=in action=allow protocol=UDP localport=47811 profile=private remoteip=localsubnet program=""{app}\lowmon-tray.exe"""; Components: phonefw; Flags: runhidden waituntilterminated; Check: LanOn
 ; HKCU kayıtları kurulumu başlatan (yükseltilmemiş) kullanıcıya yazılır.
+Filename: "{app}\lowmon-tray.exe"; Parameters: "{code:SetupArgs}"; Flags: runasoriginaluser runhidden waituntilterminated; Check: FreshInstall
 Filename: "{app}\lowmon-tray.exe"; Parameters: "--autostart on"; Flags: runasoriginaluser runhidden waituntilterminated
 Filename: "{app}\lowmon-tray.exe"; Description: "{cm:CRunTray}"; Flags: runasoriginaluser nowait postinstall
 
@@ -87,6 +108,41 @@ Filename: "{app}\lowmon-svc.exe"; Parameters: "uninstall"; Flags: runhidden wait
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""LowMonitor deck"""; Flags: runhidden waituntilterminated; RunOnceId: "fw"
 
 [Code]
+var
+  Fresh: Boolean;
+
+// Temiz kurulum = hedef klasörde tray yok. InitializeSetup'ta bir kez hesaplanır (dosyalar kopyalanmadan önce).
+function InitializeSetup(): Boolean;
+begin
+  Fresh := not FileExists(ExpandConstant('{autopf}\LowMonitor\lowmon-tray.exe'));
+  Result := True;
+end;
+
+function FreshInstall: Boolean;
+begin
+  Result := Fresh;
+end;
+
+// LAN açık mı: temiz kurulumda "lan" görevi; güncellemede önceki seçim (kayıt yoksa eski davranış = açık).
+function LanOn: Boolean;
+var V: Cardinal;
+begin
+  if Fresh then
+    Result := WizardIsTaskSelected('lan')
+  else
+    Result := not (RegQueryDWordValue(HKLM, 'Software\LowMonitor', 'Lan', V) and (V = 0));
+end;
+
+function OnOff(B: Boolean): String;
+begin
+  if B then Result := 'on' else Result := 'off';
+end;
+
+function SetupArgs(Param: String): String;
+begin
+  Result := '--setup lan=' + OnOff(WizardIsTaskSelected('lan')) + ' balloons=' + OnOff(WizardIsTaskSelected('balloons')) + ' update=' + OnOff(WizardIsTaskSelected('update'));
+end;
+
 procedure Run(const Exe, Params: String);
 var Code: Integer;
 begin
