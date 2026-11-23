@@ -8,6 +8,7 @@
 
 mod ai;
 mod autostart;
+mod diag;
 mod prefs;
 mod sys;
 mod update;
@@ -98,6 +99,10 @@ const ID_UPDATE_NOTES: usize = 31;
 const ID_UPDATE_AUTO: usize = 32;
 const ID_BALLOONS: usize = 33;
 const ID_LAN: usize = 34;
+/// Tanılama ▸ (ADR-0043)
+const ID_DIAG_REPORT: usize = 35;
+const ID_DIAG_DIR: usize = 36;
+const ID_DIAG_ISSUE: usize = 37;
 const RATE_MS: u32 = 2_000;
 const RETRY: Duration = Duration::from_secs(10);
 const MUTE_MS: u64 = 3_600_000;
@@ -379,6 +384,7 @@ fn menu(hwnd: HWND) {
             wide(tr("Windows ile başlat", "Start with Windows")).as_ptr(),
         );
         popup(tr("Güncelleme", "Update"), update_menu());
+        popup(tr("Tanılama", "Diagnostics"), diag_menu());
         AppendMenuW(m, MF_SEPARATOR, 0, ptr::null());
         AppendMenuW(m, MF_STRING, ID_EXIT, wide(tr("Çıkış", "Exit")).as_ptr());
         let mut pt = POINT { x: 0, y: 0 };
@@ -444,6 +450,24 @@ fn menu(hwnd: HWND) {
                     );
                 }
             }
+            ID_DIAG_REPORT => match diag::write_report() {
+                Ok((path, _)) => open_notepad(hwnd, &path),
+                Err(e) => {
+                    lowmon_deck::log::write(&format!("tanılama raporu yazılamadı: {e}"));
+                    msgbox(&e.to_string(), tr("Tanılama", "Diagnostics"), MB_ICONERROR);
+                }
+            },
+            ID_DIAG_ISSUE => diag_issue(hwnd),
+            ID_DIAG_DIR => {
+                ShellExecuteW(
+                    hwnd,
+                    wide("open").as_ptr(),
+                    wide(&diag::dir().display().to_string()).as_ptr(),
+                    ptr::null(),
+                    ptr::null(),
+                    SW_SHOWNORMAL,
+                );
+            }
             ID_BALLOONS => {
                 let _ = prefs::set(|p| p.balloons = !p.balloons);
             }
@@ -466,7 +490,7 @@ fn menu(hwnd: HWND) {
                 schedule_update(hwnd);
             }
             volume::ID_ENABLED => volume::toggle(),
-            volume::ID_CFG => open_notepad(hwnd, &lowvolume::Config::path()),
+            volume::ID_CFG => open_notepad(hwnd, &volume::ensure_config()),
             volume::ID_RELOAD => volume::reload(),
             ID_TB_SYS => taskbar_toggle(hwnd, "sys", !tb.sys.enabled),
             ID_TB_AI => taskbar_toggle(hwnd, "ai", !tb.ai.enabled),
@@ -596,6 +620,79 @@ fn update_menu() -> HMENU {
             .as_ptr(),
         );
         sub
+    }
+}
+
+/// "Tanılama ▸": rapor + log klasörü.
+fn diag_menu() -> HMENU {
+    // SAFETY: dizgeler çağrı boyunca yaşar; menü tutamacı çağırana devredilir.
+    unsafe {
+        let sub = CreatePopupMenu();
+        for (id, text) in [
+            (
+                ID_DIAG_REPORT,
+                tr("Tanılama raporu oluştur…", "Create diagnostics report…"),
+            ),
+            (
+                ID_DIAG_ISSUE,
+                tr(
+                    "Raporu GitHub'a gönder (issue taslağı)…",
+                    "Send report to GitHub (issue draft)…",
+                ),
+            ),
+            (ID_DIAG_DIR, tr("Log klasörünü aç", "Open log folder")),
+        ] {
+            AppendMenuW(sub, MF_STRING, id, wide(text).as_ptr());
+        }
+        sub
+    }
+}
+
+/// Rapor → Notepad'de göster + panoya kopyala → onayla → tarayıcıda hazır başlıklı issue sayfası.
+/// Rapor URL'ye girmez; gönderme kullanıcının kendi GitHub hesabıyla, kendi yapıştırmasıyla olur.
+fn diag_issue(hwnd: HWND) {
+    let title = tr("Tanılama raporu", "Diagnostics report");
+    let (path, text) = match diag::write_report() {
+        Ok(r) => r,
+        Err(e) => {
+            lowmon_deck::log::write(&format!("tanılama raporu yazılamadı: {e}"));
+            msgbox(&e.to_string(), title, MB_ICONERROR);
+            return;
+        }
+    };
+    open_notepad(hwnd, &path);
+    let copied = diag::copy_to_clipboard(&text);
+    let ask = format!(
+        "{}\n\n{}\n\n{}",
+        if copied {
+            tr(
+                "Rapor panoya kopyalandı ve Not Defteri'nde açıldı.",
+                "The report was copied to the clipboard and opened in Notepad.",
+            )
+        } else {
+            tr(
+                "Rapor Not Defteri'nde açıldı (panoya kopyalanamadı: oradan kopyalayın).",
+                "The report opened in Notepad (clipboard copy failed: copy it from there).",
+            )
+        },
+        tr(
+            "Önce içinde kişisel bilgi olmadığını kontrol edin (token satırları çıkarıldı, kullanıcı adı maskelendi). Devam ederseniz tarayıcıda GitHub'da yeni bir issue sayfası açılır; depo herkese açıktır, gönderdiğiniz issue'yu herkes görebilir. Yapıştırıp Gönder'e siz basarsınız. Açılsın mı?",
+            "First check that it contains nothing personal (token lines removed, user name masked). If you continue, a new GitHub issue page opens in your browser; the repository is public, so anyone can see an issue you submit. You paste and press Submit yourself. Open it?",
+        ),
+        path.display(),
+    );
+    if msgbox(&ask, title, MB_YESNO | MB_ICONQUESTION) == IDYES {
+        // SAFETY: NUL sonlu dizgeler çağrı boyunca yaşar.
+        unsafe {
+            ShellExecuteW(
+                hwnd,
+                wide("open").as_ptr(),
+                wide(&diag::issue_url()).as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                SW_SHOWNORMAL,
+            );
+        }
     }
 }
 

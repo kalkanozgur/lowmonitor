@@ -4,9 +4,12 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 ## [Unreleased]
 ### Eklendi
 - Setup'ta "Gizlilik ve ağ" görevleri (temiz kurulumda, hepsi varsayılan KAPALI): telefon sunucusu + yerel ağ, alarm balonları, güncelleme kontrolü. LAN kapalıyken deck yalnız loopback dinler, firewall kuralları eklenmez (`lowmon-svc install --no-lan`). Tercihler `%APPDATA%\LowMonitor\tray.toml`; mevcut kurulumlar güncellemede değişmez (ADR-0041)
-
 - Tray menüsü gruplandı (Göstergeler, Bildirimler, Telefon, AI, Ses, Güncelleme); kalıcı anahtarlar: Alarm balonları, Telefon ▸ Yerel ağda dinle (yeniden başlatmadan loopback ↔ LAN), Güncelleme ▸ Otomatik denetle (ADR-0041 eki)
 - GitHub'dan güncelleme: açılıştan 60 sn sonra ve 24 saatte bir sürüm denetimi, menüde "GitHub'dan güncelle…" (onay → indir → SHA-256 doğrula → setup); sessiz kurulum yok (ADR-0042)
+- Tanılama ▸ menüsü: rapor oluştur (sürüm, Windows, servis, ayarlar, son loglar; token satırları çıkarılır, kullanıcı adı maskelenir), Log klasörünü aç, "Raporu GitHub'a gönder" = panoya kopyala + hazır başlıklı issue taslağı (kullanıcı kendi hesabıyla yapıştırır; ADR-0043)
+### Düzeltildi
+- Ses ▸ Ayar dosyasını aç: dosya yoksa Not Defteri boş açılıyordu; artık yorumlu varsayılan şablon yazılır
+
 ## [1.2.3] - 2026-11-23
 v1.2.2'deki explorer kilitlenmesi düzeltmesi. **v1.2.2'yi kurmayın.**
 ### Düzeltildi
