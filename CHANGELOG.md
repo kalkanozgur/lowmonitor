@@ -5,6 +5,11 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 ### Eklendi
 - Setup'ta "Gizlilik ve ağ" görevleri (temiz kurulumda, hepsi varsayılan KAPALI): telefon sunucusu + yerel ağ, alarm balonları, güncelleme kontrolü. LAN kapalıyken deck yalnız loopback dinler, firewall kuralları eklenmez (`lowmon-svc install --no-lan`). Tercihler `%APPDATA%\LowMonitor\tray.toml`; mevcut kurulumlar güncellemede değişmez (ADR-0041)
 
+## [1.2.3] - 2026-11-23
+v1.2.2'deki explorer kilitlenmesi düzeltmesi. **v1.2.2'yi kurmayın.**
+### Düzeltildi
+- v1.2.2: Win11 widget algılaması (UI Automation) tray'in UI thread'inde çalışıyordu; taskbar sola hizalıyken explorer kilitlenebiliyordu (`AppHangXProcB1`). UIA artık ayrı worker thread'de; tray hiç beklemez (ADR-0040 düzeltmesi)
+
 ## [1.2.2] - 2026-11-23
 Win11 Widget düğmesiyle taskbar göstergesi çakışması düzeltmesi.
 ### Düzeltildi

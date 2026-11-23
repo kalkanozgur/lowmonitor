@@ -96,6 +96,13 @@ unsafe extern "system" fn on_event(
     }
 }
 
+/// Worker thread'den: widget konumu değişti → sahibe tek bir `EV_MOVED` (animasyon olaylarıyla birleşir).
+fn widget_moved() {
+    if !MOVED.swap(true, Ordering::Relaxed) {
+        post(EV_MOVED, 0);
+    }
+}
+
 /// Bu kapsamda thread per-monitor-v2: taskbar (explorer) PMv2, koordinat/DPI gerçek piksel olsun.
 /// Tray süreci DPI-habersiz kalır (menü/ikon değişmez).
 struct Pmv2(DPI_AWARENESS_CONTEXT);
@@ -549,11 +556,9 @@ pub struct Bar {
     bubble_hwnd: HWND,
     bubble_anchor: (i32, i32),
     bubble_dirty: bool,
-    /// Widget düğmesi: UI Automation (ilk ihtiyaçta kurulur) ve taskbar başına son bulunan sol kenar
-    /// (istemci x'i). Yalnız tam yerleşimde (`place(None)`) yenilenir.
-    // shortcut: düğme genişliği olaysız değişirse (hava durumu metni) kenar sonraki EV_MOVED / tema / DPI'ya kadar eski kalır
-    uia: Option<widget::Uia>,
-    widgets: Vec<(HWND, Option<i32>)>,
+    /// Widget düğmesi konumu: UIA ayrı worker thread'de (ilk ihtiyaçta kurulur), burası yalnız önbelleğe bakar.
+    // shortcut: düğme genişliği olaysız değişirse (hava durumu metni) kenar sonraki tam yerleşime (EV_MOVED / tema / DPI) kadar eski kalır
+    widget: Option<widget::Finder>,
 }
 
 /// Tam ekran uygulama / sunum var mı (balon oyunun, videonun üstüne çıkmasın).
@@ -603,8 +608,7 @@ impl Bar {
             bubble_hwnd: null_mut(),
             bubble_anchor: (0, 0),
             bubble_dirty: false,
-            uia: None,
-            widgets: Vec::new(),
+            widget: None,
             blocks: monitors
                 .iter()
                 .map(|&mon| Block {
@@ -774,16 +778,13 @@ impl Bar {
             }
             only = None; // yeni pencereler: hepsi çizilir
         }
-        if only.is_none() {
-            self.widgets.clear(); // tam yerleşim: widget konumları yeniden okunur
-        }
         let mut docks: Vec<Dock> = Vec::new();
         for i in 0..self.blocks.len() {
             let (tb, notify) = (self.blocks[i].taskbar, self.blocks[i].notify);
             let d = match docks.iter().position(|d| d.taskbar == tb) {
                 Some(d) => d,
                 None => {
-                    let widget = self.widget_left(tb);
+                    let widget = self.widget_left(tb, only.is_none()); // tam yerleşimde worker yeniden okur
                     docks.push(self.dock(tb, notify, widget));
                     docks.len() - 1
                 }
@@ -846,28 +847,14 @@ impl Bar {
         self.place_bubble(); // blok yer değiştirdiyse / gizlendiyse balon izler
     }
 
-    /// Taskbar'daki widget düğmesinin sol kenarı (istemci x'i; Pmv2 bağlamında çağrılır). Önbellekli.
-    fn widget_left(&mut self, taskbar: HWND) -> Option<i32> {
-        if let Some(&(_, w)) = self.widgets.iter().find(|(h, _)| *h == taskbar) {
-            return w;
+    /// Taskbar'daki widget düğmesinin sol kenarı (istemci x'i); bloklamaz, önbellekten gelir.
+    fn widget_left(&mut self, taskbar: HWND, refresh: bool) -> Option<i32> {
+        if !widget_possible() {
+            return None;
         }
-        let found = (|| {
-            if !widget_possible() {
-                return None;
-            }
-            if self.uia.is_none() {
-                self.uia = widget::Uia::new();
-            }
-            let mut p = POINT {
-                x: self.uia.as_ref()?.widget_left(taskbar)?,
-                y: 0,
-            };
-            // SAFETY: taskbar alive() ile doğrulandı; p yerel.
-            unsafe { ScreenToClient(taskbar, &mut p) };
-            Some(p.x)
-        })();
-        self.widgets.push((taskbar, found));
-        found
+        self.widget
+            .get_or_insert_with(|| widget::Finder::new(widget_moved))
+            .get(taskbar, refresh)
     }
 
     /// Taskbar ölçüleri; `ch == 0` → dikey / geçersiz (bloklar gizlenir).
