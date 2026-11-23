@@ -784,6 +784,65 @@ pub fn load_or_create(path: &std::path::Path, legacy: &std::path::Path) -> std::
     Ok(c)
 }
 
+/// Yeni kurulum, "telefon sunucusu (LAN)" kapalı: `deck.toml` yoksa `bind = "127.0.0.1"` ile oluşturur
+/// (yalnız loopback dinlenir, keşif ve güvenlik duvarı kuralı yok; PC arayüzü çalışır). Varsa dokunmaz.
+pub fn create_loopback(path: &std::path::Path, legacy: &std::path::Path) -> std::io::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    set_lan(path, legacy, false)
+}
+
+/// `deck.toml`'da `bind`'i yazar (yorumlar korunur; dosya yoksa önce oluşturulur). `on` → bu PC'nin
+/// LAN IP'si, değilse loopback. Etkisi için dinleyici yeniden yüklenmeli (`Running::reload`).
+pub fn set_lan(path: &std::path::Path, legacy: &std::path::Path, on: bool) -> std::io::Result<()> {
+    load_or_create(path, legacy)?;
+    let bind = if on { lan_ip() } else { "127.0.0.1".into() };
+    let text = std::fs::read_to_string(path)?;
+    let mut out: Vec<String> = text
+        .lines()
+        .map(|l| {
+            if l.trim_start().starts_with("bind") && l.contains('=') {
+                format!("bind = {bind:?}")
+            } else {
+                l.to_string()
+            }
+        })
+        .collect();
+    out.push(String::new());
+    std::fs::write(path, out.join("\n"))
+}
+
+/// Telefon sunucusu LAN'da dinliyor mu: `bind` loopback değilse. Dosya yok / okunamaz → açık (eski varsayılan).
+pub fn lan_enabled(path: &std::path::Path) -> bool {
+    load(path).map_or(true, |c| !c.bind.starts_with("127."))
+}
+
+#[cfg(test)]
+mod loopback_tests {
+    use super::*;
+
+    #[test]
+    fn loopback_setup_creates_once() {
+        let d = std::env::temp_dir().join(format!("lowmon-deck-lb-{}", std::process::id()));
+        let (p, legacy) = (d.join("deck.toml"), d.join("none.cfg"));
+        create_loopback(&p, &legacy).unwrap();
+        let c = load(&p).unwrap();
+        assert_eq!(c.bind, "127.0.0.1");
+        assert!(!lan_enabled(&p));
+        create_loopback(&p, &legacy).unwrap(); // var olana dokunmaz
+        assert_eq!(load(&p).unwrap().token, c.token);
+        // anahtar: LAN aç → loopback dışı, kapat → loopback; token ve yorumlar korunur
+        set_lan(&p, &legacy, true).unwrap();
+        assert!(lan_enabled(&p));
+        assert_eq!(load(&p).unwrap().token, c.token);
+        assert!(std::fs::read_to_string(&p).unwrap().starts_with("# bind"));
+        set_lan(&p, &legacy, false).unwrap();
+        assert!(!lan_enabled(&p));
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
 /// Varsayılan rotanın yerel adresi. UDP `connect` paket göndermez; 192.0.2.1 TEST-NET (RFC 5737).
 fn lan_ip() -> String {
     std::net::UdpSocket::bind("0.0.0.0:0")

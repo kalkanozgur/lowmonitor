@@ -56,8 +56,7 @@ use windows_sys::Win32::System::{
 use writer::Writer;
 
 const NAME: &str = "LowMonitor";
-const USAGE: &str =
-    "kullanım: lowmon-svc [install | uninstall [--purge] | start | stop | run [--dir <klasör>]]";
+const USAGE: &str = "kullanım: lowmon-svc [install [--no-lan] | uninstall [--purge] | start | stop | run [--dir <klasör>]]";
 
 define_windows_service!(ffi_service_main, service_main);
 
@@ -65,7 +64,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         None => service_dispatcher::start(NAME, ffi_service_main)?,
-        Some("install") => install()?,
+        Some("install") => install(args.get(1).is_some_and(|a| a == "--no-lan"))?,
         Some("uninstall") => uninstall(args.get(1).is_some_and(|a| a == "--purge"))?,
         Some("run") => run_console(&args[1..])?,
         Some("start") => open(ServiceAccess::START)?.start::<&str>(&[])?,
@@ -110,7 +109,8 @@ fn open(access: ServiceAccess) -> windows_service::Result<windows_service::servi
     manager(ServiceManagerAccess::empty())?.open_service(NAME, access)
 }
 
-fn install() -> Result<(), Box<dyn Error>> {
+/// `no_lan`: lowmon-net güvenlik duvarı kuralı eklenmez (varsa silinir); LAN kapalı kurulum (ADR-0041).
+fn install(no_lan: bool) -> Result<(), Box<dyn Error>> {
     let info = ServiceInfo {
         name: NAME.into(),
         display_name: "LowMonitor".into(),
@@ -179,7 +179,8 @@ fn install() -> Result<(), Box<dyn Error>> {
     )?;
     // lowmon-net LAN erişimi (spek §16.2); başarısızlık servis kurulumunu bozmaz
     let net = std::env::current_exe()?.with_file_name("lowmon-net.exe");
-    match firewall::set(Some(&net)) {
+    match firewall::set((!no_lan).then_some(net.as_path())) {
+        Ok(()) if no_lan => println!("firewall: LAN kuralı eklenmedi (--no-lan)"),
         Ok(()) => println!(
             "firewall: \"{}\" (Private, yerel alt ağ, TCP {})",
             firewall::RULE,

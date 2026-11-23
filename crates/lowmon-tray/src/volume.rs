@@ -95,3 +95,50 @@ pub fn menu() -> HMENU {
         sub
     }
 }
+
+/// "Ayar dosyasını aç" için dosya yoksa yorumlu şablonu yazar (Notepad boş / "oluşturulsun mu" açmasın).
+/// Şablon varsayılanlarla birebir (test); standalone `lowvolume.exe` ile aynı metin.
+const TEMPLATE: &str = r#"# lowvolume — taskbar üstünde tekerlek → sistem sesi. Değişince tray > Ses > "Ayarı yeniden yükle".
+
+[general]
+enabled = true
+
+[volume]
+invert = false           # tekerlek yönünü ters çevir
+ignore_injected = true   # yazılımın ürettiği tekerlek olaylarını yok say (Logitech/RDP sorununda false)
+
+[taskbar]
+primary = true           # ana monitör taskbar'ı
+secondary = true         # diğer monitörlerin taskbar'ı
+
+[advanced]
+rehook_interval_s = 60   # hook'u periyodik yeniden kur (0 = kapalı)
+"#;
+
+pub fn ensure_config() -> std::path::PathBuf {
+    let path = lowvolume::Config::path();
+    if !path.exists() {
+        if let Some(d) = path.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        // create_new: aynı anda oluşmuşsa üzerine yazmaz; hata sessiz, Notepad kendi sorusunu sorar
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .and_then(|mut f| std::io::Write::write_all(&mut f, TEMPLATE.as_bytes()));
+    }
+    path
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn template_equals_defaults() {
+        let (c, err) = lowvolume::Config::parse(TEMPLATE);
+        assert!(err.is_none());
+        assert_eq!(c, lowvolume::Config::default());
+    }
+}

@@ -3,7 +3,18 @@ Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
 
-## [1.2.2] - 2026-11-23
+## [1.3.0] - 2026-11-24
+Kurulumda gizlilik tercihleri, gruplu tray menüsü, GitHub'dan güncelleme, Tanılama ve v1.2.2'deki explorer kilitlenmesi düzeltmesi. **v1.2.2 yayından kaldırıldı, kurmayın; v1.2.3 hiç yayınlanmadı.**
+### Eklendi
+- Setup'ta "Gizlilik ve ağ" görevleri (temiz kurulumda, hepsi varsayılan KAPALI): telefon sunucusu + yerel ağ, alarm balonları, güncelleme kontrolü. LAN kapalıyken deck yalnız loopback dinler, firewall kuralları eklenmez (`lowmon-svc install --no-lan`). Tercihler `%APPDATA%\LowMonitor\tray.toml`; mevcut kurulumlar güncellemede değişmez (ADR-0041)
+- Tray menüsü gruplandı (Göstergeler, Bildirimler, Telefon, AI, Ses, Güncelleme); kalıcı anahtarlar: Alarm balonları, Telefon ▸ Yerel ağda dinle (yeniden başlatmadan loopback ↔ LAN), Güncelleme ▸ Otomatik denetle (ADR-0041 eki)
+- GitHub'dan güncelleme: açılıştan 60 sn sonra ve 24 saatte bir sürüm denetimi, menüde "GitHub'dan güncelle…" (onay → indir → SHA-256 doğrula → setup); sessiz kurulum yok (ADR-0042)
+- Tanılama ▸ menüsü: rapor oluştur (sürüm, Windows, servis, ayarlar, son loglar; token satırları çıkarılır, kullanıcı adı maskelenir), Log klasörünü aç, "Raporu GitHub'a gönder" = panoya kopyala + hazır başlıklı issue taslağı (kullanıcı kendi hesabıyla yapıştırır; ADR-0043)
+### Düzeltildi
+- v1.2.2: Win11 widget algılaması (UI Automation) tray'in UI thread'inde çalışıyordu; taskbar sola hizalıyken explorer kilitlenebiliyordu (`AppHangXProcB1`). UIA artık ayrı worker thread'de; tray hiç beklemez (ADR-0040 düzeltmesi)
+- Ses ▸ Ayar dosyasını aç: dosya yoksa Not Defteri boş açılıyordu; artık yorumlu varsayılan şablon yazılır
+
+## [1.2.2] - 2026-11-23 (yayından kaldırıldı: explorer kilitlenmesi, 1.3.0 düzeltti)
 Win11 Widget düğmesiyle taskbar göstergesi çakışması düzeltmesi.
 ### Düzeltildi
 - Win11 taskbar sola hizalı + Widget'lar açıkken gösterge hava durumu düğmesinin üstüne biniyordu; düğme UI Automation ile bulunur, gösterge onun soluna yaslanır. Ortalı taskbar, widget kapalı ve Win10'da UIA hiç yüklenmez (ADR-0040)
