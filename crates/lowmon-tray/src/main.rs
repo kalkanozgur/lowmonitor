@@ -10,6 +10,7 @@ mod ai;
 mod autostart;
 mod prefs;
 mod sys;
+mod update;
 mod volume;
 
 use lowmon_ai::text::tr;
@@ -49,17 +50,18 @@ use windows_sys::Win32::{
     },
     UI::{
         Shell::{
-            NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_WARNING, NIM_ADD, NIM_DELETE,
+            NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIIF_WARNING, NIM_ADD, NIM_DELETE,
             NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW, ShellExecuteW,
         },
         WindowsAndMessaging::{
             AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
             DestroyIcon, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
-            HICON, HMENU, ICONINFO, MB_ICONERROR, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR,
-            MF_STRING, MSG, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
-            RegisterWindowMessageW, SW_HIDE, SW_SHOWNORMAL, SetForegroundWindow, TPM_NONOTIFY,
-            TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP, WM_DESTROY,
-            WM_DISPLAYCHANGE, WM_NULL, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW,
+            HICON, HMENU, ICONINFO, IDYES, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION,
+            MB_YESNO, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, MessageBoxW,
+            PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SW_HIDE,
+            SW_SHOWNORMAL, SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+            TrackPopupMenu, TranslateMessage, WM_APP, WM_DESTROY, WM_DISPLAYCHANGE, WM_NULL,
+            WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW,
         },
     },
 };
@@ -70,6 +72,13 @@ const WM_DATA: u32 = WM_APP + 2;
 const WM_RELOAD: u32 = WM_APP + 6;
 /// IPv4 adresi eklendi/silindi (`NotifyUnicastIpAddressChange`): telefon dinleyicisi yeni IP'ye geçsin mi?
 const WM_NETCHANGE: u32 = WM_APP + 7;
+/// Sürüm denetimi / indirme bitti (`update.rs` worker thread'inden); wParam = elle mi tetiklendi.
+const WM_UPDATE: u32 = WM_APP + 8;
+const WM_UPDATE_DL: u32 = WM_APP + 9;
+/// Açılıştan 60 sn sonra ilk denetim, sonra 24 saatte bir
+const TIMER_UPDATE: usize = 0xA4;
+const UPDATE_FIRST_MS: u32 = 60_000;
+const UPDATE_EVERY_MS: u32 = 86_400_000;
 /// Monitör değişiminden sonra taskbar bloklarını bir kez daha kuran tek seferlik zamanlayıcı
 const TIMER_DISPLAY: usize = 0xA2;
 const ID_UI: usize = 1;
@@ -83,6 +92,12 @@ const ID_FIREWALL: usize = 8;
 /// Taskbar blokları (`taskbar.toml` `[sys] enabled` / `[ai] enabled`)
 const ID_TB_SYS: usize = 9;
 const ID_TB_AI: usize = 10;
+/// Güncelleme, kalıcı balon tercihi, telefon LAN anahtarı (ai: 20–27, volume: 40–42)
+const ID_UPDATE_NOW: usize = 30;
+const ID_UPDATE_NOTES: usize = 31;
+const ID_UPDATE_AUTO: usize = 32;
+const ID_BALLOONS: usize = 33;
+const ID_LAN: usize = 34;
 const RATE_MS: u32 = 2_000;
 const RETRY: Duration = Duration::from_secs(10);
 const MUTE_MS: u64 = 3_600_000;
@@ -102,8 +117,8 @@ static LATEST: Mutex<Option<Live>> = Mutex::new(None);
 static HWND_: AtomicUsize = AtomicUsize::new(0);
 /// Şu an Raised kural id'leri (servisten `Alarms` + olaylar).
 static ALARMS: Mutex<Vec<String>> = Mutex::new(Vec::new());
-/// Gösterilmeyi bekleyen balon metni.
-static BALLOON: Mutex<Option<String>> = Mutex::new(None);
+/// Gösterilmeyi bekleyen balon: (güncelleme bilgisi mi, metin); değilse alarm.
+static BALLOON: Mutex<Option<(bool, String)>> = Mutex::new(None);
 /// Sessiz bitişi (GetTickCount64 ms); 0 = sessiz değil. Yalnız tray belleğinde.
 static MUTE_UNTIL: AtomicU64 = AtomicU64::new(0);
 
@@ -191,8 +206,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// Alarm balonu gösterilsin mi: kalıcı tercih (`tray.toml`) açık ve 1 saatlik sessize alma yok.
 fn balloons_on() -> bool {
-    static PREFS: std::sync::OnceLock<prefs::Prefs> = std::sync::OnceLock::new();
-    PREFS.get_or_init(prefs::load).balloons && !muted()
+    prefs::balloons() && !muted()
 }
 
 fn muted() -> bool {
@@ -286,13 +300,17 @@ fn notify(hwnd: HWND, msg: u32) {
         let tip: Vec<u16> = tip.encode_utf16().collect();
         let n = tip.len().min(nid.szTip.len() - 1);
         nid.szTip[..n].copy_from_slice(&tip[..n]);
-        if let Some(text) = lock(&BALLOON).take() {
+        if let Some((info, text)) = lock(&BALLOON).take() {
             nid.uFlags |= NIF_INFO;
-            nid.dwInfoFlags = NIIF_WARNING;
+            nid.dwInfoFlags = if info { NIIF_INFO } else { NIIF_WARNING };
             for (dst, src) in [
                 (
                     &mut nid.szInfoTitle[..],
-                    tr("LowMonitor alarmı", "LowMonitor alarm"),
+                    if info {
+                        tr("LowMonitor güncelleme", "LowMonitor update")
+                    } else {
+                        tr("LowMonitor alarmı", "LowMonitor alarm")
+                    },
                 ),
                 (&mut nid.szInfo[..], &text),
             ] {
@@ -338,45 +356,21 @@ fn menu(hwnd: HWND) {
             MF_GRAYED
         };
         AppendMenuW(m, MF_STRING | grayed, ID_UI, wide(ui.label()).as_ptr());
-        AppendMenuW(
-            m,
-            MF_STRING | if muted() { MF_CHECKED } else { 0 },
-            ID_MUTE,
-            wide(tr("Alarmları sessize al (1 saat)", "Mute alarms (1 hour)")).as_ptr(),
-        );
-        AppendMenuW(
-            m,
-            MF_STRING | MF_POPUP,
-            phone_menu() as usize,
-            wide(tr("Telefon", "Phone")).as_ptr(),
-        );
-        AppendMenuW(
-            m,
-            MF_STRING | MF_POPUP,
-            ai::menu() as usize,
-            wide(tr("AI kullanımı", "AI usage")).as_ptr(),
-        );
-        AppendMenuW(
-            m,
-            MF_STRING | MF_POPUP,
-            volume::menu() as usize,
-            wide(tr("Ses (taskbar tekerleği)", "Volume (taskbar wheel)")).as_ptr(),
-        );
+        AppendMenuW(m, MF_SEPARATOR, 0, ptr::null());
         // Dosyadan: menü her açılışta gerçek ayarı gösterir (bozuksa varsayılan = açık)
         let tb = lowmon_taskbar::Config::load(&lowmon_taskbar::config_path()).unwrap_or_default();
-        let check = |on: bool| if on { MF_CHECKED } else { 0 };
-        AppendMenuW(
-            m,
-            MF_STRING | check(tb.sys.enabled),
-            ID_TB_SYS,
-            wide(tr("Taskbar: sistem göstergesi", "Taskbar: system meter")).as_ptr(),
+        let popup = |text: &str, sub: HMENU| {
+            AppendMenuW(m, MF_STRING | MF_POPUP, sub as usize, wide(text).as_ptr());
+        };
+        popup(tr("Göstergeler", "Indicators"), indicators_menu(&tb));
+        popup(tr("Bildirimler", "Notifications"), notifications_menu());
+        popup(tr("Telefon", "Phone"), phone_menu());
+        popup(tr("AI kullanımı", "AI usage"), ai::menu());
+        popup(
+            tr("Ses (taskbar tekerleği)", "Volume (taskbar wheel)"),
+            volume::menu(),
         );
-        AppendMenuW(
-            m,
-            MF_STRING | check(tb.ai.enabled),
-            ID_TB_AI,
-            wide(tr("Taskbar: AI göstergesi", "Taskbar: AI meter")).as_ptr(),
-        );
+        AppendMenuW(m, MF_SEPARATOR, 0, ptr::null());
         let checked = if autostart::enabled() { MF_CHECKED } else { 0 };
         AppendMenuW(
             m,
@@ -384,6 +378,7 @@ fn menu(hwnd: HWND) {
             ID_AUTO,
             wide(tr("Windows ile başlat", "Start with Windows")).as_ptr(),
         );
+        popup(tr("Güncelleme", "Update"), update_menu());
         AppendMenuW(m, MF_SEPARATOR, 0, ptr::null());
         AppendMenuW(m, MF_STRING, ID_EXIT, wide(tr("Çıkış", "Exit")).as_ptr());
         let mut pt = POINT { x: 0, y: 0 };
@@ -449,6 +444,27 @@ fn menu(hwnd: HWND) {
                     );
                 }
             }
+            ID_BALLOONS => {
+                let _ = prefs::set(|p| p.balloons = !p.balloons);
+            }
+            ID_LAN => lan_toggle(hwnd),
+            ID_UPDATE_NOW => update_now(hwnd),
+            ID_UPDATE_NOTES => {
+                if let update::Status::Available(r) = update::status() {
+                    ShellExecuteW(
+                        hwnd,
+                        wide("open").as_ptr(),
+                        wide(&r.page).as_ptr(),
+                        ptr::null(),
+                        ptr::null(),
+                        SW_SHOWNORMAL,
+                    );
+                }
+            }
+            ID_UPDATE_AUTO => {
+                let _ = prefs::set(|p| p.update_check = !p.update_check);
+                schedule_update(hwnd);
+            }
             volume::ID_ENABLED => volume::toggle(),
             volume::ID_CFG => open_notepad(hwnd, &lowvolume::Config::path()),
             volume::ID_RELOAD => volume::reload(),
@@ -493,6 +509,200 @@ fn taskbar_toggle(hwnd: HWND, block: &str, on: bool) {
     }
 }
 
+fn check_flag(on: bool) -> u32 {
+    if on { MF_CHECKED } else { 0 }
+}
+
+/// "Göstergeler ▸": taskbar blokları.
+fn indicators_menu(tb: &lowmon_taskbar::Config) -> HMENU {
+    // SAFETY: dizgeler çağrı boyunca yaşar; menü tutamacı çağırana devredilir.
+    unsafe {
+        let sub = CreatePopupMenu();
+        for (id, on, text) in [
+            (
+                ID_TB_SYS,
+                tb.sys.enabled,
+                tr("Taskbar: sistem göstergesi", "Taskbar: system meter"),
+            ),
+            (
+                ID_TB_AI,
+                tb.ai.enabled,
+                tr("Taskbar: AI göstergesi", "Taskbar: AI meter"),
+            ),
+        ] {
+            AppendMenuW(sub, MF_STRING | check_flag(on), id, wide(text).as_ptr());
+        }
+        sub
+    }
+}
+
+/// "Bildirimler ▸": kalıcı balon tercihi + geçici sessize alma.
+fn notifications_menu() -> HMENU {
+    // SAFETY: dizgeler çağrı boyunca yaşar; menü tutamacı çağırana devredilir.
+    unsafe {
+        let sub = CreatePopupMenu();
+        AppendMenuW(
+            sub,
+            MF_STRING | check_flag(prefs::balloons()),
+            ID_BALLOONS,
+            wide(tr("Alarm balonları", "Alarm balloons")).as_ptr(),
+        );
+        AppendMenuW(
+            sub,
+            MF_STRING | check_flag(muted()),
+            ID_MUTE,
+            wide(tr("Alarmları sessize al (1 saat)", "Mute alarms (1 hour)")).as_ptr(),
+        );
+        sub
+    }
+}
+
+/// "Güncelleme ▸": durum satırı (pasif), GitHub'dan güncelle, sürüm notları, otomatik denetim.
+fn update_menu() -> HMENU {
+    let st = update::status();
+    let busy = matches!(st, update::Status::Checking | update::Status::Downloading);
+    // SAFETY: dizgeler çağrı boyunca yaşar; menü tutamacı çağırana devredilir.
+    unsafe {
+        let sub = CreatePopupMenu();
+        AppendMenuW(
+            sub,
+            MF_STRING | MF_GRAYED,
+            0,
+            wide(&update::describe(&st, tr)).as_ptr(),
+        );
+        AppendMenuW(sub, MF_SEPARATOR, 0, ptr::null());
+        AppendMenuW(
+            sub,
+            MF_STRING | if busy { MF_GRAYED } else { 0 },
+            ID_UPDATE_NOW,
+            wide(tr("GitHub'dan güncelle…", "Update from GitHub…")).as_ptr(),
+        );
+        if matches!(st, update::Status::Available(_)) {
+            AppendMenuW(
+                sub,
+                MF_STRING,
+                ID_UPDATE_NOTES,
+                wide(tr("Sürüm notları", "Release notes")).as_ptr(),
+            );
+        }
+        AppendMenuW(
+            sub,
+            MF_STRING | check_flag(prefs::update_check()),
+            ID_UPDATE_AUTO,
+            wide(tr(
+                "Otomatik denetle (açılışta ve 24 saatte bir)",
+                "Check automatically (at startup and every 24 hours)",
+            ))
+            .as_ptr(),
+        );
+        sub
+    }
+}
+
+/// Modal ileti; sonuç `IDYES` vb.
+fn msgbox(text: &str, title: &str, flags: u32) -> i32 {
+    // SAFETY: NUL sonlu dizgeler; sahipsiz modal kutu.
+    unsafe {
+        MessageBoxW(
+            ptr::null_mut(),
+            wide(text).as_ptr(),
+            wide(title).as_ptr(),
+            flags,
+        )
+    }
+}
+
+/// "Telefon ▸ Yerel ağda dinle": `deck.toml` `bind`'i loopback ↔ LAN IP, dinleyici yeniden açılır.
+fn lan_toggle(hwnd: HWND) {
+    let path = lowmon_deck::config_path();
+    let on = !lowmon_deck::lan_enabled(&path);
+    match lowmon_deck::set_lan(&path, &lowmon_deck::legacy_path(), on) {
+        Ok(()) => {
+            deck_reload(true);
+            notify(hwnd, NIM_MODIFY);
+        }
+        Err(e) => {
+            lowmon_deck::log::write(&format!("deck.toml yazılamadı: {e}"));
+            msgbox(&e.to_string(), "deck.toml", MB_ICONERROR);
+        }
+    }
+}
+
+/// Yeni sürüm varsa onay (UAC uyarısıyla) → indir + doğrula; yoksa denetler.
+fn update_now(hwnd: HWND) {
+    match update::status() {
+        update::Status::Available(r) => confirm_update(hwnd, r),
+        _ => update::start_check(hwnd, WM_UPDATE, true),
+    }
+}
+
+fn confirm_update(hwnd: HWND, r: update::Release) {
+    let text = format!(
+        "{} {} ({} MB)\n\n{}",
+        tr("LowMonitor", "LowMonitor"),
+        r.tag,
+        r.size.div_ceil(1 << 20),
+        tr(
+            "GitHub'dan indirilecek, SHA-256 özeti doğrulanıp kurulum başlatılacak. Kurulum yönetici onayı (UAC) isteyecek; LowMonitor kapanıp yeniden açılır. Devam edilsin mi?",
+            "It will be downloaded from GitHub, its SHA-256 verified, and setup started. Setup asks for administrator approval (UAC); LowMonitor closes and reopens. Continue?",
+        )
+    );
+    if msgbox(
+        &text,
+        tr("LowMonitor güncelleme", "LowMonitor update"),
+        MB_YESNO | MB_ICONQUESTION,
+    ) == IDYES
+    {
+        update::start_download(hwnd, WM_UPDATE_DL, r);
+    }
+}
+
+/// `update::start_check` bitti.
+fn on_update(hwnd: HWND, manual: bool) {
+    let title = tr("LowMonitor güncelleme", "LowMonitor update");
+    match update::status() {
+        update::Status::Available(r) if manual => confirm_update(hwnd, r),
+        update::Status::Available(r) => {
+            // Güncelleme bilgisi alarm değil: tercihten bağımsız, 1 saatlik sessize almadan da etkilenmez
+            let text = format!(
+                "{} {} {}",
+                r.tag,
+                tr(
+                    "mevcut. Sağ tık → Güncelleme.",
+                    "available. Right-click → Update."
+                ),
+                ""
+            );
+            *lock(&BALLOON) = Some((true, text.trim().to_string()));
+            notify(hwnd, NIM_MODIFY);
+        }
+        update::Status::UpToDate if manual => {
+            msgbox(
+                &format!("{} {}", tr("Güncel sürüm:", "Up to date:"), update::VERSION),
+                title,
+                MB_ICONINFORMATION,
+            );
+        }
+        update::Status::Failed(e) if manual => {
+            msgbox(&e, title, MB_ICONERROR);
+        }
+        _ => {}
+    }
+}
+
+/// Otomatik denetim zamanlayıcısını tercihe göre kurar / kaldırır.
+fn schedule_update(hwnd: HWND) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
+    // SAFETY: kendi penceremiz ve zamanlayıcımız.
+    unsafe {
+        if prefs::update_check() {
+            SetTimer(hwnd, TIMER_UPDATE, UPDATE_FIRST_MS, None);
+        } else {
+            KillTimer(hwnd, TIMER_UPDATE);
+        }
+    }
+}
+
 /// "Telefon ▸": durum satırları (pasif) + ayar/log/yeniden yükle/firewall.
 /// Dönen menü üst menüye eklenir, onunla birlikte yok edilir.
 fn phone_menu() -> HMENU {
@@ -529,6 +739,16 @@ fn phone_menu() -> HMENU {
             AppendMenuW(sub, MF_STRING | MF_GRAYED, 0, wide(l).as_ptr());
         }
         AppendMenuW(sub, MF_SEPARATOR, 0, ptr::null());
+        AppendMenuW(
+            sub,
+            MF_STRING | check_flag(lowmon_deck::lan_enabled(&lowmon_deck::config_path())),
+            ID_LAN,
+            wide(tr(
+                "Yerel ağda dinle (telefon)",
+                "Listen on local network (phone)",
+            ))
+            .as_ptr(),
+        );
         for (id, text) in [
             (ID_CFG, tr("Ayar dosyasını aç", "Open config file")),
             (ID_RELOAD, tr("Ayarı yeniden yükle", "Reload config")),
@@ -644,6 +864,34 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             lowmon_deck::log::write("IP değişti, telefon dinleyicisi yeniden açılıyor");
             deck_reload(false);
             notify(hwnd, NIM_MODIFY);
+        }
+        WM_UPDATE => on_update(hwnd, wp != 0),
+        WM_UPDATE_DL => match update::take_ready() {
+            Some(path) => update::launch(hwnd, &path),
+            None => {
+                if let update::Status::Failed(e) = update::status() {
+                    msgbox(
+                        &e,
+                        tr("LowMonitor güncelleme", "LowMonitor update"),
+                        MB_ICONERROR,
+                    );
+                }
+            }
+        },
+        WM_TIMER if wp == TIMER_UPDATE => {
+            // ilk denetimden sonra 24 saatlik periyot
+            // SAFETY: kendi zamanlayıcımız.
+            unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::SetTimer(
+                    hwnd,
+                    TIMER_UPDATE,
+                    UPDATE_EVERY_MS,
+                    None,
+                )
+            };
+            if prefs::update_check() {
+                update::start_check(hwnd, WM_UPDATE, false);
+            }
         }
         WM_RELOAD => {
             if wp & 1 != 0 {
@@ -780,7 +1028,7 @@ fn session(f: &mut File) -> io::Result<()> {
             ServerMsg::Alarms(a) => {
                 // Bağlanmadan önce Raise olmuş alarmlar (tray geç açıldı / servis yeniden başladı)
                 if let Some(text) = snapshot_text(&a).filter(|_| balloons_on()) {
-                    *lock(&BALLOON) = Some(text);
+                    *lock(&BALLOON) = Some((false, text));
                 }
                 *lock(&ALARMS) = a;
                 let live = *lock(&LATEST);
@@ -791,7 +1039,7 @@ fn session(f: &mut File) -> io::Result<()> {
             } => {
                 let text = on_event(&mut lock(&ALARMS), kind, &name, value);
                 if let Some(text) = text.filter(|_| balloons_on()) {
-                    *lock(&BALLOON) = Some(text);
+                    *lock(&BALLOON) = Some((false, text));
                 }
                 let live = *lock(&LATEST);
                 post(live); // tooltip / balon hemen
@@ -860,6 +1108,7 @@ fn main() {
     if let Some(code) = cli(&args) {
         std::process::exit(code);
     }
+    prefs::init();
     let mutex = wide(r"Local\LowMonitorTray");
     // SAFETY: isimli mutex süreç ömrü boyunca açık kalır (tek örnek kilidi).
     unsafe {
@@ -913,6 +1162,7 @@ fn main() {
         notify(hwnd, NIM_ADD);
         ai::start(hwnd);
         volume::start();
+        schedule_update(hwnd);
         let _ = thread::Builder::new()
             .name("pipe".into())
             .stack_size(64 * 1024)

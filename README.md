@@ -29,7 +29,11 @@ Türkçe: [README.tr.md](README.tr.md)
 - Live and historical graphs (CPU, RAM, disk, network, GPU, temperatures), Top-N processes, process kill
 - Alarm rules → events, tray balloons, phone alarm band; optional UAC / firewall prompt alarms (`[events] uac = true`, ETW, notification only); tray temperature alarms (`Temp.CPU/GPU/Disk`) from `taskbar.toml` thresholds
 - Taskbar: system grid (CPU / GPU / MEM / ↑, °C / ↓) and Claude usage meter; each can be toggled from the tray menu
+- Update from GitHub: the tray checks for new releases at startup and every 24 hours (can be turned off), Update > Update from GitHub downloads, verifies the SHA-256 and starts setup after you confirm
+- Privacy/network switches in the tray menu (alarm balloons, phone server on the local network, update check); the installer asks on a fresh install, all off by default
 - Claude Code activity bubble over the AI meter (hooks installed from the tray menu)
+- Update from GitHub: the tray checks for new releases at startup and every 24 hours (can be turned off), Update > Update from GitHub downloads, verifies the SHA-256 and starts setup after you confirm
+- Privacy/network switches in the tray menu (alarm balloons, phone server on the local network, update check); the installer asks on a fresh install, all off by default
 - Claude Code activity bubble: project, safe summary (Bash description, file name), `Claude.Input` alarm when Claude waits for you
 - Phone (LowDeck): discovery, auto-reconnect when the PC IP changes, screen blackout that wakes on alarms
 - Tray follows IP changes (DHCP) and re-binds the phone listener automatically

@@ -29,6 +29,8 @@ English: [README.md](README.md)
 - Canlı ve geçmiş grafikler (CPU, RAM, disk, ağ, GPU, sıcaklıklar), Top-N süreçler, süreç sonlandırma
 - Alarm kuralları → olaylar, tray balonları, telefonda alarm bandı; opsiyonel UAC / güvenlik duvarı istemi alarmları (`[events] uac = true`, ETW, yalnız bildirim); `taskbar.toml` eşiklerinden tray sıcaklık alarmları (`Temp.CPU/GPU/Disk`)
 - Taskbar: sistem ızgarası (CPU / GPU / MEM / ↑, °C / ↓) ve Claude kullanım göstergesi; ikisi de tray menüsünden açılıp kapanır
+- GitHub'dan güncelleme: tray açılışta ve 24 saatte bir yeni sürümü denetler (kapatılabilir), Güncelleme > GitHub'dan güncelle onayınızla indirir, SHA-256'yı doğrular ve kurulumu başlatır
+- Tray menüsünde gizlilik/ağ anahtarları (alarm balonları, yerel ağda telefon sunucusu, güncelleme denetimi); kurulum temiz kurulumda sorar, hepsi varsayılan kapalı
 - AI göstergesinin üstünde Claude Code etkinlik balonu (hook'lar tray menüsünden kurulur)
 - Claude Code etkinlik balonu: proje, güvenli özet (Bash açıklaması, dosya adı), Claude girdi bekleyince `Claude.Input` alarmı
 - Telefon (LowDeck): keşif, PC IP'si değişince otomatik yeniden bağlanma, alarmda açılan siyah perde

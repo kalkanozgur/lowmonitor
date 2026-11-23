@@ -790,12 +790,32 @@ pub fn create_loopback(path: &std::path::Path, legacy: &std::path::Path) -> std:
     if path.exists() {
         return Ok(());
     }
-    let c = load_or_create(path, legacy)?;
+    set_lan(path, legacy, false)
+}
+
+/// `deck.toml`'da `bind`'i yazar (yorumlar korunur; dosya yoksa önce oluşturulur). `on` → bu PC'nin
+/// LAN IP'si, değilse loopback. Etkisi için dinleyici yeniden yüklenmeli (`Running::reload`).
+pub fn set_lan(path: &std::path::Path, legacy: &std::path::Path, on: bool) -> std::io::Result<()> {
+    load_or_create(path, legacy)?;
+    let bind = if on { lan_ip() } else { "127.0.0.1".into() };
     let text = std::fs::read_to_string(path)?;
-    std::fs::write(
-        path,
-        text.replace(&format!("bind = {:?}", c.bind), "bind = \"127.0.0.1\""),
-    )
+    let mut out: Vec<String> = text
+        .lines()
+        .map(|l| {
+            if l.trim_start().starts_with("bind") && l.contains('=') {
+                format!("bind = {bind:?}")
+            } else {
+                l.to_string()
+            }
+        })
+        .collect();
+    out.push(String::new());
+    std::fs::write(path, out.join("\n"))
+}
+
+/// Telefon sunucusu LAN'da dinliyor mu: `bind` loopback değilse. Dosya yok / okunamaz → açık (eski varsayılan).
+pub fn lan_enabled(path: &std::path::Path) -> bool {
+    load(path).map_or(true, |c| !c.bind.starts_with("127."))
 }
 
 #[cfg(test)]
@@ -809,8 +829,16 @@ mod loopback_tests {
         create_loopback(&p, &legacy).unwrap();
         let c = load(&p).unwrap();
         assert_eq!(c.bind, "127.0.0.1");
+        assert!(!lan_enabled(&p));
         create_loopback(&p, &legacy).unwrap(); // var olana dokunmaz
         assert_eq!(load(&p).unwrap().token, c.token);
+        // anahtar: LAN aç → loopback dışı, kapat → loopback; token ve yorumlar korunur
+        set_lan(&p, &legacy, true).unwrap();
+        assert!(lan_enabled(&p));
+        assert_eq!(load(&p).unwrap().token, c.token);
+        assert!(std::fs::read_to_string(&p).unwrap().starts_with("# bind"));
+        set_lan(&p, &legacy, false).unwrap();
+        assert!(!lan_enabled(&p));
         let _ = std::fs::remove_dir_all(d);
     }
 }

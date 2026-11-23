@@ -1,7 +1,11 @@
 //! `%APPDATA%\LowMonitor\tray.toml` (ADR-0041): tray'in kalıcı tercihleri. Dosya ya da alan yoksa
-//! eski davranış (hepsi açık); yeni kurulumda setup seçimine göre yazılır (`--setup`).
+//! eski davranış (hepsi açık); yeni kurulumda setup seçimine göre yazılır (`--setup`), menüden değişir.
 use serde::Deserialize;
-use std::{io, path::PathBuf};
+use std::{
+    io,
+    path::PathBuf,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -35,9 +39,43 @@ pub fn load() -> Prefs {
         .unwrap_or_default()
 }
 
+static BALLOONS: AtomicBool = AtomicBool::new(true);
+static UPDATE_CHECK: AtomicBool = AtomicBool::new(true);
+
+/// Açılışta bir kez: dosyayı okur, thread'ler arası okunan değerleri kurar.
+pub fn init() {
+    let p = load();
+    BALLOONS.store(p.balloons, Ordering::Relaxed);
+    UPDATE_CHECK.store(p.update_check, Ordering::Relaxed);
+}
+
+pub fn balloons() -> bool {
+    BALLOONS.load(Ordering::Relaxed)
+}
+
+pub fn update_check() -> bool {
+    UPDATE_CHECK.load(Ordering::Relaxed)
+}
+
+/// Menüden değişiklik: önce bellekteki değer, sonra dosya (yazma hatası dönerse değer yine de bu oturumda geçerli).
+pub fn set(f: impl FnOnce(&mut Prefs)) -> io::Result<()> {
+    let mut p = Prefs {
+        balloons: balloons(),
+        update_check: update_check(),
+    };
+    f(&mut p);
+    BALLOONS.store(p.balloons, Ordering::Relaxed);
+    UPDATE_CHECK.store(p.update_check, Ordering::Relaxed);
+    let path = path();
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    lowmon_ai::win::write_atomic(&path, text(&p).as_bytes())
+}
+
 fn text(p: &Prefs) -> String {
     format!(
-        "# LowMonitor tray tercihleri. Değişiklik tray yeniden başlayınca geçerli olur.\n\
+        "# LowMonitor tray tercihleri (tray menüsünden de değişir).\n\
          # balloons: alarm balonları; update_check: açılışta ve 24 saatte bir yeni sürüm kontrolü\n\
          balloons = {}\nupdate_check = {}\n",
         p.balloons, p.update_check

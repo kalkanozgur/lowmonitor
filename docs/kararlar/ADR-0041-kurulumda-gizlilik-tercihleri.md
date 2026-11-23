@@ -20,3 +20,6 @@ Arkadaşın PC'sine kurulum: telefon sunucusu (LAN), alarm balonları ve (yeni) 
 - (−) Menüdeki "Sessize al" işareti kalıcı `balloons = false`'u göstermez.
 - `shortcut:` temiz kurulum tespiti `{autopf}\LowMonitor\lowmon-tray.exe` varlığına bakar; başka klasöre taşınmış kurulum "temiz" sayılır.
 - Doğrulama: `prefs` ve `create_loopback` birim testleri; Inno betiği derlendi; sihirbaz akışı lokal kurulumla elle denenecek.
+
+## Ek (2026-11-24): çalışma anında anahtarlar
+Setup seçimleri artık tray menüsünden de değişir (sihirbaz gerekmez): "Bildirimler ▸ Alarm balonları" (`tray.toml` `balloons`), "Telefon ▸ Yerel ağda dinle" (`deck.toml` `bind` loopback ↔ LAN IP, dinleyici yeniden açılır; firewall kuralı ayrı, "Firewall kuralı ekle"), "Güncelleme ▸ Otomatik denetle" (ADR-0042). Menü gruplandı: Göstergeler ▸, Bildirimler ▸, Telefon ▸, AI ▸, Ses ▸, Windows ile başlat, Güncelleme ▸. Önceki "Menüdeki Sessize al işareti kalıcı balonu göstermez" sorunu kalktı (ayrı menü maddeleri).

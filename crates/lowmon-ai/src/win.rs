@@ -124,7 +124,7 @@ impl Http {
         Self(Handle(s))
     }
 
-    /// HTTPS isteği. `headers` CRLF ayrılmış; çağıran sırrı içeren başlığı sonra `wipe` eder.
+    /// HTTPS isteği (yanıt gövdesi ≤ 1 MiB). `headers` CRLF ayrılmış; çağıran sırrı içeren başlığı sonra `wipe` eder.
     pub fn request(
         &self,
         method: &str,
@@ -132,6 +132,19 @@ impl Http {
         path: &str,
         headers: &[u16],
         body: &[u8],
+    ) -> Result<Response, String> {
+        self.request_max(method, host, path, headers, body, MAX_BODY)
+    }
+
+    /// `request`; yanıt gövdesi sınırı `max` bayt (kurulum dosyası gibi büyük indirmeler için).
+    pub fn request_max(
+        &self,
+        method: &str,
+        host: &str,
+        path: &str,
+        headers: &[u16],
+        body: &[u8],
+        max: usize,
     ) -> Result<Response, String> {
         if self.0.0.is_null() {
             return Err(last_err("WinHttpOpen"));
@@ -197,7 +210,7 @@ impl Http {
                     break;
                 }
                 let old = out.len();
-                if old + avail as usize > MAX_BODY {
+                if old + avail as usize > max {
                     return Err("response too large".into());
                 }
                 out.resize(old + avail as usize, 0);
