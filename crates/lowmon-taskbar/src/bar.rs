@@ -1,6 +1,6 @@
 //! Win32 tarafı: taskbar bulma, alt pencere, olay kancası, GDI+ çizim.
 use crate::{
-    Config, EV_LEFT, EV_MOVED, EV_RIGHT, Grid, Line, Monitor, anchor, columns, pick, scale,
+    Config, EV_LEFT, EV_MOVED, EV_RIGHT, Grid, Line, Monitor, anchor, columns, pick, scale, widget,
 };
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
@@ -116,23 +116,39 @@ impl Drop for Pmv2 {
     }
 }
 
-/// Taskbar açık temada mı (`SystemUsesLightTheme`); okunamazsa koyu.
-pub fn light_theme() -> bool {
+/// `HKCU\<key>` altındaki DWORD değer; yoksa / okunamazsa `None`.
+fn reg_dword(key: &str, name: &str) -> Option<u32> {
     let mut v: u32 = 0;
     let mut n = size_of::<u32>() as u32;
     // SAFETY: v/n geçerli; dizgeler NUL sonlu.
     let r = unsafe {
         RegGetValueW(
             HKEY_CURRENT_USER,
-            wide(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize").as_ptr(),
-            wide("SystemUsesLightTheme").as_ptr(),
+            wide(key).as_ptr(),
+            wide(name).as_ptr(),
             RRF_RT_REG_DWORD,
             null_mut(),
             (&raw mut v).cast(),
             &mut n,
         )
     };
-    r == 0 && v != 0
+    (r == 0).then_some(v)
+}
+
+/// Taskbar açık temada mı (`SystemUsesLightTheme`); okunamazsa koyu.
+pub fn light_theme() -> bool {
+    reg_dword(
+        r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        "SystemUsesLightTheme",
+    )
+    .is_some_and(|v| v != 0)
+}
+
+/// Widget çakışması olabilir mi: Win11 taskbar sola hizalı (`TaskbarAl = 0`) ve widget kapalı
+/// değil (`TaskbarDa` yoksa varsayılan = açık). Hayırsa UI Automation hiç yüklenmez.
+fn widget_possible() -> bool {
+    let adv = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
+    reg_dword(adv, "TaskbarAl") == Some(0) && reg_dword(adv, "TaskbarDa") != Some(0)
 }
 
 fn class_is(hwnd: HWND, names: &[&str]) -> bool {
@@ -533,6 +549,11 @@ pub struct Bar {
     bubble_hwnd: HWND,
     bubble_anchor: (i32, i32),
     bubble_dirty: bool,
+    /// Widget düğmesi: UI Automation (ilk ihtiyaçta kurulur) ve taskbar başına son bulunan sol kenar
+    /// (istemci x'i). Yalnız tam yerleşimde (`place(None)`) yenilenir.
+    // shortcut: düğme genişliği olaysız değişirse (hava durumu metni) kenar sonraki EV_MOVED / tema / DPI'ya kadar eski kalır
+    uia: Option<widget::Uia>,
+    widgets: Vec<(HWND, Option<i32>)>,
 }
 
 /// Tam ekran uygulama / sunum var mı (balon oyunun, videonun üstüne çıkmasın).
@@ -582,6 +603,8 @@ impl Bar {
             bubble_hwnd: null_mut(),
             bubble_anchor: (0, 0),
             bubble_dirty: false,
+            uia: None,
+            widgets: Vec::new(),
             blocks: monitors
                 .iter()
                 .map(|&mon| Block {
@@ -751,13 +774,17 @@ impl Bar {
             }
             only = None; // yeni pencereler: hepsi çizilir
         }
+        if only.is_none() {
+            self.widgets.clear(); // tam yerleşim: widget konumları yeniden okunur
+        }
         let mut docks: Vec<Dock> = Vec::new();
         for i in 0..self.blocks.len() {
             let (tb, notify) = (self.blocks[i].taskbar, self.blocks[i].notify);
             let d = match docks.iter().position(|d| d.taskbar == tb) {
                 Some(d) => d,
                 None => {
-                    docks.push(self.dock(tb, notify));
+                    let widget = self.widget_left(tb);
+                    docks.push(self.dock(tb, notify, widget));
                     docks.len() - 1
                 }
             };
@@ -819,8 +846,32 @@ impl Bar {
         self.place_bubble(); // blok yer değiştirdiyse / gizlendiyse balon izler
     }
 
+    /// Taskbar'daki widget düğmesinin sol kenarı (istemci x'i; Pmv2 bağlamında çağrılır). Önbellekli.
+    fn widget_left(&mut self, taskbar: HWND) -> Option<i32> {
+        if let Some(&(_, w)) = self.widgets.iter().find(|(h, _)| *h == taskbar) {
+            return w;
+        }
+        let found = (|| {
+            if !widget_possible() {
+                return None;
+            }
+            if self.uia.is_none() {
+                self.uia = widget::Uia::new();
+            }
+            let mut p = POINT {
+                x: self.uia.as_ref()?.widget_left(taskbar)?,
+                y: 0,
+            };
+            // SAFETY: taskbar alive() ile doğrulandı; p yerel.
+            unsafe { ScreenToClient(taskbar, &mut p) };
+            Some(p.x)
+        })();
+        self.widgets.push((taskbar, found));
+        found
+    }
+
     /// Taskbar ölçüleri; `ch == 0` → dikey / geçersiz (bloklar gizlenir).
-    fn dock(&self, taskbar: HWND, notify: HWND) -> Dock {
+    fn dock(&self, taskbar: HWND, notify: HWND, widget: Option<i32>) -> Dock {
         // SAFETY: taskbar alive() ile doğrulandı; yapılar yerel.
         unsafe {
             let mut cr: RECT = std::mem::zeroed();
@@ -845,7 +896,13 @@ impl Bar {
                 ch: if ch > cw { 0 } else { ch },
                 dpi,
                 gap,
-                right: anchor(cw, notify_left, gap, scale(self.cfg.reserved_px, dpi)),
+                right: anchor(
+                    cw,
+                    notify_left,
+                    widget,
+                    gap,
+                    scale(self.cfg.reserved_px, dpi),
+                ),
             }
         }
     }
