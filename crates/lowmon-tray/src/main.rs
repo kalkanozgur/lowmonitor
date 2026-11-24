@@ -220,16 +220,22 @@ fn muted() -> bool {
     now < MUTE_UNTIL.load(Ordering::Relaxed)
 }
 
-/// 16×16 ARGB (üstten aşağı): solda CPU, sağda RAM çubuğu; bağlı değilse yalnızca gri iz.
-fn pixels(bars: Option<(f32, f32)>) -> [u32; N * N] {
-    const TRACK: u32 = 0x6080_8080;
+/// 16×16 ARGB (üstten aşağı): solda CPU, sağda RAM çubuğu; bağlı değilse yalnızca iz.
+/// Renkler uygulama paleti (`ai::color`): tema rengi, ≥%75 amber, ≥%90 kırmızı.
+fn pixels(bars: Option<(f32, f32)>, light: bool) -> [u32; N * N] {
+    use lowmon_ai::usage::Level;
+    let track = 0x6000_0000 | ai::color(Level::Dim, light);
     let mut px = [0u32; N * N];
-    let color = |v: f32, base: u32| if v >= 90.0 { 0xFFEF_4444 } else { base };
+    let level = |v: f32| match v {
+        v if v >= 90.0 => Level::Critical,
+        v if v >= 75.0 => Level::Warn,
+        _ => Level::Normal,
+    };
     for (x0, idx) in [(1usize, 0), (9, 1)] {
         let (v, c) = match bars {
             None => (0.0, 0),
-            Some((cpu, _)) if idx == 0 => (cpu, color(cpu, 0xFF22_C55E)),
-            Some((_, ram)) => (ram, color(ram, 0xFF3B_82F6)),
+            Some((cpu, _)) if idx == 0 => (cpu, 0xFF00_0000 | ai::color(level(cpu), light)),
+            Some((_, ram)) => (ram, 0xFF00_0000 | ai::color(level(ram), light)),
         };
         // En az 1 px: %0 bile "bağlı" olarak görünsün
         let h = if bars.is_some() {
@@ -239,7 +245,7 @@ fn pixels(bars: Option<(f32, f32)>) -> [u32; N * N] {
         };
         for y in 0..N {
             for x in x0..x0 + 6 {
-                px[y * N + x] = if y >= N - h { c } else { TRACK };
+                px[y * N + x] = if y >= N - h { c } else { track };
             }
         }
     }
@@ -247,7 +253,7 @@ fn pixels(bars: Option<(f32, f32)>) -> [u32; N * N] {
 }
 
 fn make_icon(bars: Option<(f32, f32)>) -> HICON {
-    let px = pixels(bars);
+    let px = pixels(bars, lowmon_taskbar::light_theme());
     // SAFETY: bits DIB'in N*N*4 B'lık tamponunu gösterir; GDI nesneleri ikon oluşunca silinir.
     unsafe {
         let mut bi: BITMAPINFO = std::mem::zeroed();
@@ -1324,12 +1330,16 @@ mod tests {
 
     #[test]
     fn bars() {
-        let p = pixels(Some((50.0, 95.0)));
+        let p = pixels(Some((50.0, 95.0)), false);
         let col = |x: usize| (0..N).filter(|y| p[y * N + x] >> 24 == 0xFF).count();
         assert_eq!((col(1), col(9), col(0)), (8, 15, 0));
-        assert_eq!(p[(N - 1) * N + 9], 0xFFEF_4444, "≥%90 kırmızı");
+        assert_eq!(p[(N - 1) * N + 9], 0xFFE5_484D, "≥%90 kırmızı");
+        assert_eq!(p[(N - 1) * N + 1], 0xFFFF_FFFF, "koyu temada beyaz");
+        let q = pixels(Some((80.0, 10.0)), true);
+        assert_eq!(q[(N - 1) * N + 1], 0xFFF0_A030, "≥%75 amber");
+        assert_eq!(q[(N - 1) * N + 9], 0xFF1A_1A1A, "açık temada koyu");
         assert!(
-            pixels(None).iter().all(|&c| c >> 24 != 0xFF),
+            pixels(None, false).iter().all(|&c| c >> 24 != 0xFF),
             "gri: dolu çubuk yok"
         );
         assert_eq!(col(16 - 1), 0);

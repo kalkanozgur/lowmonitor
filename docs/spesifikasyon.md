@@ -306,7 +306,7 @@ clear    = { below = 85.0, for_s = 30 }
 ## 8. lowmon-tray
 
 - `windows-sys` + gizli üst düzey pencere + `Shell_NotifyIconW` (ADR-0018).
-- 16×16 ikon: CPU/RAM çift çubuk, `CreateDIBSection` + `CreateIconIndirect`, 2 s'de bir güncelleme.
+- 16×16 ikon: CPU/RAM çift çubuk (uygulama paleti: tema rengi, ≥%75 amber, ≥%90 kırmızı), `CreateDIBSection` + `CreateIconIndirect`, 2 s'de bir güncelleme.
 - Tooltip: `CPU 12% · RAM 58% · ↓1.2 MB/s · 📱 telefon · ⚠ alarmlar · AI %33/%68` (telefon yalnız bağlıyken, AI yalnız veri varken).
 - "Arayüzü aç" → tray ile aynı klasördeki `lowmon-ui.exe` (ADR-0031; `UiExe` kaydı kullanılmaz). Exe yoksa pasif, etiket nedeni söyler.
 - Sağ tık menü: arayüzü aç, alarmları sessize al (1 saat), **Telefon ▸** (durum: `bind · port · token` + bağlı telefon ya da kapalı nedeni; ayar dosyasını aç, ayarı yeniden yükle, log'u aç, firewall kuralı ekle), **AI kullanımı ▸** (durum: kaynak + son sorgu / hata / Claude kapalı; şimdi yenile, `ai.toml`'u aç, ayarı yeniden yükle, sessionKey kaydet / sil, Claude Code hook'larını kur / kaldır), Windows ile başlat, çıkış.
