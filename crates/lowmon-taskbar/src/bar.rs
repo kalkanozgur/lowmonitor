@@ -553,6 +553,8 @@ pub struct Bar {
     blocks: Vec<Block>,
     /// Konuşma balonu: (blok, içerik), penceresi (ilk gösterimde kurulur), son çapa (bloğun sağ-üstü)
     bubble: Option<(usize, Line)>,
+    /// Balon opaklığı (solma); 0 = solmuş, yeni satır gelene kadar gizli
+    bubble_alpha: u8,
     bubble_hwnd: HWND,
     bubble_anchor: (i32, i32),
     bubble_dirty: bool,
@@ -605,6 +607,7 @@ impl Bar {
             gdip,
             hooks: Vec::new(),
             bubble: None,
+            bubble_alpha: 255,
             bubble_hwnd: null_mut(),
             bubble_anchor: (0, 0),
             bubble_dirty: false,
@@ -659,8 +662,20 @@ impl Bar {
             return;
         }
         self.bubble = new;
+        self.bubble_alpha = 255;
         self.bubble_dirty = true;
         self.place_bubble();
+    }
+
+    /// Balonu bir adım soldurur; hâlâ görünür bir balon varsa `true`.
+    pub fn fade_bubble(&mut self, step: u8) -> bool {
+        if self.bubble.is_none() || self.bubble_alpha == 0 {
+            return false;
+        }
+        self.bubble_alpha = self.bubble_alpha.saturating_sub(step);
+        self.bubble_dirty = true;
+        self.place_bubble();
+        self.bubble_alpha > 0
     }
 
     /// Balonu bloğun üstüne yerleştirir / gizler. İçerik ve konum değişmediyse iş yapmaz.
@@ -676,7 +691,8 @@ impl Bar {
             // SAFETY: IsWindowVisible geçersiz tutamaçta 0 döner.
             let shown =
                 b.grid.is_some() && !b.hwnd.is_null() && unsafe { IsWindowVisible(b.hwnd) } != 0;
-            (shown && !fullscreen()).then(|| (b.hwnd, b.dpi.max(96), line.clone()))
+            (shown && self.bubble_alpha > 0 && !fullscreen())
+                .then(|| (b.hwnd, b.dpi.max(96), line.clone()))
         });
         let Some((block, dpi, line)) = target else {
             hide(self.bubble_hwnd);
@@ -730,7 +746,7 @@ impl Bar {
             let blend = BLENDFUNCTION {
                 BlendOp: AC_SRC_OVER as u8,
                 BlendFlags: 0,
-                SourceConstantAlpha: 255,
+                SourceConstantAlpha: self.bubble_alpha,
                 AlphaFormat: AC_SRC_ALPHA as u8,
             };
             UpdateLayeredWindow(
