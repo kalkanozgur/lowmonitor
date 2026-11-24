@@ -42,7 +42,7 @@ v1.3.0 yayında (tag, GitHub Release; v1.2.2 yayından kaldırıldı, v1.2.3 hi�
 
 ## Doğrulama
 - `cargo fmt --check` · `cargo clippy --workspace -- -D warnings` · `cargo test --workspace`
-- Kurulum: `cargo build --release --workspace` + `cargo build --profile release-ui -p lowmon-ui` → yönetici pwsh `scripts\install.ps1 -Src target\release -UiSrc target\release-ui`
+- Kurulum: `cargo build --release --workspace` + `cargo build --profile release-ui -p lowmon-ui` → `& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DMyVersion=<sürüm> installer\lowmonitor.iss` → `target\setup\LowMonitor-Setup-<sürüm>.exe`'yi `explorer.exe` ile başlat (Claude araç sürecinden değil; UAC kullanıcıda)
 
 ## Kısıtlar / kararlar
 - Yasak: tokio/async runtime, PDH, WMI, .NET, WebView (spek §1; istisna ADR-0033 ACPI PDH)
