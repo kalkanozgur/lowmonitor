@@ -1020,6 +1020,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_TIMER if wp == ai::TIMER => ai::render(),
         WM_TIMER if wp == ai::TIMER_BUBBLE => ai::bubble_tick(hwnd),
+        WM_TIMER if wp == ai::TIMER_FADE => ai::fade_tick(hwnd),
         // Claude Code hook olayı (`lowmon-hook`, ADR-0034); 1 = işlendi
         windows_sys::Win32::UI::WindowsAndMessaging::WM_COPYDATA => {
             return ai::on_hook(lp) as LRESULT;

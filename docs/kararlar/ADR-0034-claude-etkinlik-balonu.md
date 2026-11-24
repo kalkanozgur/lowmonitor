@@ -104,3 +104,8 @@ Claude Code çalışırken ne yaptığı ("düşünüyor", "Bash çalışıyor",
 - **Balon** (kullanıcı düzeltmesi, 2026-11-20, v1.1.0 sonrası): 3 satır: proje adının ilk 2 kelimesi (`lowmonitor-event`, diğer oturum varsa ` · +N oturum`) / durum (Bash…, Düşünüyor…, Yanıt bekliyor) / kısa ayrıntı (≤ 32 karakter). Boş satır atlanır.
 - **Girdi alarmı:** herhangi bir oturum "bekliyor"a geçince tray deck'e `Claude.Input` alarm olayı (kalk / in) iter → telefon alarm bandı + perde, LM UI alarm bandı. Servis olay deposuna yazılmaz (`shortcut:`, sıcaklık alarmı gibi).
 - **Telefon listesi** (proje + ayrıntı LowDeck'te): ayrı oturum, LowDeck proto `TOPIC_ACTIVITY` (TODO).
+
+## Ek (2026-11-24): balon 10 s sonra solar
+- **İstek (kullanıcı):** balon sürekli durmasın, bir süre sonra solsun. **Karar:** "bekliyor" hariç (izin istemi / soru kaybolmasın), balon metni 10 s değişmezse ~240 ms'de (8 × 30 ms alfa adımı) solup gizlenir; yeni olay (metin değişimi) onu tam opak geri getirir.
+- **Uygulama:** tray `TIMER_FADE` (`show_activity` her çağrıda kurar / "bekliyor"da iptal eder; tetikleyince 30 ms adıma geçer), `Bar::fade_bubble` (`UpdateLayeredWindow` `SourceConstantAlpha`). Sürekli zamanlayıcı yok: solma bitince öldürülür.
+- (−) Tek araçta uzun süren iş (ör. 5 dk build) sırasında balon 10 s sonra kaybolur, sonraki araç olayına kadar görünmez. Tema değişimi balonu yeniden gösterir (10 s sonra yine solar).

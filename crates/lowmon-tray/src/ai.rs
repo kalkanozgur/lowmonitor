@@ -24,6 +24,10 @@ pub const WM_BAR: u32 = WM_APP + 4;
 pub const TIMER: usize = 0xA1;
 /// "Bitti" balonunu gizleyen tek seferlik zamanlayıcı
 pub const TIMER_BUBBLE: usize = 0xA3;
+/// Balonu `FADE_AFTER_MS` sonra soldurur ("bekliyor" hariç), sonra `FADE_STEP_MS` adımlarla
+pub const TIMER_FADE: usize = 0xA4;
+const FADE_AFTER_MS: u32 = 10_000;
+const FADE_STEP_MS: u32 = 30;
 pub const ID_NOW: usize = 20;
 pub const ID_CFG: usize = 21;
 pub const ID_RELOAD: usize = 22;
@@ -212,25 +216,48 @@ fn input_alarm(raise: bool) {
 /// Güncel etkinliği AI bloğunun üstündeki balona yazar (etkinlik yoksa / `[ai] bubble = false` → gizler).
 fn show_activity() {
     use lowmon_ai::activity::Kind;
-    let line = ACTIVITY
+    let shown = ACTIVITY
         .with_borrow(|a| a.lines(text::lang()))
-        .filter(|_| BUBBLE.get())
-        .map(|(kind, text)| Line {
-            text,
-            rgb: color(
-                match kind {
-                    Kind::Working => Level::Normal,
-                    Kind::Waiting => Level::Warn,
-                    Kind::Done => Level::Dim,
-                },
-                lowmon_taskbar::light_theme(),
-            ),
-        });
+        .filter(|_| BUBBLE.get());
+    let fade = matches!(shown, Some((k, _)) if k != Kind::Waiting);
+    let line = shown.map(|(kind, text)| Line {
+        text,
+        rgb: color(
+            match kind {
+                Kind::Working => Level::Normal,
+                Kind::Waiting => Level::Warn,
+                Kind::Done => Level::Dim,
+            },
+            lowmon_taskbar::light_theme(),
+        ),
+    });
     BAR.with_borrow_mut(|b| {
         if let Some(b) = b {
             b.bubble(BLOCK, line);
         }
     });
+    let owner = OWNER.get() as HWND;
+    // SAFETY: kendi penceremiz; aynı kimlikle yeniden kurmak süreyi baştan başlatır.
+    unsafe {
+        if fade {
+            SetTimer(owner, TIMER_FADE, FADE_AFTER_MS, None);
+        } else {
+            KillTimer(owner, TIMER_FADE);
+        }
+    }
+}
+
+/// `TIMER_FADE`: ilk tetiklemede adım aralığına geçer, her adımda balonu biraz daha soldurur.
+pub fn fade_tick(hwnd: HWND) {
+    let more = BAR.with_borrow_mut(|b| b.as_mut().is_some_and(|b| b.fade_bubble(32)));
+    // SAFETY: kendi zamanlayıcımız.
+    unsafe {
+        if more {
+            SetTimer(hwnd, TIMER_FADE, FADE_STEP_MS, None);
+        } else {
+            KillTimer(hwnd, TIMER_FADE);
+        }
+    }
 }
 
 /// Tema değişti: balon rengi / zemini yeniden çizilir.

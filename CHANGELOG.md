@@ -2,6 +2,8 @@
 Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
+### Değişti
+- Claude etkinlik balonu 10 sn değişmezse solup kaybolur; "Yanıt bekliyor" balonu solmaz, yeni olay balonu geri getirir (ADR-0034 eki)
 
 ## [1.3.0] - 2026-11-24
 Kurulumda gizlilik tercihleri, gruplu tray menüsü, GitHub'dan güncelleme, Tanılama ve v1.2.2'deki explorer kilitlenmesi düzeltmesi. **v1.2.2 yayından kaldırıldı, kurmayın; v1.2.3 hiç yayınlanmadı.**
