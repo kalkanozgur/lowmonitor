@@ -2,6 +2,9 @@
 Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
+
+## [1.4.0] - 2026-11-27
+Telefondan PC güç komutları (LowDeck), AI balonu solması, tray ikon paleti, servis bellek düzeltmesi.
 ### Eklendi
 - Telefon sunucusu: LowDeck'ten **uyku / kapat / yeniden başlat** (+ iptal). Kapat ve yeniden başlat 10 sn geri sayımla (Windows bildirimi) başlar, telefondan iptal edilebilir; UAC gerekmez. `deck.toml` `power = false` ile kapatılır (yoksa açık). Gerekli LowDeck sürümü: güç düğmeli APK (LowDeck ADR-0012) (ADR-0044)
 ### Değişti

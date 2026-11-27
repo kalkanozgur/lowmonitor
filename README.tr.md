@@ -18,7 +18,7 @@ English: [README.md](README.md)
 | `lowmon-tray` | Kullanıcı oturumu: tray ikonu, taskbar göstergeleri, Claude kullanımı, telefon sunucusu (`lowmon-deck`), sensör iş parçacığı |
 | `lowmon-ui` | Masaüstü arayüzü (Slint): Canlı, Olaylar, Geçmiş, Süreçler, AI, Ayarlar; veri tray'den loopback ile |
 | `lowmon-net` | İsteğe bağlı LAN HTTP / WebSocket API (`/v1/info`, canlı JSON), token ile |
-| `lowmon-deck` | Tray içindeki telefon / arayüz sunucusu: TCP 47810 + UDP 47811 keşif, ses / medya / kilit, süreçler, geçmiş, AI raporu |
+| `lowmon-deck` | Tray içindeki telefon / arayüz sunucusu: TCP 47810 + UDP 47811 keşif, ses / medya / kilit / güç (uyku, kapat, yeniden başlat), süreçler, geçmiş, AI raporu |
 | `lowmon-taskbar` | Taskbar'a gömülü iki bloklu gösterge (sistem ızgarası + AI), monitör başına |
 | `lowmon-ai` | Claude abonelik kullanımı (5 sa oturum + hafta), OAuth / sessionKey, CSV geçmişi, Claude Code etkinliği |
 | `lowmon-sensors` | GPU % / °C (D3DKMT), disk °C, CPU °C (ACPI termal bölge) |
@@ -33,7 +33,7 @@ English: [README.md](README.md)
 - Tray menüsünde gizlilik/ağ anahtarları (alarm balonları, yerel ağda telefon sunucusu, güncelleme denetimi); kurulum temiz kurulumda sorar, hepsi varsayılan kapalı
 - AI göstergesinin üstünde Claude Code etkinlik balonu (hook'lar tray menüsünden kurulur)
 - Claude Code etkinlik balonu: proje, güvenli özet (Bash açıklaması, dosya adı), Claude girdi bekleyince `Claude.Input` alarmı
-- Telefon (LowDeck): keşif, PC IP'si değişince otomatik yeniden bağlanma, alarmda açılan siyah perde
+- Telefon (LowDeck): keşif, PC IP'si değişince otomatik yeniden bağlanma, alarmda açılan siyah perde; PC'yi uyutma / kapatma / yeniden başlatma (10 sn iptal edilebilir geri sayım, UAC yok; `deck.toml` `power = false` kapatır)
 - Tray IP değişimini (DHCP) izler, telefon dinleyicisini kendiliğinden yeni IP'ye bağlar
 - İngilizce / Türkçe arayüz (`ai.toml` `language`)
 

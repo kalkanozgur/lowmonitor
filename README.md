@@ -18,7 +18,7 @@ Türkçe: [README.tr.md](README.tr.md)
 | `lowmon-tray` | User session: tray icon, taskbar meters, Claude usage, phone server (`lowmon-deck`), sensor thread |
 | `lowmon-ui` | Desktop UI (Slint): Live, Events, History, Processes, AI, Settings; data from the tray over loopback |
 | `lowmon-net` | Optional LAN HTTP / WebSocket API (`/v1/info`, live JSON), token auth |
-| `lowmon-deck` | Phone / UI server inside the tray: TCP 47810 + UDP 47811 discovery, audio / media / lock, processes, history, AI report |
+| `lowmon-deck` | Phone / UI server inside the tray: TCP 47810 + UDP 47811 discovery, audio / media / lock / power (sleep, shut down, restart), processes, history, AI report |
 | `lowmon-taskbar` | Two-block meter embedded in the taskbar (system grid + AI), per monitor |
 | `lowmon-ai` | Claude subscription usage (5 h session + week), OAuth / sessionKey, CSV history, Claude Code activity |
 | `lowmon-sensors` | GPU % / °C (D3DKMT), disk °C, CPU °C (ACPI thermal zone) |
@@ -35,7 +35,7 @@ Türkçe: [README.tr.md](README.tr.md)
 - Update from GitHub: the tray checks for new releases at startup and every 24 hours (can be turned off), Update > Update from GitHub downloads, verifies the SHA-256 and starts setup after you confirm
 - Privacy/network switches in the tray menu (alarm balloons, phone server on the local network, update check); the installer asks on a fresh install, all off by default
 - Claude Code activity bubble: project, safe summary (Bash description, file name), `Claude.Input` alarm when Claude waits for you
-- Phone (LowDeck): discovery, auto-reconnect when the PC IP changes, screen blackout that wakes on alarms
+- Phone (LowDeck): discovery, auto-reconnect when the PC IP changes, screen blackout that wakes on alarms; sleep / shut down / restart the PC (10 s cancellable countdown, no UAC; `deck.toml` `power = false` turns it off)
 - Tray follows IP changes (DHCP) and re-binds the phone listener automatically
 - English / Turkish UI (`ai.toml` `language`)
 

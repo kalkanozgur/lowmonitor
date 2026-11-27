@@ -20,8 +20,8 @@ lowmon-sensors = { path = "../lowmon-sensors" }
 toml_edit.workspace = true
 toml.workspace = true
 # Telefon protokolü + istemcisi LowDeck'te kalır (ADR-0031 §3); rev lowmon-deck ile aynı.
-lowdeck-proto = { git = "https://github.com/kalkanozgur/lowdeck", rev = "f06f43d" }
-lowdeck-client = { git = "https://github.com/kalkanozgur/lowdeck", rev = "f06f43d" }
+lowdeck-proto = { git = "https://github.com/kalkanozgur/lowdeck", rev = "38d7f3c" }
+lowdeck-client = { git = "https://github.com/kalkanozgur/lowdeck", rev = "38d7f3c" }
 # Yalnız software renderer + winit (LowDeck ölçümü: private ≈ 5 MiB). winit olayları: küçültmede metrik aboneliği düşer.
 # Lisans: Slint Royalty-free 2.0 (README atıf rozeti).
 slint = { workspace = true, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "software-renderer-path", "unstable-winit-030"] }
