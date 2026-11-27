@@ -18,7 +18,7 @@ toml.workspace = true
 # ai.toml yazımı (ADR-0010): yalnız değişen anahtar, yorumlar korunur (lowmon-ui ile ortak)
 toml_edit.workspace = true
 # Telefon protokolü LowDeck'te kalır (ADR-0031 §3); rev = LowDeck main (MIT OR Apache-2.0, LowDeck #27).
-lowdeck-proto = { git = "https://github.com/kalkanozgur/lowdeck", rev = "35cb581" }
+lowdeck-proto = { git = "https://github.com/kalkanozgur/lowdeck", rev = "f06f43d" }
 
 # Core Audio (COM) ve SMTC (WinRT) windows-sys'te yok.
 [target.'cfg(windows)'.dependencies]
@@ -39,6 +39,10 @@ windows = { workspace = true, features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging", # tray WM_RELOAD (ADR-0010)
     "Win32_UI_Shell_PropertiesSystem",
+    # Güç komutları (ADR-0044): SeShutdownPrivilege, InitiateShutdownW, SetSuspendState
+    "Win32_Security",
+    "Win32_System_Power",
+    "Win32_System_Shutdown",
 ] }
 # #[implement] makrosu bu crate'i doğrudan ister; windows zaten çekiyor.
 windows-core.workspace = true

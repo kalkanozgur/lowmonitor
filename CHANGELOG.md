@@ -2,6 +2,8 @@
 Format: Keep a Changelog. Sürümleme: SemVer (CLAUDE.md > Build / test / CI).
 
 ## [Unreleased]
+### Eklendi
+- Telefon sunucusu: LowDeck'ten **uyku / kapat / yeniden başlat** (+ iptal). Kapat ve yeniden başlat 10 sn geri sayımla (Windows bildirimi) başlar, telefondan iptal edilebilir; UAC gerekmez. `deck.toml` `power = false` ile kapatılır (yoksa açık). Gerekli LowDeck sürümü: güç düğmeli APK (LowDeck ADR-0012) (ADR-0044)
 ### Değişti
 - Claude etkinlik balonu 10 sn değişmezse solup kaybolur; "Yanıt bekliyor" balonu solmaz, yeni olay balonu geri getirir (ADR-0034 eki)
 - Tray ikonu uygulama paletine geçti: çubuklar tema renginde (koyu temada beyaz, açıkta koyu), ≥%75 amber, ≥%90 kırmızı; eski yeşil/mavi kaldırıldı

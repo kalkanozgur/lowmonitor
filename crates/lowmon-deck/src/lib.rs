@@ -30,6 +30,8 @@ pub mod tomlw;
 pub use lowdeck_proto::{AI_TEXT_MAX, AiUsage, AiWindow, EventItem, Sensors};
 mod lowmon;
 #[cfg(windows)]
+mod power;
+#[cfg(windows)]
 mod win;
 #[cfg(windows)]
 pub use win::utc_offset_s;
@@ -42,6 +44,8 @@ const HELLO_TIMEOUT: Duration = Duration::from_millis(300);
 const READ_TIMEOUT: Duration = Duration::from_secs(90);
 /// Yavaş/kaybolmuş istemci Hub kilidini bu süreden uzun tutamaz.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+/// Win32 `ERROR_NOT_SUPPORTED`: güç komutu bu arka uçta yok (Windows dışı, test).
+const ERROR_NOT_SUPPORTED: i32 = 50;
 
 // ---------------- Hub ----------------
 
@@ -54,6 +58,8 @@ pub struct Hub {
     pub want: Want,
     /// En az bir istemci `TOPIC_PROCS` abonesi mi (süreç tarama thread'i bunu bekler, ADR-0009).
     pub want_procs: Want,
+    /// `deck.toml` `power = false` (ADR-0044): güç komutları `POWER_DISABLED` ile reddedilir. `listen` ayarlar.
+    pub power_off: std::sync::atomic::AtomicBool,
 }
 
 /// Koşul değişkenli bayrak: lowmon thread abonelik yokken burada uyur (sıfır uyanma).
@@ -516,6 +522,10 @@ pub trait Backend: Send + Sync {
     fn set_ai_config(&self, _cfg: &AiConfig) -> (AiConfig, String) {
         (AiConfig::default(), "unsupported".into())
     }
+    /// PC güç komutu (ADR-0044, LowDeck ADR-0012): (sonuç kodu, geri sayım s). Varsayılan: desteklenmiyor.
+    fn power(&self, _cmd: PowerCmd) -> (i32, u16) {
+        (ERROR_NOT_SUPPORTED, 0)
+    }
 }
 
 // ---------------- Bağlantı ----------------
@@ -597,6 +607,15 @@ fn session(
             C2S::Audio(cmd) => backend.audio(cmd),
             C2S::Media(cmd) => backend.media(cmd),
             C2S::Lock => backend.lock(),
+            C2S::Power(cmd) => {
+                let (code, delay_s) = if hub.power_off.load(std::sync::atomic::Ordering::Relaxed) {
+                    (POWER_DISABLED, 0)
+                } else {
+                    backend.power(cmd)
+                };
+                log!("güç: {cmd:?} → {code}");
+                hub.reply(id, &S2C::PowerResult { cmd, code, delay_s });
+            }
             C2S::Subscribe(t) => hub.subscribe(id, t),
             // Bu istemcinin okuma thread'inde bloklu; diğer istemciler etkilenmez.
             C2S::QueryEvents { from_ms, to_ms } => {
@@ -696,10 +715,17 @@ pub struct Config {
     #[serde(default = "default_port")]
     pub port: u16,
     pub token: String,
+    /// Telefondan uyku/kapat/yeniden başlat (ADR-0044). Yoksa açık.
+    #[serde(default = "yes")]
+    pub power: bool,
 }
 
 fn default_port() -> u16 {
     DEFAULT_PORT
+}
+
+fn yes() -> bool {
+    true
 }
 
 fn appdata() -> PathBuf {
@@ -724,6 +750,7 @@ fn parse_legacy(text: &str) -> Option<Config> {
         bind: String::new(),
         port: DEFAULT_PORT,
         token: String::new(),
+        power: true,
     };
     for (k, v) in text.lines().filter_map(|l| l.split_once('=')) {
         let v = v.trim().to_string();
@@ -762,6 +789,7 @@ pub fn load_or_create(path: &std::path::Path, legacy: &std::path::Path) -> std::
         bind: lan_ip(),
         port: DEFAULT_PORT,
         token: random_token(),
+        power: true,
     });
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d)?;
@@ -772,8 +800,9 @@ pub fn load_or_create(path: &std::path::Path, legacy: &std::path::Path) -> std::
         format!(
             "# bind: BU PC'nin LAN IP'si (telefonunki değil). Telefon ⚙ bu adres + port + token.\n\
              # Değişiklikten sonra tray → Telefon → Ayarı yeniden yükle.\n\
-             bind = {:?}\nport = {}\ntoken = {:?}\n",
-            c.bind, c.port, c.token
+             # power: telefondan uyku / kapat / yeniden başlat (false = kapalı).\n\
+             bind = {:?}\nport = {}\ntoken = {:?}\npower = {}\n",
+            c.bind, c.port, c.token, c.power
         ),
     )?;
     if migrated {
@@ -1011,6 +1040,8 @@ fn listen(
     }
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let token = Arc::<str>::from(cfg.token.as_str());
+    hub.power_off
+        .store(!cfg.power, std::sync::atomic::Ordering::Relaxed);
     let (mut addrs, mut threads) = (Vec::new(), Vec::new());
     for listener in listeners {
         addrs.push(listener.local_addr()?);
@@ -1702,6 +1733,61 @@ mod tests {
         assert_eq!(b.0.load(std::sync::atomic::Ordering::Relaxed), 1);
     }
 
+    struct Power;
+    impl Backend for Power {
+        fn audio(&self, _: AudioCmd) {}
+        fn media(&self, _: MediaCmd) {}
+        fn power(&self, cmd: PowerCmd) -> (i32, u16) {
+            (POWER_OK, if cmd == PowerCmd::Shutdown { 10 } else { 0 })
+        }
+    }
+
+    /// C2S::Power (ADR-0044): backend sonucu `PowerResult` ile döner; `power = false` → `POWER_DISABLED`.
+    #[test]
+    fn power_result_and_disabled() {
+        let hub = Arc::new(Hub::default());
+        let (mut w, mut rd) = client(serve(&hub, SLOT_LOCAL, Arc::new(Power)));
+        let mut buf = [0u8; MAX_FRAME];
+        let mut next = |w: &mut _, cmd| {
+            write_frame(w, &C2S::Power(cmd)).unwrap();
+            loop {
+                if let r @ S2C::PowerResult { .. } =
+                    read_frame::<_, S2C>(&mut rd, &mut buf).unwrap()
+                {
+                    return r;
+                }
+            }
+        };
+        assert_eq!(
+            next(&mut w, PowerCmd::Shutdown),
+            S2C::PowerResult {
+                cmd: PowerCmd::Shutdown,
+                code: POWER_OK,
+                delay_s: 10
+            }
+        );
+        hub.power_off
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            next(&mut w, PowerCmd::Sleep),
+            S2C::PowerResult {
+                cmd: PowerCmd::Sleep,
+                code: POWER_DISABLED,
+                delay_s: 0
+            }
+        );
+    }
+
+    /// `deck.toml`'da `power` yoksa açık (eski dosyalar).
+    #[test]
+    fn power_defaults_on() {
+        let c: Config = toml::from_str("bind = \"1.2.3.4\"\ntoken = \"t\"\n").unwrap();
+        assert!(c.power);
+        let c: Config =
+            toml::from_str("bind = \"1.2.3.4\"\ntoken = \"t\"\npower = false\n").unwrap();
+        assert!(!c.power);
+    }
+
     /// QueryEvents: EVENTS_PER_FRAME'lik parçalar + boş bitiş çerçevesi.
     #[test]
     fn query_events_chunks_and_terminates() {
@@ -1773,6 +1859,7 @@ mod tests {
             bind: "127.0.0.1".into(),
             port: 0,
             token: "t".into(),
+            power: true,
         };
         let r = listen(cfg, &hub, &backend).unwrap();
         let port = r.addrs[0].port();
@@ -1781,6 +1868,7 @@ mod tests {
             bind: "127.0.0.1".into(),
             port,
             token: "t".into(),
+            power: true,
         };
         listen(again, &hub, &backend)
             .expect("aynı port yeniden açılmalı")
@@ -1795,6 +1883,7 @@ mod tests {
             bind: "127.0.0.1".into(),
             port: 0,
             token: "t".into(),
+            power: true,
         };
         let mut r = Running {
             hub: Arc::new(Hub::default()),
@@ -1835,6 +1924,7 @@ token=abc
             bind: "192.168.1.20".into(),
             port: 47812,
             token: "abc".into(),
+            power: true,
         };
         assert_eq!(load_or_create(&deck, &legacy).unwrap(), want);
         assert!(legacy.exists(), "eski dosya silinmez");
@@ -1876,6 +1966,7 @@ token = \"t\"
             bind: "192.0.2.1".into(),
             port: 47810,
             token: "t".into(),
+            power: true,
         };
         let e = std::io::Error::from_raw_os_error(10049); // WSAEADDRNOTAVAIL
         assert!(
@@ -1894,6 +1985,7 @@ token = \"t\"
             bind: "192.0.2.1".into(),
             port: 0,
             token: "t".into(),
+            power: true,
         };
         let r = listen(cfg, &hub, &backend).expect("lan_ip'ye düşmeli");
         assert_eq!(r.cfg.bind, lan_ip());
