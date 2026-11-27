@@ -64,6 +64,9 @@ impl Backend for WinBackend {
         media_key(VK_PAUSE);
         log!("kilit: Pause gönderildi");
     }
+    fn power(&self, cmd: lowdeck_proto::PowerCmd) -> (i32, u16) {
+        crate::power::run(cmd)
+    }
     fn events(&self, from_ms: u64, to_ms: u64) -> Vec<lowdeck_proto::EventItem> {
         crate::lowmon::query_events(from_ms, to_ms).unwrap_or_else(|e| {
             log!("lowmon olay sorgusu: {e}");

@@ -2493,16 +2493,16 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "lowdeck-client"
-version = "0.1.0"
-source = "git+https://github.com/kalkanozgur/lowdeck?rev=35cb581#35cb58129e0286d62f497788bb2ce387952793df"
+version = "1.1.0"
+source = "git+https://github.com/kalkanozgur/lowdeck?rev=50ded00#50ded0092006f9b6a84324890f35d5b4c59d3503"
 dependencies = [
  "lowdeck-proto",
 ]
 
 [[package]]
 name = "lowdeck-proto"
-version = "0.1.0"
-source = "git+https://github.com/kalkanozgur/lowdeck?rev=35cb581#35cb58129e0286d62f497788bb2ce387952793df"
+version = "1.1.0"
+source = "git+https://github.com/kalkanozgur/lowdeck?rev=50ded00#50ded0092006f9b6a84324890f35d5b4c59d3503"
 dependencies = [
  "postcard",
  "serde",
