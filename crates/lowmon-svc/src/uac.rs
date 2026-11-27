@@ -54,6 +54,11 @@ fn props() -> Vec<u64> {
         (*p).Wnode.ClientContext = 1; // QPC
         (*p).LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
         (*p).FlushTimer = 1; // s: gecikme ≤ ~1 s
+        // Olay seyrek (yalnız consent/PickerHost başla-bitir): varsayılan çekirdek başına tampon
+        // Private Bytes'ı ~2 MB şişiriyordu (soak 2026-11-25); 4 KB × 2–4 tampon yeter.
+        (*p).BufferSize = 4; // KB
+        (*p).MinimumBuffers = 2;
+        (*p).MaximumBuffers = 4;
         (*p).LoggerNameOffset = size_of::<EVENT_TRACE_PROPERTIES>() as u32;
     }
     buf
